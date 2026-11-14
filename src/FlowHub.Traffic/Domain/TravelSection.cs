@@ -69,10 +69,11 @@ internal static class TravelSectionBuilder
 
         public void AddMove(MoveStep move)
         {
+            var to = new PanelId(move.To);
             _commands.Add(move.Direction == MoveDirection.Forward
-                ? new ForwardCommand(move.DistanceMm)
-                : new BackwardCommand(move.DistanceMm));
-            _panels.Add(new PanelId(move.To));
+                ? new ForwardCommand(move.DistanceMm, to)
+                : new BackwardCommand(move.DistanceMm, to));
+            _panels.Add(to);
             _current = move.After;
             LastDirection = move.Direction;
         }

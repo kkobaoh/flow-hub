@@ -12,7 +12,8 @@
 | ファイル | 内容 |
 |---|---|
 | [docs/domain.md](docs/domain.md) | ドメイン仕様（消耗品、搬送方式、ステーション、配車、充電、段取り替えなど） |
-| [docs/open-issues.md](docs/open-issues.md) | 未決事項 |
+| [docs/open-issues.md](docs/open-issues.md) | 未決事項（仕様が決まっていないもの） |
+| [docs/backlog.md](docs/backlog.md) | やることリスト（仕様は決まっているが、まだ実装していないもの） |
 
 - 設計の検討や仕様に関わる作業の前に、**docs/domain.md と docs/open-issues.md を読みます**。
 - 仕様が決まったら、docs/domain.md に反映し、docs/open-issues.md から該当する項目を削除します。
