@@ -7,7 +7,8 @@ internal static class MapValidator
 {
     public static IReadOnlyList<MapValidationError> Validate(
         IReadOnlyList<Panel> panels,
-        IReadOnlyList<Connection> connections)
+        IReadOnlyList<Connection> connections,
+        MapValidationOptions options)
     {
         var errors = new List<MapValidationError>();
 
@@ -15,7 +16,68 @@ internal static class MapValidator
         var validConnections = ValidateConnections(connections, panelsById, errors);
         ValidateDeadEnds(panelsById, validConnections, errors);
 
+        if (options.RequireConnected)
+        {
+            ValidateConnected(panelsById, validConnections, errors);
+        }
+
         return errors;
+    }
+
+    /// <summary>
+    /// すべてのパネルが1つにつながっているかを検証する。つながりの向き（一方通行）は問わない。
+    /// </summary>
+    private static void ValidateConnected(
+        Dictionary<PanelId, Panel> panelsById,
+        List<Connection> connections,
+        List<MapValidationError> errors)
+    {
+        var islands = FindIslands(panelsById.Keys, connections);
+        if (islands.Count <= 1)
+        {
+            return;
+        }
+
+        var description = string.Join(" / ", islands.Select(island => $"{{{string.Join("、", island)}}}"));
+        errors.Add(new(
+            MapValidationErrorCode.NotConnected,
+            $"マップが {islands.Count} つの離れ島に分かれています：{description}"));
+    }
+
+    private static List<List<PanelId>> FindIslands(IEnumerable<PanelId> panelIds, List<Connection> connections)
+    {
+        var neighbors = panelIds.ToDictionary(id => id, _ => new List<PanelId>());
+        foreach (var connection in connections)
+        {
+            neighbors[connection.From].Add(connection.To);
+            neighbors[connection.To].Add(connection.From);
+        }
+
+        var islands = new List<List<PanelId>>();
+        var visited = new HashSet<PanelId>();
+
+        foreach (var start in neighbors.Keys)
+        {
+            if (!visited.Add(start))
+            {
+                continue;
+            }
+
+            var island = new List<PanelId>();
+            var pending = new Queue<PanelId>([start]);
+            while (pending.TryDequeue(out var current))
+            {
+                island.Add(current);
+                foreach (var next in neighbors[current].Where(visited.Add))
+                {
+                    pending.Enqueue(next);
+                }
+            }
+
+            islands.Add(island);
+        }
+
+        return islands;
     }
 
     private static Dictionary<PanelId, Panel> ValidatePanels(IReadOnlyList<Panel> panels, List<MapValidationError> errors)

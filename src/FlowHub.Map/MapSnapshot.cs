@@ -21,7 +21,10 @@ public sealed class MapSnapshot
     /// <summary>
     /// パネルとつながりを検証し、違反がなければスナップショットを作る。違反はすべてまとめて返す。
     /// </summary>
-    public static MapSnapshotResult Create(IEnumerable<Panel> panels, IEnumerable<Connection> connections)
+    public static MapSnapshotResult Create(
+        IEnumerable<Panel> panels,
+        IEnumerable<Connection> connections,
+        MapValidationOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(panels);
         ArgumentNullException.ThrowIfNull(connections);
@@ -29,7 +32,7 @@ public sealed class MapSnapshot
         var panelArray = panels.ToImmutableArray();
         var connectionArray = connections.ToImmutableArray();
 
-        var errors = MapValidator.Validate(panelArray, connectionArray);
+        var errors = MapValidator.Validate(panelArray, connectionArray, options ?? MapValidationOptions.Default);
         return errors.Count == 0
             ? new MapSnapshotResult(new MapSnapshot(panelArray, connectionArray), errors)
             : new MapSnapshotResult(null, errors);

@@ -31,6 +31,9 @@ public enum MapValidationErrorCode
 
     /// <summary>受け渡しパネルか待機パネルの隣が通常パネルでない。</summary>
     DeadEndMustConnectToNormalPanel,
+
+    /// <summary>マップが離れ島に分かれている（<see cref="MapValidationOptions.RequireConnected"/> を指定したときだけ）。</summary>
+    NotConnected,
 }
 
 /// <summary>
