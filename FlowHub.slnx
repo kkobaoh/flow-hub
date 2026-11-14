@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FlowHub.Api/FlowHub.Api.csproj" />
+    <Project Path="src/FlowHub.BuildingBlocks/FlowHub.BuildingBlocks.csproj" />
+    <Project Path="src/FlowHub.Consumables/FlowHub.Consumables.csproj" />
+    <Project Path="src/FlowHub.Dispatching/FlowHub.Dispatching.csproj" />
+    <Project Path="src/FlowHub.Map/FlowHub.Map.csproj" />
+    <Project Path="src/FlowHub.Routing/FlowHub.Routing.csproj" />
+    <Project Path="src/FlowHub.ToolPlanning/FlowHub.ToolPlanning.csproj" />
+    <Project Path="src/FlowHub.Traffic/FlowHub.Traffic.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FlowHub.ArchitectureTests/FlowHub.ArchitectureTests.csproj" />
+    <Project Path="tests/FlowHub.Consumables.Tests/FlowHub.Consumables.Tests.csproj" />
+    <Project Path="tests/FlowHub.Dispatching.Tests/FlowHub.Dispatching.Tests.csproj" />
+    <Project Path="tests/FlowHub.Map.Tests/FlowHub.Map.Tests.csproj" />
+    <Project Path="tests/FlowHub.Routing.Tests/FlowHub.Routing.Tests.csproj" />
+    <Project Path="tests/FlowHub.ToolPlanning.Tests/FlowHub.ToolPlanning.Tests.csproj" />
+    <Project Path="tests/FlowHub.Traffic.Tests/FlowHub.Traffic.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- テストを書いたら外す（tests/Directory.Build.targets を参照） -->
+    <AllowNoTests>true</AllowNoTests>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FlowHub.Consumables\FlowHub.Consumables.csproj" />
+  </ItemGroup>
+
+</Project>

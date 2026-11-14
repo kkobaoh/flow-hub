@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlowHub.BuildingBlocks\FlowHub.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\FlowHub.Map\FlowHub.Map.csproj" />
+    <ProjectReference Include="..\FlowHub.Routing\FlowHub.Routing.csproj" />
+    <ProjectReference Include="..\FlowHub.Traffic\FlowHub.Traffic.csproj" />
+    <ProjectReference Include="..\FlowHub.Dispatching\FlowHub.Dispatching.csproj" />
+    <ProjectReference Include="..\FlowHub.ToolPlanning\FlowHub.ToolPlanning.csproj" />
+    <ProjectReference Include="..\FlowHub.Consumables\FlowHub.Consumables.csproj" />
+  </ItemGroup>
+
+</Project>

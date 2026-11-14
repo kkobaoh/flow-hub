@@ -1,0 +1,12 @@
+<Project>
+
+  <!--
+    テストがまだない（0件の）テストプロジェクトを、失敗扱いにしないための設定。
+    csproj で AllowNoTests を true にしたプロジェクトだけに効く。
+    テストを書いたら、そのプロジェクトの AllowNoTests を外す。
+  -->
+  <PropertyGroup Condition="'$(AllowNoTests)' == 'true'">
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --ignore-exit-code 8</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+</Project>
