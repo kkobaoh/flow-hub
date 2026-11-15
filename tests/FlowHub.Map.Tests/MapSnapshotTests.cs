@@ -146,7 +146,8 @@ public class MapSnapshotTests
         // 前進で入り、後退で出るため、両方向に通れる必要がある
         var result = MapSnapshot.Create([Normal("A"), Transfer("T")], [Connect("A", "T", oneWay: true)]);
 
-        Assert.Equal([MapValidationErrorCode.OneWayToDeadEnd], ErrorCodes(result));
+        // T から出られないので「行き来できない」の違反も出る
+        Assert.Contains(MapValidationErrorCode.OneWayToDeadEnd, ErrorCodes(result));
     }
 
     [Fact]

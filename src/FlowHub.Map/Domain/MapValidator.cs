@@ -15,6 +15,7 @@ internal static class MapValidator
         var panelsById = ValidatePanels(panels, errors);
         var validConnections = ValidateConnections(connections, panelsById, errors);
         ValidateDeadEnds(panelsById, validConnections, errors);
+        ValidateReachableWithinIslands(panelsById, validConnections, errors);
 
         if (options.RequireConnected)
         {
@@ -42,6 +43,87 @@ internal static class MapValidator
         errors.Add(new(
             MapValidationErrorCode.NotConnected,
             $"マップが {islands.Count} つの離れ島に分かれています：{description}"));
+    }
+
+    /// <summary>
+    /// それぞれの島の中で、一方通行の向きも守ったうえで、どのパネルからどのパネルへも行けるかを検証する。
+    /// 行けない島があれば、互いに行き来できるパネルのまとまりを示す。
+    /// </summary>
+    private static void ValidateReachableWithinIslands(
+        Dictionary<PanelId, Panel> panelsById,
+        List<Connection> connections,
+        List<MapValidationError> errors)
+    {
+        var forward = panelsById.Keys.ToDictionary(id => id, _ => new List<PanelId>());
+        var backward = panelsById.Keys.ToDictionary(id => id, _ => new List<PanelId>());
+        foreach (var connection in connections)
+        {
+            forward[connection.From].Add(connection.To);
+            backward[connection.To].Add(connection.From);
+            if (!connection.OneWay)
+            {
+                forward[connection.To].Add(connection.From);
+                backward[connection.From].Add(connection.To);
+            }
+        }
+
+        foreach (var island in FindIslands(panelsById.Keys, connections))
+        {
+            var members = island.ToHashSet();
+            var start = island[0];
+            if (Reach(start, forward, members).Count == members.Count && Reach(start, backward, members).Count == members.Count)
+            {
+                continue;
+            }
+
+            var groups = MutuallyReachableGroups(island, forward, backward);
+            var description = string.Join(" / ", groups.Select(group => $"{{{string.Join("、", group)}}}"));
+            errors.Add(new(
+                MapValidationErrorCode.NotStronglyConnected,
+                $"一方通行のせいで、行き来できないパネルがあります。互いに行き来できるまとまり：{description}"));
+        }
+    }
+
+    /// <summary>
+    /// 島を、互いに行き来できるパネルのまとまりに分ける。まとまりの中のパネルは、島の中の順に並べる。
+    /// </summary>
+    private static List<List<PanelId>> MutuallyReachableGroups(
+        List<PanelId> island,
+        Dictionary<PanelId, List<PanelId>> forward,
+        Dictionary<PanelId, List<PanelId>> backward)
+    {
+        var unassigned = island.ToHashSet();
+        var groups = new List<List<PanelId>>();
+
+        foreach (var panel in island.Where(unassigned.Contains))
+        {
+            var reachable = Reach(panel, forward, unassigned);
+            var reaching = Reach(panel, backward, unassigned);
+            var group = island.Where(p => reachable.Contains(p) && reaching.Contains(p)).ToList();
+
+            groups.Add(group);
+            unassigned.ExceptWith(group);
+        }
+
+        return groups;
+    }
+
+    /// <summary>
+    /// start から、範囲の中のパネルだけを通ってたどり着けるパネル（start を含む）。
+    /// </summary>
+    private static HashSet<PanelId> Reach(PanelId start, Dictionary<PanelId, List<PanelId>> edges, HashSet<PanelId> scope)
+    {
+        var visited = new HashSet<PanelId> { start };
+        var pending = new Stack<PanelId>([start]);
+        while (pending.TryPop(out var current))
+        {
+            foreach (var next in edges[current].Where(n => scope.Contains(n) && visited.Add(n)))
+            {
+                pending.Push(next);
+            }
+        }
+
+        return visited;
     }
 
     private static List<List<PanelId>> FindIslands(IEnumerable<PanelId> panelIds, List<Connection> connections)

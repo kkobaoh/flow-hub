@@ -34,6 +34,9 @@ public enum MapValidationErrorCode
 
     /// <summary>マップが離れ島に分かれている（<see cref="MapValidationOptions.RequireConnected"/> を指定したときだけ）。</summary>
     NotConnected,
+
+    /// <summary>島の中に、一方通行のせいで入れるのに出られない区画がある（常に検証する）。</summary>
+    NotStronglyConnected,
 }
 
 /// <summary>
