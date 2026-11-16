@@ -4,4 +4,10 @@
     <InternalsVisibleTo Include="FlowHub.Dispatching.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\FlowHub.Map\FlowHub.Map.csproj" />
+    <ProjectReference Include="..\FlowHub.Routing\FlowHub.Routing.csproj" />
+    <ProjectReference Include="..\FlowHub.Traffic\FlowHub.Traffic.csproj" />
+  </ItemGroup>
+
 </Project>
