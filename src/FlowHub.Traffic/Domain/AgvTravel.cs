@@ -11,59 +11,81 @@ internal enum AgvTravelStatus
     /// <summary>位置がわからない（まだ位置リセットしていない）。</summary>
     Unregistered,
 
-    /// <summary>待機中。走行の指示を持っていない。</summary>
+    /// <summary>位置リセットの完了の通知を待っている。</summary>
+    ResettingPosition,
+
+    /// <summary>待機中。走る経路を持っていない。</summary>
     Idle,
 
     /// <summary>走行中。</summary>
     Moving,
 
-    /// <summary>緊急停止中。アラームクリアで残りの指示の続きを走る。</summary>
+    /// <summary>緊急停止中（緊急停止、または位置はずれていない種類のエラー）。アラームクリアで続きを走れる。</summary>
     EmergencyStopped,
 
-    /// <summary>完了の通知が指示と合わなかった。位置リセットが必要。</summary>
+    /// <summary>異常（通知の食い違い、位置がずれた可能性のあるエラー、AGV の再起動）。位置リセットが必要。予約は保つ。</summary>
     Error,
 }
 
 /// <summary>位置リセットの結果。</summary>
-internal sealed record PositionResetResult(ReservationResult Reservation, AgvInstruction? Instruction)
+internal sealed record PositionResetResult(ReservationResult Reservation)
 {
     public bool Succeeded => Reservation.Succeeded;
 }
 
 /// <summary>出発の結果。</summary>
-internal sealed record StartRouteResult(ReservationResult Reservation, AgvInstruction? Instruction)
+internal sealed record StartRouteResult(ReservationResult Reservation)
 {
     public bool Succeeded => Reservation.Succeeded;
 }
 
-/// <summary>完了の通知を受けた結果。</summary>
-/// <param name="Accepted">通知が指示どおりだったか。false のときは異常として止めた。</param>
-/// <param name="Instruction">続けて AGV へ送るもの（次の区間など）。なければ null。</param>
-internal sealed record NotificationResult(bool Accepted, AgvInstruction? Instruction);
-
 /// <summary>
-/// 1台の AGV の走行。位置の追跡、パネルの予約と解放、区間の指示の送り出しを受け持つ。
+/// 1台の AGV の走行。コマンドの番号付けと受け渡し、位置の追跡、パネルの予約と解放、通知の照合を受け持つ。
 /// </summary>
+/// <remarks>
+/// コマンドは、AGV が GET で取りに来たときに <see cref="OnCommandRequest"/> で渡す。
+/// GET に載っている「前回受信したコマンドの番号」で、AGV がどこまで受け取ったかを判断する。
+/// </remarks>
 internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
 {
-    private readonly Queue<TravelSection> _remainingSections = new();
-    private readonly Queue<TravelCommand> _pendingCommands = new();
+    private const long NoneReceived = -1;
 
-    /// <summary>緊急停止中に区間を終えたため、アラームクリアのときに次の区間を送る必要がある。</summary>
-    private bool _nextSectionDeferred;
+    private readonly List<Outgoing> _outbox = [];
+    private readonly List<TravelSection> _remainingSections = [];
+    private readonly HashSet<long> _motionNumbers = [];
+
+    private long _nextNumber = 1;
+    private ActiveMotion? _active;
+    private long? _awaitingAlarmClear;
+    private long? _awaitingPositionReset;
+
+    /// <summary>これより小さい番号の動作コマンドは、位置リセットで捨てたもの。</summary>
+    private long _staleBelow;
+
+    /// <summary>直前に受け付けた完了の通知（重複の見分けに使う）。</summary>
+    private StepCompletion? _lastAccepted;
+
+    private bool _error;
+    private bool _stopped;
 
     public AgvId Id { get; } = id;
-
-    public AgvTravelStatus Status { get; private set; } = AgvTravelStatus.Unregistered;
 
     /// <summary>今の姿勢（最後に完了した動作のあとのパネルと向き）。位置がわからなければ null。</summary>
     public Pose? Position { get; private set; }
 
-    /// <summary>送ったが、まだ完了の通知を受けていない指示。</summary>
-    public IReadOnlyCollection<TravelCommand> PendingCommands => _pendingCommands;
+    public AgvTravelStatus Status =>
+        Position is null ? AgvTravelStatus.Unregistered
+        : _error ? AgvTravelStatus.Error
+        : _stopped ? AgvTravelStatus.EmergencyStopped
+        : _awaitingPositionReset is not null ? AgvTravelStatus.ResettingPosition
+        : _active is not null || _remainingSections.Count > 0 ? AgvTravelStatus.Moving
+        : AgvTravelStatus.Idle;
+
+    // ---- システムからの操作 ----
 
     /// <summary>
-    /// 位置を上書きする（最初の登録も同じ）。指定のパネルを予約し、ほかの予約と残りの指示を捨てる。
+    /// 位置を上書きする（最初の登録も同じ）。指定のパネルを予約し、ほかの予約と残りの経路を捨て、
+    /// まだ渡していない動作コマンドを取り下げる。完了の通知を受けるまで、出発できない。
     /// 指定のパネルをほかの AGV が予約していたら、何も変えない。
     /// </summary>
     public PositionResetResult ResetPosition(Pose position)
@@ -74,19 +96,28 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
         var reservation = reservations.TryReserve(Id, [panel]);
         if (!reservation.Succeeded)
         {
-            return new PositionResetResult(reservation, null);
+            return new PositionResetResult(reservation);
         }
 
         ReleaseAllExcept(panel);
-        ClearRoute();
+        WithdrawMotions(returnSections: false);
+        _remainingSections.Clear();
+        _active = null;
+        _awaitingAlarmClear = null;
+        _lastAccepted = null;
+        _error = false;
+        _stopped = false;
         Position = position;
-        Status = AgvTravelStatus.Idle;
 
-        return new PositionResetResult(reservation, new SendPositionReset(position));
+        var command = Enqueue(number => new PositionResetCommand(number, position));
+        _awaitingPositionReset = command.Number;
+        _staleBelow = command.Number; // これより前の動作コマンドは、AGV が破棄する
+
+        return new PositionResetResult(reservation);
     }
 
     /// <summary>
-    /// 経路を走り始める。経路全体のパネルをまとめて予約できたときだけ、最初の区間を送る。
+    /// 経路を走り始める。経路全体のパネルをまとめて予約できたときだけ、最初の区間の動作コマンドを用意する。
     /// </summary>
     public StartRouteResult StartRoute(IReadOnlyList<TravelSection> sections)
     {
@@ -104,168 +135,375 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
         var reservation = reservations.TryReserve(Id, sections.SelectMany(s => s.Panels));
         if (!reservation.Succeeded)
         {
-            return new StartRouteResult(reservation, null);
+            return new StartRouteResult(reservation);
         }
 
-        foreach (var section in sections)
-        {
-            _remainingSections.Enqueue(section);
-        }
-
-        Status = AgvTravelStatus.Moving;
-        return new StartRouteResult(reservation, DispatchNextSection());
+        _remainingSections.AddRange(sections);
+        DispatchNextSection();
+        return new StartRouteResult(reservation);
     }
 
     /// <summary>
-    /// 前進・後退の完了（十字の検出、または行き止まりのパネルへの到着）の通知。
+    /// 緊急停止する。予約は保ち、まだ渡していない動作コマンドを取り下げる（アラームクリアのあとに渡し直す）。
     /// </summary>
-    public NotificationResult OnMoveCompleted(PanelId arrived)
-    {
-        if (!IsAwaitingCompletion() || DestinationOf(_pendingCommands.Peek()) is not { } expected || arrived != expected)
-        {
-            return Fail();
-        }
-
-        _pendingCommands.Dequeue();
-        var left = new PanelId(Position!.NodeId);
-        Position = new Pose(arrived.Value, Position.Heading);
-
-        if (left != arrived && !RemainingPanels().Contains(left))
-        {
-            reservations.Release(Id, left);
-        }
-
-        return new NotificationResult(true, AdvanceIfSectionDone());
-    }
-
-    /// <summary>
-    /// 回転の完了の通知。回転後の絶対角度を受け取る。
-    /// </summary>
-    public NotificationResult OnRotationCompleted(int heading)
-    {
-        if (!IsAwaitingCompletion() || _pendingCommands.Peek() is not RotateCommand rotate || rotate.Heading != heading)
-        {
-            return Fail();
-        }
-
-        _pendingCommands.Dequeue();
-        Position = new Pose(Position!.NodeId, heading);
-
-        return new NotificationResult(true, AdvanceIfSectionDone());
-    }
-
-    /// <summary>
-    /// 緊急停止する。予約はそのまま保つ（アラームクリアのあと、残りの指示の続きを走るため）。
-    /// </summary>
-    public AgvInstruction EmergencyStop()
+    public void EmergencyStop()
     {
         if (Status == AgvTravelStatus.Unregistered)
         {
             throw new InvalidOperationException($"{Id} は位置がわからないため、緊急停止を送れません。");
         }
 
-        // 異常のときは、異常のまま（位置リセットが必要）
-        if (Status != AgvTravelStatus.Error)
+        WithdrawMotions(returnSections: true);
+        if (!_error)
         {
-            Status = AgvTravelStatus.EmergencyStopped;
+            _stopped = true; // 異常のときは、異常のまま
         }
 
-        return new SendEmergencyStop();
+        Enqueue(number => new EmergencyStopCommand(number));
     }
 
     /// <summary>
-    /// アラームクリアする。残りの指示の続きを走る。緊急停止中に区間を終えていたら、次の区間もあわせて送る。
+    /// アラームクリアする。完了の通知を受けるまでは、緊急停止中のまま。
     /// </summary>
-    public IReadOnlyList<AgvInstruction> ClearAlarm()
+    public void ClearAlarm()
     {
         if (Status != AgvTravelStatus.EmergencyStopped)
         {
             throw new InvalidOperationException($"{Id} は緊急停止中でないため、アラームクリアできません（今の状態：{Status}）。");
         }
 
-        var instructions = new List<AgvInstruction> { new SendAlarmClear() };
-        var hasRoute = _pendingCommands.Count > 0 || _remainingSections.Count > 0;
-        Status = hasRoute ? AgvTravelStatus.Moving : AgvTravelStatus.Idle;
-
-        if (_nextSectionDeferred)
-        {
-            _nextSectionDeferred = false;
-            instructions.Add(DispatchNextSection());
-        }
-
-        return instructions;
+        _awaitingAlarmClear = Enqueue(number => new AlarmClearCommand(number)).Number;
     }
 
-    private bool IsAwaitingCompletion() =>
-        Status is AgvTravelStatus.Moving or AgvTravelStatus.EmergencyStopped && _pendingCommands.Count > 0;
-
-    private NotificationResult Fail()
-    {
-        Status = AgvTravelStatus.Error;
-        return new NotificationResult(false, null);
-    }
+    // ---- AGV からのリクエストと通知 ----
 
     /// <summary>
-    /// 区間を終えていたら、次の区間を送るか、経路を走り終える。
+    /// AGV がコマンドを取りに来た（GET）。渡すコマンドを返す。なければ空。
     /// </summary>
-    private SendTravelCommands? AdvanceIfSectionDone()
+    /// <param name="lastReceived">AGV が前回受信したコマンドの番号。再起動や初めて動かすときは -1。</param>
+    public IReadOnlyList<AgvCommand> OnCommandRequest(long lastReceived)
     {
-        if (_pendingCommands.Count > 0)
+        if (lastReceived == NoneReceived)
         {
-            return null;
+            return OnRequestWithoutHistory();
         }
 
-        if (_remainingSections.Count == 0)
+        foreach (var item in _outbox.ToArray())
         {
-            Status = AgvTravelStatus.Idle;
-            ReleaseAllExcept(new PanelId(Position!.NodeId));
-            return null;
+            if (item.Command.Number <= lastReceived)
+            {
+                _outbox.Remove(item); // 受け取った
+            }
+            else if (item.WithdrawIfNotReceived)
+            {
+                _outbox.Remove(item); // 受け取っていなかったので、取り下げる
+                DropActiveMotion(item, item.ReturnSectionOnWithdraw);
+            }
         }
 
-        // 緊急停止中は送らず、アラームクリアのときに送る
-        if (Status == AgvTravelStatus.EmergencyStopped)
-        {
-            _nextSectionDeferred = true;
-            return null;
-        }
-
-        return DispatchNextSection();
-    }
-
-    private SendTravelCommands DispatchNextSection()
-    {
-        var section = _remainingSections.Dequeue();
-        foreach (var command in section.Commands)
-        {
-            _pendingCommands.Enqueue(command);
-        }
-
-        return new SendTravelCommands(section.Commands);
+        return HandOut(_outbox);
     }
 
     /// <summary>
-    /// これから通るパネル（送った指示の残りと、まだ送っていない区間）。
+    /// 再起動した AGV（または初めて動かす AGV）からの GET。走りかけの動作コマンドは渡し直さず、位置リセットだけを渡す。
+    /// </summary>
+    private List<AgvCommand> OnRequestWithoutHistory()
+    {
+        // 位置リセットの前に再起動した：残りの指示を忘れたので、予約を保ったまま位置リセットを待つ
+        if (Position is not null && _awaitingPositionReset is null)
+        {
+            _error = true;
+        }
+
+        _outbox.RemoveAll(item => item.Command is not PositionResetCommand);
+        return HandOut(_outbox);
+    }
+
+    /// <summary>
+    /// 再起動した AGV からの、位置を取得するリクエスト。最後に把握していた位置をそのまま返す。
+    /// </summary>
+    public Pose? OnPositionRequest() => Position;
+
+    /// <summary>
+    /// 動作コマンドの受信の完了の通知。ログに残すだけ（受信は GET の番号で判断する）。
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Performance",
+        "CA1822:Mark members as static",
+        Justification = "AGV からの通知は、ほかの通知と同じく AGV ごとのインスタンスで受ける")]
+    public NotificationOutcome OnMotionReceived(long number)
+    {
+        _ = number;
+        return NotificationOutcome.Logged;
+    }
+
+    /// <summary>
+    /// 前進・後退の完了の通知（十字の検出、または行き止まりのパネルへの到着）。
+    /// </summary>
+    public NotificationOutcome OnMoveCompleted(long number, MoveDirection direction, PanelId arrived) =>
+        OnStepCompleted(new StepCompletion(number, direction, arrived));
+
+    /// <summary>
+    /// 回転の完了の通知。角度の誤差は AGV の制御の責務なので、角度は照合せず、向きは指示した角度にする。
+    /// </summary>
+    public NotificationOutcome OnRotationCompleted(long number, int reportedHeading)
+    {
+        _ = reportedHeading; // 照合しない
+        return OnStepCompleted(new StepCompletion(number, Direction: null, Arrived: null));
+    }
+
+    /// <summary>
+    /// アラームクリアの完了の通知。緊急停止中に用意できなかった次の区間があれば、ここで用意する。
+    /// </summary>
+    public NotificationOutcome OnAlarmCleared(long number)
+    {
+        if (_awaitingAlarmClear != number)
+        {
+            return NotificationOutcome.IgnoredUnexpected;
+        }
+
+        _awaitingAlarmClear = null;
+        _stopped = false;
+        if (_active is null && _remainingSections.Count > 0 && !_error)
+        {
+            DispatchNextSection();
+        }
+
+        return NotificationOutcome.Accepted;
+    }
+
+    /// <summary>
+    /// 位置リセットの完了の通知。
+    /// </summary>
+    public NotificationOutcome OnPositionResetCompleted(long number)
+    {
+        if (_awaitingPositionReset != number)
+        {
+            return NotificationOutcome.IgnoredUnexpected;
+        }
+
+        _awaitingPositionReset = null;
+        return NotificationOutcome.Accepted;
+    }
+
+    /// <summary>
+    /// AGV からのエラーの通知。エラーを出した AGV は止まっている。
+    /// 位置がずれた可能性があれば「異常」、なければ「緊急停止中」にし、まだ渡していない動作コマンドを取り下げる。
+    /// </summary>
+    public NotificationOutcome OnAgvError(AgvErrorKind kind)
+    {
+        if (Position is null)
+        {
+            return NotificationOutcome.Logged;
+        }
+
+        if (kind.MayShiftPosition())
+        {
+            WithdrawMotions(returnSections: false);
+            _error = true;
+        }
+        else
+        {
+            WithdrawMotions(returnSections: true);
+            if (!_error)
+            {
+                _stopped = true;
+            }
+        }
+
+        return NotificationOutcome.Accepted;
+    }
+
+    // ---- 完了の通知の照合 ----
+
+    private NotificationOutcome OnStepCompleted(StepCompletion completion)
+    {
+        var number = completion.Number;
+        if (number <= 0 || number >= _nextNumber || !_motionNumbers.Contains(number))
+        {
+            return NotificationOutcome.Rejected; // 送っていない番号、または動作コマンドでない番号
+        }
+
+        if (number < _staleBelow)
+        {
+            return NotificationOutcome.IgnoredStale;
+        }
+
+        if (completion == _lastAccepted || _active is null || number != _active.Number)
+        {
+            return NotificationOutcome.IgnoredDuplicate; // 直前と同じ通知、または走り終えた動作コマンドへの通知
+        }
+
+        var remaining = _active.Remaining;
+        if (completion.Matches(remaining[0]))
+        {
+            Accept(completion, skip: 0);
+            return NotificationOutcome.Accepted;
+        }
+
+        if (_error)
+        {
+            // 異常のときは、先の動作と中身が合えば、手前の動作も完了したものとみなして受け付ける
+            var index = remaining.FindIndex(completion.Matches);
+            if (index < 0)
+            {
+                return NotificationOutcome.IgnoredUnexpected;
+            }
+
+            Accept(completion, skip: index);
+            return NotificationOutcome.Accepted;
+        }
+
+        EnterFault();
+        return NotificationOutcome.Fault;
+    }
+
+    private void Accept(StepCompletion completion, int skip)
+    {
+        var remaining = _active!.Remaining;
+        remaining.RemoveRange(0, skip);
+        var step = remaining[0];
+        remaining.RemoveAt(0);
+        _lastAccepted = completion;
+
+        var left = new PanelId(Position!.NodeId);
+        Position = step switch
+        {
+            RotateCommand rotate => new Pose(Position.NodeId, rotate.Heading),
+            _ => new Pose(completion.Arrived!.Value.Value, Position.Heading),
+        };
+
+        // 異常のときは予約を保つ
+        var current = new PanelId(Position.NodeId);
+        if (!_error && left != current && !RemainingPanels().Contains(left))
+        {
+            reservations.Release(Id, left);
+        }
+
+        if (remaining.Count == 0)
+        {
+            FinishSection();
+        }
+    }
+
+    /// <summary>
+    /// 区間の最後の動作を終えた。次の区間を用意するか、経路を走り終える。止まっているときは、次の区間を用意しない。
+    /// </summary>
+    private void FinishSection()
+    {
+        _active = null;
+        if (_remainingSections.Count > 0)
+        {
+            if (!_stopped && !_error)
+            {
+                DispatchNextSection();
+            }
+
+            return;
+        }
+
+        if (!_error)
+        {
+            ReleaseAllExcept(new PanelId(Position!.NodeId));
+        }
+    }
+
+    /// <summary>
+    /// 食い違う通知を受けた。緊急停止を用意して「異常」にする。予約は保つ。
+    /// </summary>
+    private void EnterFault()
+    {
+        _error = true;
+        WithdrawMotions(returnSections: false);
+        Enqueue(number => new EmergencyStopCommand(number));
+    }
+
+    // ---- コマンドの用意と受け渡し ----
+
+    private void DispatchNextSection()
+    {
+        var section = _remainingSections[0];
+        _remainingSections.RemoveAt(0);
+
+        var command = (MotionCommand)Enqueue(number => new MotionCommand(number, section.Commands), section);
+        _motionNumbers.Add(command.Number);
+        _active = new ActiveMotion(command.Number, section, [.. section.Commands]);
+    }
+
+    private AgvCommand Enqueue(Func<long, AgvCommand> create, TravelSection? section = null)
+    {
+        var command = create(_nextNumber++);
+        _outbox.Add(new Outgoing(command, section));
+        return command;
+    }
+
+    private static List<AgvCommand> HandOut(List<Outgoing> items)
+    {
+        foreach (var item in items)
+        {
+            item.HandedOut = true;
+        }
+
+        return items.Select(item => item.Command).ToList();
+    }
+
+    /// <summary>
+    /// まだ AGV に渡していない動作コマンドを取り下げる。渡したばかりで受け取ったかわからないものは、
+    /// 次の GET で受け取っていなかったとわかったときに取り下げる。
+    /// </summary>
+    /// <param name="returnSections">取り下げた区間を、あとで渡し直すために経路に戻すか。</param>
+    private void WithdrawMotions(bool returnSections)
+    {
+        foreach (var item in _outbox.Where(item => item.Command is MotionCommand).ToArray())
+        {
+            if (item.HandedOut)
+            {
+                item.WithdrawIfNotReceived = true;
+                item.ReturnSectionOnWithdraw = returnSections;
+            }
+            else
+            {
+                _outbox.Remove(item);
+                DropActiveMotion(item, returnSections);
+            }
+        }
+    }
+
+    private void DropActiveMotion(Outgoing item, bool returnSection)
+    {
+        if (_active is null || _active.Number != item.Command.Number)
+        {
+            return;
+        }
+
+        if (returnSection)
+        {
+            _remainingSections.Insert(0, _active.Section);
+        }
+
+        _active = null;
+    }
+
+    /// <summary>
+    /// これから通るパネル（走っている動作コマンドの残りと、まだ用意していない区間）。
     /// </summary>
     private HashSet<PanelId> RemainingPanels()
     {
         var panels = new HashSet<PanelId>(_remainingSections.SelectMany(s => s.Panels));
-        foreach (var destination in _pendingCommands.Select(DestinationOf).OfType<PanelId>())
+        foreach (var step in _active?.Remaining ?? [])
         {
-            panels.Add(destination);
+            if (step is ForwardCommand forward)
+            {
+                panels.Add(forward.To);
+            }
+            else if (step is BackwardCommand backward)
+            {
+                panels.Add(backward.To);
+            }
         }
 
         return panels;
     }
-
-    /// <summary>
-    /// 前進・後退の移動先のパネル。回転なら null。
-    /// </summary>
-    private static PanelId? DestinationOf(TravelCommand command) => command switch
-    {
-        ForwardCommand forward => forward.To,
-        BackwardCommand backward => backward.To,
-        _ => null,
-    };
 
     private void ReleaseAllExcept(PanelId keep)
     {
@@ -275,10 +513,42 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
         }
     }
 
-    private void ClearRoute()
+    /// <summary>
+    /// 渡すために用意したコマンド。
+    /// </summary>
+    private sealed class Outgoing(AgvCommand command, TravelSection? section)
     {
-        _remainingSections.Clear();
-        _pendingCommands.Clear();
-        _nextSectionDeferred = false;
+        public AgvCommand Command { get; } = command;
+
+        /// <summary>動作コマンドなら、その区間。</summary>
+        public TravelSection? Section { get; } = section;
+
+        /// <summary>レスポンスで AGV に渡したか（受け取ったかどうかは、次の GET でわかる）。</summary>
+        public bool HandedOut { get; set; }
+
+        /// <summary>次の GET で受け取っていなかったとわかったら取り下げるか。</summary>
+        public bool WithdrawIfNotReceived { get; set; }
+
+        /// <summary>取り下げたとき、区間を経路に戻すか。</summary>
+        public bool ReturnSectionOnWithdraw { get; set; }
+    }
+
+    /// <summary>
+    /// AGV が走っている動作コマンドと、まだ完了の通知を受けていない動作。
+    /// </summary>
+    private sealed record ActiveMotion(long Number, TravelSection Section, List<TravelCommand> Remaining);
+
+    /// <summary>
+    /// 1つの動作の完了の通知。前進・後退なら向きと着いたパネル、回転なら両方 null。
+    /// </summary>
+    private sealed record StepCompletion(long Number, MoveDirection? Direction, PanelId? Arrived)
+    {
+        public bool Matches(TravelCommand step) => step switch
+        {
+            ForwardCommand forward => Direction == MoveDirection.Forward && Arrived == forward.To,
+            BackwardCommand backward => Direction == MoveDirection.Backward && Arrived == backward.To,
+            RotateCommand => Direction is null,
+            _ => false,
+        };
     }
 }
