@@ -182,6 +182,17 @@ public class InProcessEventBusTests
         Assert.Equal(metadata.EventId, activity.GetTagItem("flowhub.event_id"));
     }
 
+    [Fact]
+    public void 購読しているイベントの種類を登録した順に重複なく一覧できる()
+    {
+        var subscriptions = new EventSubscriptions();
+        subscriptions.Subscribe(() => new Recorder<OtherHappened>([], "A"));
+        subscriptions.Subscribe(() => new Recorder<SomethingHappened>([], "B"));
+        subscriptions.Subscribe(() => new Recorder<OtherHappened>([], "C"));
+
+        Assert.Equal([typeof(OtherHappened), typeof(SomethingHappened)], subscriptions.SubscribedEventTypes);
+    }
+
     // ---- メタデータ ----
 
     [Fact]

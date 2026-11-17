@@ -26,6 +26,11 @@ public sealed class EventSubscriptions
         }));
     }
 
+    /// <summary>
+    /// 購読しているイベントの種類（登録した順、重複なし）。
+    /// </summary>
+    public IReadOnlyList<Type> SubscribedEventTypes => _handlers.Select(entry => entry.EventType).Distinct().ToArray();
+
     internal IEnumerable<SubscriberEntry> HandlersFor(Type eventType) =>
         _handlers.Where(entry => entry.EventType == eventType).Select(entry => entry.Create());
 

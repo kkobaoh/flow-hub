@@ -28,18 +28,6 @@ internal sealed record TransportRequest(
     DateTimeOffset NeededBy);
 
 /// <summary>
-/// 受け渡しの向き。
-/// </summary>
-internal enum TransferSide
-{
-    /// <summary>積み込み（搬送元で、相手からキャリアへ）。</summary>
-    Load,
-
-    /// <summary>降ろし（搬送先で、キャリアから相手へ）。</summary>
-    Unload,
-}
-
-/// <summary>
 /// 搬送を進めるために、配車がほかのコンテキストに頼むことや知らせること。
 /// </summary>
 internal abstract record TransportAction;
