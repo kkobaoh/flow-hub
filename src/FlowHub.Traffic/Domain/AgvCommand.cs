@@ -35,6 +35,34 @@ internal sealed record AlarmClearCommand(long Number) : AgvCommand(Number);
 internal sealed record PositionResetCommand(long Number, Pose Position) : AgvCommand(Number);
 
 /// <summary>
+/// キャリアを下げる。受け渡しパネルでだけ出せる。高さが null なら、AGV が高さを測定する（測定した高さを通知してくる）。
+/// </summary>
+internal sealed record LowerCarrierCommand(long Number, int? HeightMm) : AgvCommand(Number);
+
+/// <summary>
+/// キャリアを上げる。
+/// </summary>
+internal sealed record RaiseCarrierCommand(long Number) : AgvCommand(Number);
+
+/// <summary>
+/// キャリアの状態。
+/// </summary>
+internal enum CarrierState
+{
+    /// <summary>上がっている。走行できる。</summary>
+    Raised,
+
+    /// <summary>下げている途中。</summary>
+    Lowering,
+
+    /// <summary>下がっている（途中の高さで止まっているときも含む）。走行できない。</summary>
+    Lowered,
+
+    /// <summary>上げている途中。</summary>
+    Raising,
+}
+
+/// <summary>
 /// AGV が通知してくるエラーの種類。エラーを出した AGV は止まっている。
 /// </summary>
 internal enum AgvErrorKind

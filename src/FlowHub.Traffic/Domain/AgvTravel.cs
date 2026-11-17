@@ -68,7 +68,16 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     private bool _error;
     private bool _stopped;
 
+    /// <summary>上げ下げの完了を待っているキャリアのコマンド。なければ null。</summary>
+    private AgvCommand? _carrierInFlight;
+
+    /// <summary>緊急停止やエラーで取り下げた、アラームクリアのあとに渡し直すキャリアのコマンド。なければ null。</summary>
+    private AgvCommand? _carrierToReissue;
+
     public AgvId Id { get; } = id;
+
+    /// <summary>キャリアの状態。</summary>
+    public CarrierState Carrier { get; private set; } = CarrierState.Raised;
 
     /// <summary>今の姿勢（最後に完了した動作のあとのパネルと向き）。位置がわからなければ null。</summary>
     public Pose? Position { get; private set; }
@@ -85,12 +94,17 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
 
     /// <summary>
     /// 位置を上書きする（最初の登録も同じ）。指定のパネルを予約し、ほかの予約と残りの経路を捨て、
-    /// まだ渡していない動作コマンドを取り下げる。完了の通知を受けるまで、出発できない。
+    /// まだ渡していないコマンドを取り下げる。完了の通知を受けるまで、出発できない。キャリアの状態は保つ。
     /// 指定のパネルをほかの AGV が予約していたら、何も変えない。
     /// </summary>
+    /// <exception cref="InvalidOperationException">AGV が動作中（走行中やキャリアの上げ下げ中）のとき。AGV は動作中に位置リセットを受け取らないため。</exception>
     public PositionResetResult ResetPosition(Pose position)
     {
         ArgumentNullException.ThrowIfNull(position);
+        if (IsAgvInMotion())
+        {
+            throw new InvalidOperationException($"{Id} は動作中のため、位置リセットできません。先に緊急停止してください。");
+        }
 
         var panel = new PanelId(position.NodeId);
         var reservation = reservations.TryReserve(Id, [panel]);
@@ -100,9 +114,18 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
         }
 
         ReleaseAllExcept(panel);
-        WithdrawMotions(returnSections: false);
+        WithdrawPending(reissueLater: false);
         _remainingSections.Clear();
         _active = null;
+
+        // AGV は指示を破棄する。上げ下げの途中で止まっていたキャリアは、下がっているとして扱う
+        if (Carrier is CarrierState.Lowering or CarrierState.Raising)
+        {
+            Carrier = CarrierState.Lowered;
+        }
+
+        _carrierInFlight = null;
+        _carrierToReissue = null;
         _awaitingAlarmClear = null;
         _lastAccepted = null;
         _error = false;
@@ -127,6 +150,11 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
             throw new InvalidOperationException($"{Id} は待機中でないため出発できません（今の状態：{Status}）。");
         }
 
+        if (Carrier != CarrierState.Raised)
+        {
+            throw new InvalidOperationException($"{Id} はキャリアが上がっていないため、走らせられません。");
+        }
+
         if (sections.Count == 0 || sections[0].Panels[0].Value != Position!.NodeId)
         {
             throw new ArgumentException($"経路が {Id} の今いるパネル（{Position!.NodeId}）から始まっていません。", nameof(sections));
@@ -144,7 +172,46 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     }
 
     /// <summary>
-    /// 緊急停止する。予約は保ち、まだ渡していない動作コマンドを取り下げる（アラームクリアのあとに渡し直す）。
+    /// キャリアを下げる。受け渡しパネルにいて、待機中で、キャリアが上がっているときだけ出せる。
+    /// </summary>
+    /// <param name="currentPanel">今いるパネル（マップから）。</param>
+    /// <param name="heightMm">下げる高さ（マップの設定から）。設定されていなければ null で、AGV が測定する。</param>
+    public void LowerCarrier(Panel currentPanel, int? heightMm)
+    {
+        ArgumentNullException.ThrowIfNull(currentPanel);
+        if (Status != AgvTravelStatus.Idle || Carrier != CarrierState.Raised)
+        {
+            throw new InvalidOperationException($"{Id} は待機中でキャリアが上がっているときでないと、キャリアを下げられません（今の状態：{Status}、キャリア：{Carrier}）。");
+        }
+
+        if (currentPanel.Id.Value != Position!.NodeId)
+        {
+            throw new ArgumentException($"{currentPanel.Id} は {Id} の今いるパネル（{Position.NodeId}）ではありません。", nameof(currentPanel));
+        }
+
+        if (currentPanel.Type != PanelType.Transfer)
+        {
+            throw new InvalidOperationException($"{currentPanel.Id} は受け渡しパネルでないため、キャリアを下げられません。");
+        }
+
+        IssueCarrierCommand(number => new LowerCarrierCommand(number, heightMm));
+    }
+
+    /// <summary>
+    /// キャリアを上げる。待機中で、キャリアが下がっているときだけ出せる（緊急停止中はアラームクリア、異常のときは位置リセットのあと）。
+    /// </summary>
+    public void RaiseCarrier()
+    {
+        if (Status != AgvTravelStatus.Idle || Carrier != CarrierState.Lowered)
+        {
+            throw new InvalidOperationException($"{Id} は待機中でキャリアが下がっているときでないと、キャリアを上げられません（今の状態：{Status}、キャリア：{Carrier}）。");
+        }
+
+        IssueCarrierCommand(number => new RaiseCarrierCommand(number));
+    }
+
+    /// <summary>
+    /// 緊急停止する。予約は保ち、まだ渡していないコマンドを取り下げる（アラームクリアのあとに渡し直す）。
     /// </summary>
     public void EmergencyStop()
     {
@@ -153,7 +220,7 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
             throw new InvalidOperationException($"{Id} は位置がわからないため、緊急停止を送れません。");
         }
 
-        WithdrawMotions(returnSections: true);
+        WithdrawPending(reissueLater: true);
         if (!_error)
         {
             _stopped = true; // 異常のときは、異常のまま
@@ -197,7 +264,7 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
             else if (item.WithdrawIfNotReceived)
             {
                 _outbox.Remove(item); // 受け取っていなかったので、取り下げる
-                DropActiveMotion(item, item.ReturnSectionOnWithdraw);
+                OnWithdrawn(item, item.ReissueOnWithdraw);
             }
         }
 
@@ -254,7 +321,30 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     }
 
     /// <summary>
-    /// アラームクリアの完了の通知。緊急停止中に用意できなかった次の区間があれば、ここで用意する。
+    /// キャリアが下がった通知。
+    /// </summary>
+    public NotificationOutcome OnCarrierLowered(long number) =>
+        CompleteCarrier<LowerCarrierCommand>(number, CarrierState.Lowering, CarrierState.Lowered);
+
+    /// <summary>
+    /// キャリアが上がった通知。
+    /// </summary>
+    public NotificationOutcome OnCarrierRaised(long number) =>
+        CompleteCarrier<RaiseCarrierCommand>(number, CarrierState.Raising, CarrierState.Raised);
+
+    /// <summary>
+    /// AGV が測定したキャリアの高さの通知。高さを入れずに下げるコマンドを出したときだけ受け付ける（高さの保存は呼び出す側）。
+    /// </summary>
+    public NotificationOutcome OnCarrierHeightMeasured(long number, int heightMm)
+    {
+        _ = heightMm; // 保存はマップの設定の役割
+        return _carrierInFlight is LowerCarrierCommand { HeightMm: null } lower && lower.Number == number
+            ? NotificationOutcome.Accepted
+            : NotificationOutcome.IgnoredUnexpected;
+    }
+
+    /// <summary>
+    /// アラームクリアの完了の通知。緊急停止中に取り下げたキャリアのコマンドや、用意できなかった次の区間があれば、ここで用意する。
     /// </summary>
     public NotificationOutcome OnAlarmCleared(long number)
     {
@@ -265,7 +355,17 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
 
         _awaitingAlarmClear = null;
         _stopped = false;
-        if (_active is null && _remainingSections.Count > 0 && !_error)
+
+        if (_carrierToReissue is { } carrier)
+        {
+            _carrierToReissue = null;
+            IssueCarrierCommand(n => carrier switch
+            {
+                LowerCarrierCommand lower => new LowerCarrierCommand(n, lower.HeightMm),
+                _ => new RaiseCarrierCommand(n),
+            });
+        }
+        else if (_active is null && _remainingSections.Count > 0 && !_error)
         {
             DispatchNextSection();
         }
@@ -289,7 +389,7 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
 
     /// <summary>
     /// AGV からのエラーの通知。エラーを出した AGV は止まっている。
-    /// 位置がずれた可能性があれば「異常」、なければ「緊急停止中」にし、まだ渡していない動作コマンドを取り下げる。
+    /// 位置がずれた可能性があれば「異常」、なければ「緊急停止中」にし、まだ渡していないコマンドを取り下げる。
     /// </summary>
     public NotificationOutcome OnAgvError(AgvErrorKind kind)
     {
@@ -300,12 +400,12 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
 
         if (kind.MayShiftPosition())
         {
-            WithdrawMotions(returnSections: false);
+            WithdrawPending(reissueLater: false);
             _error = true;
         }
         else
         {
-            WithdrawMotions(returnSections: true);
+            WithdrawPending(reissueLater: true);
             if (!_error)
             {
                 _stopped = true;
@@ -415,9 +515,47 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     private void EnterFault()
     {
         _error = true;
-        WithdrawMotions(returnSections: false);
+        WithdrawPending(reissueLater: false);
         Enqueue(number => new EmergencyStopCommand(number));
     }
+
+    // ---- キャリア ----
+
+    private void IssueCarrierCommand(Func<long, AgvCommand> create)
+    {
+        var command = Enqueue(create);
+        _carrierInFlight = command;
+        Carrier = command is LowerCarrierCommand ? CarrierState.Lowering : CarrierState.Raising;
+    }
+
+    private NotificationOutcome CompleteCarrier<TCommand>(long number, CarrierState moving, CarrierState done)
+        where TCommand : AgvCommand
+    {
+        if (_carrierInFlight is not TCommand || _carrierInFlight.Number != number || Carrier != moving)
+        {
+            return NotificationOutcome.IgnoredUnexpected;
+        }
+
+        // 完了の通知が届いたので、AGV が受け取ったことは確かめられた（取り下げの対象から外す）
+        _outbox.RemoveAll(item => item.Command.Number == number);
+        _carrierInFlight = null;
+        Carrier = done;
+        return NotificationOutcome.Accepted;
+    }
+
+    /// <summary>
+    /// AGV が動作中（走行中、またはキャリアの上げ下げ中）か。止まっているとき、まだ渡していないコマンドだけのときは動作中ではない。
+    /// </summary>
+    private bool IsAgvInMotion() =>
+        !_stopped && !_error
+        && ((_active is not null && MayHaveReceived(_active.Number))
+            || (_carrierInFlight is not null && MayHaveReceived(_carrierInFlight.Number)));
+
+    /// <summary>
+    /// AGV がそのコマンドを受け取ったかもしれないか（一度でもレスポンスで渡したか）。
+    /// </summary>
+    private bool MayHaveReceived(long number) =>
+        !_outbox.Any(item => item.Command.Number == number && !item.HandedOut);
 
     // ---- コマンドの用意と受け渡し ----
 
@@ -449,40 +587,62 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     }
 
     /// <summary>
-    /// まだ AGV に渡していない動作コマンドを取り下げる。渡したばかりで受け取ったかわからないものは、
+    /// まだ AGV に渡していない動作コマンドとキャリアのコマンドを取り下げる。渡したばかりで受け取ったかわからないものは、
     /// 次の GET で受け取っていなかったとわかったときに取り下げる。
     /// </summary>
-    /// <param name="returnSections">取り下げた区間を、あとで渡し直すために経路に戻すか。</param>
-    private void WithdrawMotions(bool returnSections)
+    /// <param name="reissueLater">取り下げたものを、アラームクリアのあとに渡し直すか。</param>
+    private void WithdrawPending(bool reissueLater)
     {
-        foreach (var item in _outbox.Where(item => item.Command is MotionCommand).ToArray())
+        var withdrawable = _outbox
+            .Where(item => item.Command is MotionCommand or LowerCarrierCommand or RaiseCarrierCommand)
+            .ToArray();
+
+        foreach (var item in withdrawable)
         {
             if (item.HandedOut)
             {
                 item.WithdrawIfNotReceived = true;
-                item.ReturnSectionOnWithdraw = returnSections;
+                item.ReissueOnWithdraw = reissueLater;
             }
             else
             {
                 _outbox.Remove(item);
-                DropActiveMotion(item, returnSections);
+                OnWithdrawn(item, reissueLater);
             }
         }
     }
 
-    private void DropActiveMotion(Outgoing item, bool returnSection)
+    /// <summary>
+    /// 取り下げたコマンドの後始末。区間なら経路に戻し、キャリアのコマンドなら元の状態に戻す。
+    /// </summary>
+    private void OnWithdrawn(Outgoing item, bool reissueLater)
     {
-        if (_active is null || _active.Number != item.Command.Number)
+        if (item.Command is MotionCommand)
+        {
+            if (_active is not null && _active.Number == item.Command.Number)
+            {
+                if (reissueLater)
+                {
+                    _remainingSections.Insert(0, _active.Section);
+                }
+
+                _active = null;
+            }
+
+            return;
+        }
+
+        if (_carrierInFlight is null || _carrierInFlight.Number != item.Command.Number)
         {
             return;
         }
 
-        if (returnSection)
+        Carrier = item.Command is LowerCarrierCommand ? CarrierState.Raised : CarrierState.Lowered;
+        _carrierInFlight = null;
+        if (reissueLater)
         {
-            _remainingSections.Insert(0, _active.Section);
+            _carrierToReissue = item.Command;
         }
-
-        _active = null;
     }
 
     /// <summary>
@@ -530,8 +690,8 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
         /// <summary>次の GET で受け取っていなかったとわかったら取り下げるか。</summary>
         public bool WithdrawIfNotReceived { get; set; }
 
-        /// <summary>取り下げたとき、区間を経路に戻すか。</summary>
-        public bool ReturnSectionOnWithdraw { get; set; }
+        /// <summary>取り下げたとき、アラームクリアのあとに渡し直すか。</summary>
+        public bool ReissueOnWithdraw { get; set; }
     }
 
     /// <summary>

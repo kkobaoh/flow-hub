@@ -129,6 +129,7 @@ public class AgvTravelTests
     public void 位置リセットすると残りの経路を捨ててほかの予約を解放する()
     {
         var (travel, reservations) = MovingAlongRouteAtoD();
+        travel.EmergencyStop(); // 動作中は位置リセットできないので、先に止める
 
         travel.ResetPosition(new Pose("B", 180));
 
@@ -392,9 +393,10 @@ public class AgvTravelTests
     public void 位置リセットで捨てた動作コマンドの通知は古い通知として無視する()
     {
         var (travel, _) = MovingAlongRouteAtoD();
-        travel.ResetPosition(new Pose("A", 0)); // 番号 3
+        travel.EmergencyStop(); // 番号 3。動作中は位置リセットできないので、先に止める
+        travel.ResetPosition(new Pose("A", 0)); // 番号 4
         travel.OnCommandRequest(2);
-        travel.OnPositionResetCompleted(3);
+        travel.OnPositionResetCompleted(4);
 
         var outcome = travel.OnMoveCompleted(2, MoveDirection.Forward, P("B"));
 
