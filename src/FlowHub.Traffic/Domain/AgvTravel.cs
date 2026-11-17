@@ -79,6 +79,9 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     /// <summary>キャリアの状態。</summary>
     public CarrierState Carrier { get; private set; } = CarrierState.Raised;
 
+    /// <summary>これまでの累計の走行距離（受け付けた前進・後退の距離の合計）。AGV の割り当てに使う。</summary>
+    public long CumulativeDistanceMm { get; private set; }
+
     /// <summary>今の姿勢（最後に完了した動作のあとのパネルと向き）。位置がわからなければ null。</summary>
     public Pose? Position { get; private set; }
 
@@ -462,10 +465,11 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     private void Accept(StepCompletion completion, int skip)
     {
         var remaining = _active!.Remaining;
-        remaining.RemoveRange(0, skip);
-        var step = remaining[0];
-        remaining.RemoveAt(0);
+        var completed = remaining.Take(skip + 1).ToArray(); // 手前の動作も完了したとみなす
+        remaining.RemoveRange(0, skip + 1);
+        var step = completed[^1];
         _lastAccepted = completion;
+        CumulativeDistanceMm += completed.Sum(DistanceOf);
 
         var left = new PanelId(Position!.NodeId);
         Position = step switch
@@ -665,6 +669,16 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
 
         return panels;
     }
+
+    /// <summary>
+    /// 動作で走る距離。回転なら 0。
+    /// </summary>
+    private static long DistanceOf(TravelCommand step) => step switch
+    {
+        ForwardCommand forward => forward.DistanceMm,
+        BackwardCommand backward => backward.DistanceMm,
+        _ => 0,
+    };
 
     private void ReleaseAllExcept(PanelId keep)
     {

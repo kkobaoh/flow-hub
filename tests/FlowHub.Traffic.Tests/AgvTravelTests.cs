@@ -752,4 +752,40 @@ public class AgvTravelTests
         Assert.Equal(NotificationOutcome.Logged, outcome);
         Assert.Equal(AgvTravelStatus.Unregistered, travel.Status);
     }
+
+    // ---- 累計の走行距離 ----
+
+    [Fact]
+    public void 受け付けた前進と後退の距離を累計の走行距離に足す()
+    {
+        var (travel, _) = MovingAlongRouteAtoD();
+
+        travel.OnMoveCompleted(2, MoveDirection.Forward, P("B"));
+        travel.OnMoveCompleted(2, MoveDirection.Forward, P("C"));
+        travel.OnRotationCompleted(2, reportedHeading: 90);
+
+        Assert.Equal(1600, travel.CumulativeDistanceMm);
+    }
+
+    [Fact]
+    public void 受け付けなかった通知の距離は足さない()
+    {
+        var (travel, _) = MovingAlongRouteAtoD();
+        travel.OnMoveCompleted(2, MoveDirection.Forward, P("B"));
+
+        travel.OnMoveCompleted(2, MoveDirection.Forward, P("B")); // 重複
+
+        Assert.Equal(800, travel.CumulativeDistanceMm);
+    }
+
+    [Fact]
+    public void 異常のときに手前の動作も完了したとみなしたらその距離も足す()
+    {
+        var (travel, _) = MovingAlongRouteAtoD();
+        travel.OnMoveCompleted(2, MoveDirection.Backward, P("B")); // 食い違い → 異常
+
+        travel.OnMoveCompleted(2, MoveDirection.Forward, P("C")); // B への前進も完了したとみなす
+
+        Assert.Equal(1600, travel.CumulativeDistanceMm);
+    }
 }
