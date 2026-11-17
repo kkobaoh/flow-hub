@@ -11,6 +11,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FlowHub.ArchitectureTests/FlowHub.ArchitectureTests.csproj" />
+    <Project Path="tests/FlowHub.BuildingBlocks.Tests/FlowHub.BuildingBlocks.Tests.csproj" />
     <Project Path="tests/FlowHub.Consumables.Tests/FlowHub.Consumables.Tests.csproj" />
     <Project Path="tests/FlowHub.Dispatching.Tests/FlowHub.Dispatching.Tests.csproj" />
     <Project Path="tests/FlowHub.Map.Tests/FlowHub.Map.Tests.csproj" />

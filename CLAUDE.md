@@ -156,6 +156,7 @@ src/
   FlowHub.Consumables/
   FlowHub.Api/
 tests/
+  FlowHub.BuildingBlocks.Tests/
   FlowHub.Map.Tests/
   FlowHub.Routing.Tests/
   FlowHub.Traffic.Tests/
