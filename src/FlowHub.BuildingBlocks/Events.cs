@@ -44,11 +44,7 @@ public sealed record EventMetadata(Guid EventId, string CorrelationId, Guid? Cau
 /// イベントの購読者。C# の event（デリゲート）は使わず、このインターフェースを実装したクラスで購読する。
 /// 同じイベントが2回届いても結果が変わらないように（冪等に）作る。
 /// </summary>
-[System.Diagnostics.CodeAnalysis.SuppressMessage(
-    "Naming",
-    "CA1711:Identifiers should not have incorrect suffix",
-    Justification = "C# の event（デリゲート）の代わりに使う購読者のインターフェース。名前は CLAUDE.md で決めたもの")]
-public interface IEventHandler<in TEvent>
+public interface IEventSubscriber<in TEvent>
     where TEvent : IIntegrationEvent
 {
     Task HandleAsync(TEvent integrationEvent, CancellationToken cancellationToken);

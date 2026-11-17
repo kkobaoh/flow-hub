@@ -7,12 +7,12 @@ namespace FlowHub.BuildingBlocks;
 /// </summary>
 public sealed class EventSubscriptions
 {
-    private readonly List<(Type EventType, Func<IntegrationEventHandler> Create)> _handlers = [];
+    private readonly List<(Type EventType, Func<SubscriberEntry> Create)> _handlers = [];
 
     /// <summary>
     /// イベントの購読を登録する。届けるときに、そのつどハンドラーを作る。
     /// </summary>
-    public void Subscribe<TEvent>(Func<IEventHandler<TEvent>> createHandler)
+    public void Subscribe<TEvent>(Func<IEventSubscriber<TEvent>> createHandler)
         where TEvent : IIntegrationEvent
     {
         ArgumentNullException.ThrowIfNull(createHandler);
@@ -20,16 +20,16 @@ public sealed class EventSubscriptions
         _handlers.Add((typeof(TEvent), () =>
         {
             var handler = createHandler();
-            return new IntegrationEventHandler(
+            return new SubscriberEntry(
                 handler.GetType().Name,
                 (integrationEvent, cancellationToken) => handler.HandleAsync((TEvent)integrationEvent, cancellationToken));
         }));
     }
 
-    internal IEnumerable<IntegrationEventHandler> HandlersFor(Type eventType) =>
+    internal IEnumerable<SubscriberEntry> HandlersFor(Type eventType) =>
         _handlers.Where(entry => entry.EventType == eventType).Select(entry => entry.Create());
 
-    internal sealed record IntegrationEventHandler(string Name, Func<IIntegrationEvent, CancellationToken, Task> HandleAsync);
+    internal sealed record SubscriberEntry(string Name, Func<IIntegrationEvent, CancellationToken, Task> HandleAsync);
 }
 
 /// <summary>
@@ -68,16 +68,15 @@ public sealed class InProcessEventBus(EventSubscriptions subscriptions) : IEvent
             foreach (var handler in subscriptions.HandlersFor(integrationEvent.GetType()))
             {
                 using var activity = StartActivity(integrationEvent, handler.Name);
-                try
+
+                // 失敗しても次のハンドラーに届けるため、例外を投げない待ち方で待ち、あとで失敗を調べて集める
+                var delivery = DeliverAsync(handler, integrationEvent, cancellationToken);
+                await delivery.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
+                if (FailureOf(delivery) is { } failure)
                 {
-                    await handler.HandleAsync(integrationEvent, cancellationToken).ConfigureAwait(false);
-                }
-#pragma warning disable CA1031 // ほかのハンドラーに届けるため、どんな失敗も一度受け止める
-                catch (Exception exception)
-#pragma warning restore CA1031
-                {
-                    activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
-                    failures.Add(exception);
+                    activity?.SetStatus(ActivityStatusCode.Error, failure.Message);
+                    failures.Add(failure);
                 }
             }
         }
@@ -87,6 +86,23 @@ public sealed class InProcessEventBus(EventSubscriptions subscriptions) : IEvent
             throw new AggregateException("イベントを届けるときに、失敗したハンドラーがあります。", failures);
         }
     }
+
+    /// <summary>
+    /// ハンドラーに届ける。ハンドラーが同期的に例外を投げても、返す Task の失敗として包む。
+    /// </summary>
+    private static async Task DeliverAsync(
+        EventSubscriptions.SubscriberEntry handler,
+        IIntegrationEvent integrationEvent,
+        CancellationToken cancellationToken) =>
+        await handler.HandleAsync(integrationEvent, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// 届けた結果の失敗。失敗していなければ null。
+    /// </summary>
+    private static Exception? FailureOf(Task delivery) =>
+        delivery.IsFaulted ? delivery.Exception.InnerException
+        : delivery.IsCanceled ? new TaskCanceledException(delivery)
+        : null;
 
     private static Activity? StartActivity(IIntegrationEvent integrationEvent, string handlerName)
     {

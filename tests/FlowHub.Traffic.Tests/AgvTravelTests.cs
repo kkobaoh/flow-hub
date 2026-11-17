@@ -192,6 +192,7 @@ public class AgvTravelTests
 
         Assert.Equal(NotificationOutcome.Logged, outcome);
         Assert.Equal(AgvTravelStatus.Moving, travel.Status);
+        Assert.Equal(2, travel.LastReceiptAcknowledged); // 画面などで見られるように覚えておく
     }
 
     [Fact]

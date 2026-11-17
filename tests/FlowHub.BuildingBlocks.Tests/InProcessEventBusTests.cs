@@ -7,7 +7,7 @@ public class InProcessEventBusTests
     private sealed record OtherHappened(EventMetadata Metadata) : IIntegrationEvent;
 
     /// <summary>受け取ったイベントを記録するハンドラー。</summary>
-    private sealed class Recorder<TEvent>(List<string> log, string name) : IEventHandler<TEvent>
+    private sealed class Recorder<TEvent>(List<string> log, string name) : IEventSubscriber<TEvent>
         where TEvent : IIntegrationEvent
     {
         public Task HandleAsync(TEvent integrationEvent, CancellationToken cancellationToken)
@@ -115,7 +115,42 @@ public class InProcessEventBusTests
         Assert.Equal(["B"], log);
     }
 
-    private sealed class Failing : IEventHandler<SomethingHappened>
+    [Fact]
+    public async Task 取り消されたハンドラーも失敗として扱いほかのハンドラーには届ける()
+    {
+        var log = new List<string>();
+        var subscriptions = new EventSubscriptions();
+        subscriptions.Subscribe<SomethingHappened>(() => new Canceling());
+        subscriptions.Subscribe(() => new Recorder<SomethingHappened>(log, "B"));
+        var bus = new InProcessEventBus(subscriptions);
+        await bus.PublishAsync(new SomethingHappened(Metadata(), "x"), CancellationToken.None);
+
+        var error = await Assert.ThrowsAsync<AggregateException>(() => bus.FlushAsync(CancellationToken.None));
+
+        Assert.IsType<TaskCanceledException>(Assert.Single(error.InnerExceptions));
+        Assert.Equal(["B"], log);
+    }
+
+    [Fact]
+    public async Task 失敗したハンドラーの例外をそのまま返す()
+    {
+        var subscriptions = new EventSubscriptions();
+        subscriptions.Subscribe<SomethingHappened>(() => new Failing());
+        var bus = new InProcessEventBus(subscriptions);
+        await bus.PublishAsync(new SomethingHappened(Metadata(), "x"), CancellationToken.None);
+
+        var error = await Assert.ThrowsAsync<AggregateException>(() => bus.FlushAsync(CancellationToken.None));
+
+        Assert.IsType<InvalidOperationException>(Assert.Single(error.InnerExceptions));
+    }
+
+    private sealed class Canceling : IEventSubscriber<SomethingHappened>
+    {
+        public Task HandleAsync(SomethingHappened integrationEvent, CancellationToken cancellationToken) =>
+            Task.FromCanceled(new CancellationToken(canceled: true));
+    }
+
+    private sealed class Failing : IEventSubscriber<SomethingHappened>
     {
         public Task HandleAsync(SomethingHappened integrationEvent, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("失敗");

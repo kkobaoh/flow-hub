@@ -227,15 +227,16 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     /// <summary>
     /// 動作コマンドの受信の完了の通知。ログに残すだけ（受信は GET の番号で判断する）。
     /// </summary>
-    [System.Diagnostics.CodeAnalysis.SuppressMessage(
-        "Performance",
-        "CA1822:Mark members as static",
-        Justification = "AGV からの通知は、ほかの通知と同じく AGV ごとのインスタンスで受ける")]
     public NotificationOutcome OnMotionReceived(long number)
     {
-        _ = number;
+        LastReceiptAcknowledged = number; // 状態は変えず、画面などで見られるように覚えておくだけ
         return NotificationOutcome.Logged;
     }
+
+    /// <summary>
+    /// 最後に受信の完了の通知が届いたコマンドの番号（ログや画面のため。受信の判断には使わない）。まだなければ null。
+    /// </summary>
+    public long? LastReceiptAcknowledged { get; private set; }
 
     /// <summary>
     /// 前進・後退の完了の通知（十字の検出、または行き止まりのパネルへの到着）。
