@@ -82,6 +82,9 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     /// <summary>これまでの累計の走行距離（受け付けた前進・後退の距離の合計）。AGV の割り当てに使う。</summary>
     public long CumulativeDistanceMm { get; private set; }
 
+    /// <summary>走り終えていない経路を持っているか。</summary>
+    public bool HasRoute => _active is not null || _remainingSections.Count > 0;
+
     /// <summary>今の姿勢（最後に完了した動作のあとのパネルと向き）。位置がわからなければ null。</summary>
     public Pose? Position { get; private set; }
 
