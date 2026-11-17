@@ -1,3 +1,5 @@
+using FlowHub.Map;
+
 namespace FlowHub.Dispatching.Domain;
 
 /// <summary>
@@ -36,20 +38,22 @@ internal sealed class TransportQueue
     /// 割り当て待ちの搬送に、並べた順に AGV を割り当てる。1台の AGV には1つの搬送だけを割り当てる。
     /// AGV が空いたとき、充電残量が変わったとき、新しい要求が来たときに呼ぶ。
     /// </summary>
+    /// <param name="costOf">AGV の今の位置から、搬送元の受け渡しパネルまでの移動コスト。経路が見つからなければ null。</param>
     public IReadOnlyList<Assignment> AssignWaiting(
         IEnumerable<AgvCandidate> candidates,
-        ChargingPolicy policy,
-        Func<AgvCandidate, TimeSpan?> costOf)
+        Func<AgvCandidate, PanelId, TimeSpan?> costOf)
     {
         ArgumentNullException.ThrowIfNull(candidates);
+        ArgumentNullException.ThrowIfNull(costOf);
 
         var available = candidates.ToList();
         var assignments = new List<Assignment>();
 
         foreach (var transport in Waiting)
         {
-            var request = new AssignmentRequest(transport.Request.Source.Panel, transport.Request.Carrier);
-            if (AgvAssigner.Choose(request, available, policy, costOf) is not { } agv)
+            var source = transport.Request.Source.Panel;
+            var request = new AssignmentRequest(source, transport.Request.Carrier);
+            if (AgvAssigner.Choose(request, available, candidate => costOf(candidate, source)) is not { } agv)
             {
                 continue;
             }

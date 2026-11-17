@@ -303,6 +303,42 @@ public class TrafficServiceTests
     }
 
     [Fact]
+    public async Task ほかのAGVがそのパネルを予約しているかを問い合わせられる()
+    {
+        var (service, _, _) = await ReadyAt(new Pose("A", 0));
+        var other = new AgvId("AGV-2");
+        service.RegisterAgv(other, Motion);
+        await service.ResetPositionAsync(other, new Pose("T", 0), CancellationToken.None);
+
+        Assert.True(service.IsReservedByOther(T, Agv));
+        Assert.False(service.IsReservedByOther(T, other)); // 自分の予約
+        Assert.False(service.IsReservedByOther(B, Agv)); // 誰も予約していない
+    }
+
+    [Fact]
+    public async Task 位置リセットが完了したら知らせる()
+    {
+        var map = MapStore();
+        var events = new RecordingPublisher();
+        using var service = new TrafficService(map, events, new FixedTimeProvider());
+        service.RegisterAgv(Agv, Motion);
+        await service.ResetPositionAsync(Agv, new Pose("A", 0), CancellationToken.None);
+        await service.HandleCommandRequestAsync(Agv, -1, CancellationToken.None);
+
+        await service.HandlePositionResetCompletedAsync(Agv, 1, CancellationToken.None);
+
+        Assert.Equal(Agv, Assert.IsType<AgvPositionResetCompleted>(Assert.Single(events.Published)).Agv);
+    }
+
+    [Fact]
+    public void 配車からはインターフェースを通して使える()
+    {
+        using var service = new TrafficService(MapStore(), new RecordingPublisher(), new FixedTimeProvider());
+
+        Assert.IsAssignableFrom<ITrafficService>(service);
+    }
+
+    [Fact]
     public void 同じAGVは二重に登録できない()
     {
         using var service = new TrafficService(MapStore(), new RecordingPublisher(), new FixedTimeProvider());

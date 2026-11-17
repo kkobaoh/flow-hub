@@ -13,7 +13,7 @@ namespace FlowHub.Traffic.Application;
 /// AGV からのリクエストと通知を受ける窓口は、同じプロジェクトの AGV との通信の部分から呼ぶので internal にする。
 /// 処理は1つずつ順に行う（同時に呼ばれても状態が崩れないようにする）。
 /// </remarks>
-public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher, TimeProvider timeProvider) : IDisposable
+public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher, TimeProvider timeProvider) : ITrafficService, IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -64,7 +64,7 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
     /// <summary>
     /// AGV の今の位置から、パネルまでの移動コスト（所要時間）。経路が見つからなければ null。予約は考えない。
     /// </summary>
-    public TimeSpan? EstimateMoveCost(AgvId id, PanelId to)
+    public TimeSpan? EstimateMoveCost(AgvId id, PanelId destination)
     {
         _gate.Wait();
         try
@@ -75,8 +75,24 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
                 return null;
             }
 
-            var route = Plan(entry, to);
+            var route = Plan(entry, destination);
             return route.Found ? route.Cost : null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// ほかの AGV がそのパネルを予約しているか（充電ポートが使われているかの判断などに使う）。
+    /// </summary>
+    public bool IsReservedByOther(PanelId panel, AgvId self)
+    {
+        _gate.Wait();
+        try
+        {
+            return _reservations.OwnerOf(panel) is { } owner && owner != self;
         }
         finally
         {
@@ -96,17 +112,17 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
     /// AGV をパネルへ動かす。着いたら <see cref="AgvArrived"/> で知らせる。
     /// </summary>
     /// <param name="correlationId">一連の流れの ID（例：搬送 ID）。このあとのイベントに付ける。</param>
-    public Task<MoveResult> MoveAgvAsync(AgvId id, PanelId to, string correlationId, CancellationToken cancellationToken) =>
+    public Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, string correlationId, CancellationToken cancellationToken) =>
         RunAsync(id, correlationId, entry =>
         {
             var travel = entry.Travel;
-            if (travel.Position?.NodeId == to.Value)
+            if (travel.Position?.NodeId == destination.Value)
             {
-                entry.PendingEvents.Add(metadata => new AgvArrived(metadata, id, to));
+                entry.PendingEvents.Add(metadata => new AgvArrived(metadata, id, destination));
                 return MoveResult.AlreadyThere;
             }
 
-            var route = Plan(entry, to);
+            var route = Plan(entry, destination);
             if (!route.Found)
             {
                 return MoveResult.NoRoute;
@@ -118,7 +134,7 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
                 return MoveResult.Waiting;
             }
 
-            entry.Destination = to;
+            entry.Destination = destination;
             return MoveResult.Started;
         }, cancellationToken);
 
@@ -205,7 +221,7 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
         RunAsync(id, null, entry => Announce(entry, entry.Travel.OnAlarmCleared(number), metadata => new AgvResumed(metadata, id)), cancellationToken);
 
     internal Task<NotificationOutcome> HandlePositionResetCompletedAsync(AgvId id, long number, CancellationToken cancellationToken) =>
-        RunAsync(id, null, entry => entry.Travel.OnPositionResetCompleted(number), cancellationToken);
+        RunAsync(id, null, entry => Announce(entry, entry.Travel.OnPositionResetCompleted(number), metadata => new AgvPositionResetCompleted(metadata, id)), cancellationToken);
 
     internal Task<NotificationOutcome> HandleAgvErrorAsync(AgvId id, AgvErrorKind kind, CancellationToken cancellationToken) =>
         RunAsync(id, null, entry => entry.Travel.OnAgvError(kind), cancellationToken);
@@ -290,10 +306,10 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
         return outcome;
     }
 
-    private RouteResult Plan(AgvEntry entry, PanelId to)
+    private RouteResult Plan(AgvEntry entry, PanelId destination)
     {
         var graph = RouteGraphFactory.FromMap(CurrentMap());
-        return _planner.Plan(new RouteRequest(graph, entry.Travel.Position!, to.Value, GoalHeading: null, entry.Motion));
+        return _planner.Plan(new RouteRequest(graph, entry.Travel.Position!, destination.Value, GoalHeading: null, entry.Motion));
     }
 
     private MapSnapshot CurrentMap() =>

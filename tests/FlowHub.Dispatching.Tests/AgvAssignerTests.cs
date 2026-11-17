@@ -20,8 +20,21 @@ public class AgvAssignerTests
         int battery = 100,
         bool recoveringCharge = false,
         CarrierTypeId? carrier = null,
-        long cumulativeDistanceMm = 0) =>
-        new(new AgvId(id), new Pose("A", 0), isIdle, battery, recoveringCharge, carrier ?? CarrierX, cumulativeDistanceMm);
+        long cumulativeDistanceMm = 0,
+        ChargingPolicy? policy = null) =>
+        new(new AgvId(id), new Pose("A", 0), isIdle, battery, recoveringCharge, policy ?? Policy, carrier ?? CarrierX, cumulativeDistanceMm);
+
+    [Fact]
+    public void 充電の設定値はAGVごとに見る()
+    {
+        var strict = new ChargingPolicy(GoChargeBelowPercent: 50, ResumeAtPercent: 90);
+
+        var chosen = Choose(
+            [Agv("AGV-1", battery: 40, policy: strict), Agv("AGV-2", battery: 40)],
+            Costs(("AGV-1", 10), ("AGV-2", 30)));
+
+        Assert.Equal(new AgvId("AGV-2"), chosen);
+    }
 
     /// <summary>AGV の ID ごとの移動コスト（秒）。載っていない AGV は経路なし。</summary>
     private static Func<AgvCandidate, TimeSpan?> Costs(params (string Id, double Seconds)[] costs)
@@ -31,7 +44,7 @@ public class AgvAssignerTests
     }
 
     private static AgvId? Choose(IEnumerable<AgvCandidate> candidates, Func<AgvCandidate, TimeSpan?> costOf) =>
-        AgvAssigner.Choose(Request, candidates, Policy, costOf);
+        AgvAssigner.Choose(Request, candidates, costOf);
 
     [Fact]
     public void 搬送元に一番近いAGVを選ぶ()

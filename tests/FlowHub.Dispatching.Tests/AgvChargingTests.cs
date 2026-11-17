@@ -152,6 +152,30 @@ public class AgvChargingTests
     }
 
     [Fact]
+    public void 充電ポートへ向かう途中で異常になったら充電ポートを探すに戻る()
+    {
+        var charging = NewCharging();
+        charging.OnBatteryChanged(19, IdleElsewhere);
+        charging.GoTo(Port);
+
+        charging.OnFaulted();
+
+        Assert.Equal(ChargingState.SeekingPort, charging.State);
+        Assert.Null(charging.Port);
+    }
+
+    [Fact]
+    public void 充電ポートへ向かっていないときに異常になっても充電の状態は変えない()
+    {
+        var charging = NewCharging();
+        charging.OnBatteryChanged(19, OnPin);
+
+        charging.OnFaulted();
+
+        Assert.Equal(ChargingState.Charging, charging.State);
+    }
+
+    [Fact]
     public void 行ける充電ポートがなければ待つ()
     {
         var charging = NewCharging();

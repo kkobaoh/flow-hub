@@ -20,9 +20,9 @@ public class TransportQueueTests
         NeededBy: BaseTime.AddMinutes(neededInMinutes));
 
     private static AgvCandidate IdleAgv(string id) =>
-        new(new AgvId(id), new Pose("A", 0), IsIdle: true, BatteryPercent: 100, RecoveringCharge: false, CarrierX, CumulativeDistanceMm: 0);
+        new(new AgvId(id), new Pose("A", 0), IsIdle: true, BatteryPercent: 100, RecoveringCharge: false, Policy, CarrierX, CumulativeDistanceMm: 0);
 
-    private static TimeSpan? AnyCost(AgvCandidate candidate) => TimeSpan.FromSeconds(10);
+    private static TimeSpan? AnyCost(AgvCandidate candidate, PanelId source) => TimeSpan.FromSeconds(10);
 
     [Fact]
     public void 頼まれた搬送には1から順に番号を付ける()
@@ -43,7 +43,7 @@ public class TransportQueueTests
         var later = queue.Add(Request("C-1", 30));
         var sooner = queue.Add(Request("C-2", 10));
 
-        var assigned = queue.AssignWaiting([IdleAgv("AGV-1")], Policy, AnyCost);
+        var assigned = queue.AssignWaiting([IdleAgv("AGV-1")], AnyCost);
 
         Assert.Equal([sooner.Id], assigned.Select(a => a.Transport.Id));
         Assert.Equal(TransportStage.Waiting, later.Stage);
@@ -56,7 +56,7 @@ public class TransportQueueTests
         var first = queue.Add(Request("C-1", 10));
         queue.Add(Request("C-2", 10));
 
-        var assigned = queue.AssignWaiting([IdleAgv("AGV-1")], Policy, AnyCost);
+        var assigned = queue.AssignWaiting([IdleAgv("AGV-1")], AnyCost);
 
         Assert.Equal([first.Id], assigned.Select(a => a.Transport.Id));
     }
@@ -68,10 +68,26 @@ public class TransportQueueTests
         queue.Add(Request("C-1", 10));
         queue.Add(Request("C-2", 20));
 
-        var assigned = queue.AssignWaiting([IdleAgv("AGV-1"), IdleAgv("AGV-2")], Policy, AnyCost);
+        var assigned = queue.AssignWaiting([IdleAgv("AGV-1"), IdleAgv("AGV-2")], AnyCost);
 
         Assert.Equal(2, assigned.Count);
         Assert.NotEqual(assigned[0].Transport.AssignedAgv, assigned[1].Transport.AssignedAgv);
+    }
+
+    [Fact]
+    public void 移動コストは搬送ごとの搬送元までで求める()
+    {
+        var queue = new TransportQueue();
+        queue.Add(Request("C-1", 10) with { Source = new TransferPoint(new PanelId("S2"), "station-2") });
+        var asked = new List<PanelId>();
+
+        queue.AssignWaiting([IdleAgv("AGV-1")], (candidate, source) =>
+        {
+            asked.Add(source);
+            return TimeSpan.FromSeconds(10);
+        });
+
+        Assert.Equal([new PanelId("S2")], asked);
     }
 
     [Fact]
@@ -80,7 +96,7 @@ public class TransportQueueTests
         var queue = new TransportQueue();
         var transport = queue.Add(Request("C-1", 10));
 
-        var assigned = queue.AssignWaiting([IdleAgv("AGV-1")], Policy, AnyCost);
+        var assigned = queue.AssignWaiting([IdleAgv("AGV-1")], AnyCost);
 
         Assert.Equal([new MoveAgv(new AgvId("AGV-1"), new PanelId("S"))], assigned.Single().Actions);
         Assert.Equal(TransportStage.MovingToSource, transport.Stage);
@@ -92,7 +108,7 @@ public class TransportQueueTests
         var queue = new TransportQueue();
         var transport = queue.Add(Request("C-1", 10));
 
-        var assigned = queue.AssignWaiting([], Policy, AnyCost);
+        var assigned = queue.AssignWaiting([], AnyCost);
 
         Assert.Empty(assigned);
         Assert.Equal(TransportStage.Waiting, transport.Stage);
@@ -105,7 +121,7 @@ public class TransportQueueTests
         var queue = new TransportQueue();
         queue.Add(Request("C-1", 10));
 
-        queue.AssignWaiting([IdleAgv("AGV-1")], Policy, AnyCost);
+        queue.AssignWaiting([IdleAgv("AGV-1")], AnyCost);
 
         Assert.Empty(queue.Waiting);
     }
