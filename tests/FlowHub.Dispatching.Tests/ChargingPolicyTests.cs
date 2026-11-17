@@ -29,6 +29,12 @@ public class ChargingPolicyTests
     }
 
     [Fact]
+    public void 搬送のIDは文字列にすると番号になる()
+    {
+        Assert.Equal("12", new TransportId(12).ToString());
+    }
+
+    [Fact]
     public void キャリアの種類のIDは空にできない()
     {
         Assert.Equal(new CarrierTypeId("X"), new CarrierTypeId("X"));
