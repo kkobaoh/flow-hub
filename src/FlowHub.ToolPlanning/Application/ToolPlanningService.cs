@@ -53,15 +53,9 @@ public sealed class ToolPlanningService(
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_requests.FirstOrDefault(pair => pair.Value.Cargo.Contains(id)) is { Value: not null } request)
+            if (!await CancelRequestContainingAsync(id, cancellationToken).ConfigureAwait(false))
             {
-                if (!await dispatching.CancelTransportAsync(request.Key, cancellationToken).ConfigureAwait(false))
-                {
-                    return false;
-                }
-
-                consumables.ReleaseReservations(request.Value.Cargo);
-                _requests.Remove(request.Key);
+                return false;
             }
 
             var accepted = await consumables.RequestShipmentAsync(id, cancellationToken).ConfigureAwait(false);
@@ -72,6 +66,68 @@ public sealed class ToolPlanningService(
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// ユーザーが、装置へ届ける消耗品を指名した。指名を記録して、判断をやり直す。
+    /// </summary>
+    public async Task DesignateAsync(DeviceId device, ConsumableId id, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            consumables.Designate(device, id);
+            await ReplanCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// ユーザーが、指名を取り消した。届ける要求に入っていれば、割り当て前ならその要求を取りやめてから取り消し、判断をやり直す。
+    /// </summary>
+    /// <returns>取り消したら true。割り当て済みの要求に入っていれば取り消さずに false。</returns>
+    public async Task<bool> CancelDesignationAsync(ConsumableId id, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!await CancelRequestContainingAsync(id, cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            consumables.CancelDesignation(id);
+            await ReplanCoreAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 消耗品が入っている要求を、割り当て前なら取りやめて予約を解く。
+    /// </summary>
+    /// <returns>入っている要求がないか、取りやめたら true。割り当て済みなら false。</returns>
+    private async Task<bool> CancelRequestContainingAsync(ConsumableId id, CancellationToken cancellationToken)
+    {
+        if (_requests.FirstOrDefault(pair => pair.Value.Cargo.Contains(id)) is not { Value: not null } request)
+        {
+            return true;
+        }
+
+        if (!await dispatching.CancelTransportAsync(request.Key, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        consumables.ReleaseReservations(request.Value.Cargo);
+        _requests.Remove(request.Key);
+        return true;
     }
 
     private async Task ReplanCoreAsync(CancellationToken cancellationToken)
@@ -99,7 +155,8 @@ public sealed class ToolPlanningService(
         var deliveries = TripPlanner.PlanDeliveries(
             shortages,
             freeSlots,
-            variety => consumables.GetStationStock(variety).Select(s => s.Consumable).ToArray());
+            variety => consumables.GetStationStock(variety).Select(s => s.Consumable).ToArray(),
+            consumables.GetDesignated);
 
         // 必要時刻の順。同じなら届けるほうを先に頼む
         var trips = deliveries.Trips

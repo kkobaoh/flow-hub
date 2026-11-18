@@ -347,6 +347,69 @@ public class ToolPlanningServiceTests
         Assert.Equal([T0], f.Dispatching.ActiveOrders.Select(o => o.NeededBy));
     }
 
+    // ---- 届ける消耗品の指名 ----
+
+    [Fact]
+    public async Task 指名があれば先入れ先出しより先に指名された消耗品を届ける()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        AtStation(f, "A-2", VarietyA);
+        await SetAsync(f, (VarietyA, 1));
+
+        await f.Planning.DesignateAsync(Device, new ConsumableId("A-2"), None);
+
+        Assert.Equal(["A-2"], ActiveCargo(f));
+    }
+
+    [Fact]
+    public async Task 指名した品種が不足していなければ不足が出るまで待つ()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        AtStation(f, "A-2", VarietyA);
+        await SetAsync(f, (VarietyA, 0));
+        await f.Planning.DesignateAsync(Device, new ConsumableId("A-2"), None);
+
+        Assert.Empty(ActiveCargo(f));
+
+        await SetAsync(f, (VarietyA, 1));
+        await f.Planning.ReplanAsync(None);
+
+        Assert.Equal(["A-2"], ActiveCargo(f));
+    }
+
+    [Fact]
+    public async Task 割り当て前なら指名を取り消せて先入れ先出しに戻る()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        AtStation(f, "A-2", VarietyA);
+        await SetAsync(f, (VarietyA, 1));
+        await f.Planning.DesignateAsync(Device, new ConsumableId("A-2"), None);
+
+        var cancelled = await f.Planning.CancelDesignationAsync(new ConsumableId("A-2"), None);
+
+        Assert.True(cancelled);
+        Assert.Equal(["A-1"], ActiveCargo(f));
+    }
+
+    [Fact]
+    public async Task 割り当て済みなら指名は取り消せない()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        AtStation(f, "A-2", VarietyA);
+        await SetAsync(f, (VarietyA, 1));
+        await f.Planning.DesignateAsync(Device, new ConsumableId("A-2"), None);
+        f.Dispatching.AssignAll();
+
+        var cancelled = await f.Planning.CancelDesignationAsync(new ConsumableId("A-2"), None);
+
+        Assert.False(cancelled);
+        Assert.Equal(["A-2"], ActiveCargo(f));
+    }
+
     // ---- 上位システムの出庫の指示 ----
 
     [Fact]

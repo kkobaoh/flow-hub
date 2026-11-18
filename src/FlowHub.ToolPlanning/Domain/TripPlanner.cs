@@ -47,15 +47,18 @@ internal static class TripPlanner
     /// ステーションにあるぶんを、装置の空きの数まで割り当て、同じ装置・同じ加工の種類ごとにキャリアに入る個数で分ける。
     /// </summary>
     /// <param name="freeSlots">装置ごとの、届ける要求を出せる数。</param>
-    /// <param name="stationStock">ステーションにある、届けられる品種の消耗品（選ぶ順）。</param>
+    /// <param name="stationStock">ステーションにある、届けられる品種の消耗品（選ぶ順。指名されたものは入らない）。</param>
+    /// <param name="designated">その装置へ届けるように指名された、その品種の消耗品（選ぶ順）。先入れ先出しより先に使う。</param>
     public static DeliveryPlan PlanDeliveries(
         IEnumerable<Shortage> shortages,
         IReadOnlyDictionary<DeviceId, int> freeSlots,
-        Func<VarietyId, IReadOnlyList<ConsumableId>> stationStock)
+        Func<VarietyId, IReadOnlyList<ConsumableId>> stationStock,
+        Func<DeviceId, VarietyId, IReadOnlyList<ConsumableId>> designated)
     {
         ArgumentNullException.ThrowIfNull(shortages);
         ArgumentNullException.ThrowIfNull(freeSlots);
         ArgumentNullException.ThrowIfNull(stationStock);
+        ArgumentNullException.ThrowIfNull(designated);
 
         var pools = new Dictionary<VarietyId, Queue<ConsumableId>>();
         var free = new Dictionary<DeviceId, int>(freeSlots);
@@ -74,15 +77,18 @@ internal static class TripPlanner
                 pools.Add(shortage.Variety, pool);
             }
 
-            if (pool.Count < shortage.Count)
+            // 指名されたものを先に、そのあと先入れ先出しで選ぶ
+            var candidates = new Queue<ConsumableId>(designated(shortage.Device, shortage.Variety));
+            var available = candidates.Count + pool.Count;
+            if (available < shortage.Count)
             {
-                lacking[shortage.Variety] = lacking.GetValueOrDefault(shortage.Variety) + shortage.Count - pool.Count;
+                lacking[shortage.Variety] = lacking.GetValueOrDefault(shortage.Variety) + shortage.Count - available;
             }
 
-            var count = Math.Min(Math.Min(shortage.Count, pool.Count), free.GetValueOrDefault(shortage.Device));
+            var count = Math.Min(Math.Min(shortage.Count, available), free.GetValueOrDefault(shortage.Device));
             for (var i = 0; i < count; i++)
             {
-                picks.Add((shortage, pool.Dequeue()));
+                picks.Add((shortage, candidates.Count > 0 ? candidates.Dequeue() : pool.Dequeue()));
             }
 
             free[shortage.Device] = free.GetValueOrDefault(shortage.Device) - count;

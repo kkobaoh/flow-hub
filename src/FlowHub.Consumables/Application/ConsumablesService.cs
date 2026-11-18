@@ -256,12 +256,16 @@ public sealed partial class ConsumablesService(
     /// <summary>
     /// ステーションにある、届けられるその品種の新品（予約していないもの）。入庫した順に返す。
     /// </summary>
+    /// <remarks>指名された消耗品は、指名した装置の候補（<see cref="GetDesignated"/>）なので、ここには入れない。</remarks>
     public IReadOnlyList<StationStock> GetStationStock(VarietyId variety) => Locked(() =>
-        _consumables.Values
-            .Where(c => c.Variety == variety && c.Condition == ConsumableCondition.New && !c.NeedsCheck && c.Location is AtStation && !_deliveries.ContainsKey(c.Id) && !_shipping.Contains(c.Id))
+    {
+        ForgetInvalidDesignations();
+        return _consumables.Values
+            .Where(c => c.Variety == variety && IsDeliverable(c) && !_deliveries.ContainsKey(c.Id) && !_designations.ContainsKey(c.Id))
             .OrderBy(c => _arrivalOrder.GetValueOrDefault(c.Id))
             .Select(c => new StationStock(c.Id, ((AtStation)c.Location).Station))
-            .ToArray());
+            .ToArray();
+    });
 
     /// <summary>
     /// 消耗品を、装置へ届けるものとして予約する。届ける途中の数に入り、ステーションの在庫から外れる。
