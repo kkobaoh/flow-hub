@@ -14,11 +14,13 @@
 | [docs/domain.md](docs/domain.md) | ドメイン仕様（消耗品、搬送方式、ステーション、配車、充電、段取り替えなど） |
 | [docs/open-issues.md](docs/open-issues.md) | 未決事項（仕様が決まっていないもの） |
 | [docs/backlog.md](docs/backlog.md) | やることリスト（仕様は決まっているが、まだ実装していないもの） |
+| [docs/plan.md](docs/plan.md) | 作業計画（実装を進める順番と、それぞれの状態） |
 
 - 設計の検討や仕様に関わる作業の前に、**docs/domain.md と docs/open-issues.md を読みます**。
 - 仕様が決まったら、docs/domain.md に反映し、docs/open-issues.md から該当する項目を削除します。
 - 新しい未決事項が見つかったら、docs/open-issues.md に追加します。
 - 未決事項を追加・削除したときは、**番号を連番に振り直します**。
+- 作業を始めるときは docs/plan.md で次の作業を確かめ、小ステップを終えたら状態を更新します。
 - ドキュメントは日本語で書きます。
 
 ## 現在のフェーズ
