@@ -24,7 +24,7 @@ public interface IMapStore
 }
 
 /// <summary>
-/// マップの保存場所（メモリーの中）。DB を使うまでの実装。
+/// マップの保存場所（メモリーの中）。テストで使い、DB に保存する置き場（<see cref="Infrastructure.DbMapStore"/>）の手元の写しにも使う。
 /// </summary>
 public sealed class InMemoryMapStore : IMapStore
 {
@@ -60,7 +60,12 @@ public sealed class InMemoryMapStore : IMapStore
         }
     }
 
-    public void SetCarrierHeight(PanelId panel, int heightMm, DateTimeOffset setAt)
+    public void SetCarrierHeight(PanelId panel, int heightMm, DateTimeOffset setAt) => TrySetCarrierHeight(panel, heightMm, setAt);
+
+    /// <summary>
+    /// キャリアの高さを設定する。すでに新しい設定があって、設定しなかったときは false。
+    /// </summary>
+    internal bool TrySetCarrierHeight(PanelId panel, int heightMm, DateTimeOffset setAt)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(heightMm);
         lock (_lock)
@@ -73,9 +78,21 @@ public sealed class InMemoryMapStore : IMapStore
 
             if (_heights.TryGetValue(panel, out var existing) && existing.SetAt > setAt)
             {
-                return; // すでに新しい設定がある
+                return false; // すでに新しい設定がある
             }
 
+            _heights[panel] = (heightMm, setAt);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 保存しておいたキャリアの高さを戻す（起動したとき）。保存したときに確かめているので、もう一度は確かめない。
+    /// </summary>
+    internal void RestoreCarrierHeight(PanelId panel, int heightMm, DateTimeOffset setAt)
+    {
+        lock (_lock)
+        {
             _heights[panel] = (heightMm, setAt);
         }
     }

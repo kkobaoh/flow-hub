@@ -7,9 +7,6 @@
     <!-- ローカルの PostgreSQL を使うので、ふだんの dotnet test には含めない（流し方は CLAUDE.md を参照） -->
     <IsTestProject Condition="'$(RunIntegrationTests)' != 'true'">false</IsTestProject>
     <IsTestingPlatformApplication Condition="'$(RunIntegrationTests)' != 'true'">false</IsTestingPlatformApplication>
-
-    <!-- テストを書いたら外す（tests/Directory.Build.targets を参照） -->
-    <AllowNoTests>true</AllowNoTests>
   </PropertyGroup>
 
   <ItemGroup>

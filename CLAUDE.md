@@ -135,6 +135,9 @@
 - DB とのやり取りには **EF Core** を使います。本番は **PostgreSQL**、テストとデバッグは **SQLite** で、設定で切り替えます。
   - SQLite にはスキーマがないので、**コンテキストごとに別の DB ファイル** にします。
   - マイグレーションは **PostgreSQL 用だけ** 作ります。SQLite は、今のモデルからテーブルを作ります（`EnsureCreated`）。
+    - マイグレーションを作る道具（`dotnet-ef`）は、リポジトリのローカルツールです（初めて使うときは `dotnet tool restore`）。
+    - 作り方：`dotnet ef migrations add <名前> --project src/FlowHub.<コンテキスト> --startup-project src/FlowHub.Api --context <コンテキスト>DbContext --output-dir Infrastructure/Migrations`
+    - DbContext は、コンテキストの `Infrastructure` に `internal` で置きます。組み立て側には、DB の設定を受け取って開く入り口（例：`MapDatabase.OpenAsync`）だけを公開します。
   - DB に頼む検索は単純に保ちます（DB の種類による違いを避けるため）。
   - DB を使うテストは、基本的に **SQLite** で流します。テストは、できるだけ **軽く、たくさん回せる** ように保ちます。
   - **ローカルの PostgreSQL** を使うのは、**最後の統合テストだけ** です。
