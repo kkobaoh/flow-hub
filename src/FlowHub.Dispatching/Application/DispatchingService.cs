@@ -234,14 +234,6 @@ public sealed class DispatchingService(
                     await PublishAsync(correlationId, m => new TransferPermissionRequested(m, permission.Transport, request.Requester, request.CargoRefs, permission.At.Endpoint, permission.Side), cancellationToken).ConfigureAwait(false);
                     break;
 
-                case NotifyLoaded loaded:
-                    await PublishAsync(correlationId, m => new CargoLoaded(m, loaded.Transport, request.Requester, request.CargoRefs, request.Source.Endpoint), cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case NotifyUnloaded unloaded:
-                    await PublishAsync(correlationId, m => new CargoUnloaded(m, unloaded.Transport, request.Requester, request.CargoRefs, request.Destination.Endpoint), cancellationToken).ConfigureAwait(false);
-                    break;
-
                 case NotifyCompleted completed:
                     await PublishAsync(correlationId, m => new TransportCompleted(m, completed.Transport, request.Requester), cancellationToken).ConfigureAwait(false);
                     await OnTransportFinishedAsync(transport.AssignedAgv!.Value, cancellationToken).ConfigureAwait(false);

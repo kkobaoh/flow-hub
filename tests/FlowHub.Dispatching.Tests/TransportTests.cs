@@ -107,14 +107,14 @@ public class TransportTests
     }
 
     [Fact]
-    public void 搬送元でキャリアが上がったら積み込んだことを知らせて搬送先へ動かす()
+    public void 搬送元でキャリアが上がったら搬送先へ動かす()
     {
         var transport = TransferredAtSource();
 
         var result = transport.OnCarrierRaised();
 
         Assert.Equal(TransportStage.MovingToDestination, transport.Stage);
-        Assert.Equal([new NotifyLoaded(transport.Id), new MoveAgv(Agv, Device.Panel)], result.Actions);
+        Assert.Equal([new MoveAgv(Agv, Device.Panel)], result.Actions);
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public class TransportTests
     }
 
     [Fact]
-    public void 搬送先でキャリアが上がったら降ろしたことと完了を知らせる()
+    public void 搬送先でキャリアが上がったら完了を知らせる()
     {
         var transport = ArrivedAtDestination();
         transport.OnCarrierLowered();
@@ -140,7 +140,7 @@ public class TransportTests
         var result = transport.OnCarrierRaised();
 
         Assert.Equal(TransportStage.Completed, transport.Stage);
-        Assert.Equal([new NotifyUnloaded(transport.Id), new NotifyCompleted(transport.Id)], result.Actions);
+        Assert.Equal([new NotifyCompleted(transport.Id)], result.Actions);
     }
 
     [Fact]
@@ -216,14 +216,14 @@ public class TransportTests
     }
 
     [Fact]
-    public void 一時停止中も積み込んだという事実は知らせる()
+    public void 一時停止中にキャリアが上がったら状態は進めて搬送先へは再開してから動かす()
     {
         var transport = TransferredAtSource();
         transport.Pause();
 
         var result = transport.OnCarrierRaised();
 
-        Assert.Equal([new NotifyLoaded(transport.Id)], result.Actions);
+        Assert.Empty(result.Actions);
         Assert.Equal([new MoveAgv(Agv, Device.Panel)], transport.Resume());
     }
 

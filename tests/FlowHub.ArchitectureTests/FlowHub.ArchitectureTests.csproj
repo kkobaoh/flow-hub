@@ -8,6 +8,7 @@
     <ProjectReference Include="..\..\src\FlowHub.Dispatching\FlowHub.Dispatching.csproj" />
     <ProjectReference Include="..\..\src\FlowHub.ToolPlanning\FlowHub.ToolPlanning.csproj" />
     <ProjectReference Include="..\..\src\FlowHub.Consumables\FlowHub.Consumables.csproj" />
+    <ProjectReference Include="..\..\src\FlowHub.Api\FlowHub.Api.csproj" />
   </ItemGroup>
 
 </Project>

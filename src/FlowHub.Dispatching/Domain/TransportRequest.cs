@@ -44,12 +44,6 @@ internal sealed record RaiseCarrier(AgvId Agv) : TransportAction;
 /// <summary>イベントで知らせる：受け渡しの相手に、搬送の許可を出してほしい。</summary>
 internal sealed record RequestTransferPermission(TransportId Transport, TransferPoint At, TransferSide Side) : TransportAction;
 
-/// <summary>イベントで知らせる：積み込んだ。</summary>
-internal sealed record NotifyLoaded(TransportId Transport) : TransportAction;
-
-/// <summary>イベントで知らせる：降ろした。</summary>
-internal sealed record NotifyUnloaded(TransportId Transport) : TransportAction;
-
 /// <summary>イベントで知らせる：搬送が完了した。</summary>
 internal sealed record NotifyCompleted(TransportId Transport) : TransportAction;
 

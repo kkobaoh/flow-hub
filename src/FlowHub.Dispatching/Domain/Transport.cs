@@ -97,8 +97,8 @@ internal sealed class Transport(TransportId id, TransportRequest request)
     /// <summary>キャリアが上がった（交通整理から）。</summary>
     public TransportEventResult OnCarrierRaised() => Stage switch
     {
-        TransportStage.RaisingAtSource => MoveTo(TransportStage.MovingToDestination, new NotifyLoaded(Id)),
-        TransportStage.RaisingAtDestination => MoveTo(TransportStage.Completed, new NotifyUnloaded(Id), new NotifyCompleted(Id)),
+        TransportStage.RaisingAtSource => MoveTo(TransportStage.MovingToDestination),
+        TransportStage.RaisingAtDestination => MoveTo(TransportStage.Completed, new NotifyCompleted(Id)),
         _ => Ignored,
     };
 

@@ -8,19 +8,7 @@ namespace FlowHub.ArchitectureTests;
 /// </summary>
 public class ContextDependencyTests
 {
-    /// <summary>
-    /// コンテキストごとに、参照してよい相手。CLAUDE.md の表と一致させること。
-    /// </summary>
-    private static readonly Dictionary<string, string[]> AllowedReferences = new()
-    {
-        ["FlowHub.BuildingBlocks"] = [],
-        ["FlowHub.Map"] = ["FlowHub.BuildingBlocks"],
-        ["FlowHub.Routing"] = [],
-        ["FlowHub.Traffic"] = ["FlowHub.BuildingBlocks", "FlowHub.Routing", "FlowHub.Map"],
-        ["FlowHub.Dispatching"] = ["FlowHub.BuildingBlocks", "FlowHub.Traffic", "FlowHub.Routing", "FlowHub.Map"],
-        ["FlowHub.Consumables"] = ["FlowHub.BuildingBlocks", "FlowHub.Dispatching", "FlowHub.Map"],
-        ["FlowHub.ToolPlanning"] = ["FlowHub.BuildingBlocks", "FlowHub.Consumables", "FlowHub.Dispatching", "FlowHub.Map"],
-    };
+    private static Dictionary<string, string[]> AllowedReferences => ContextRules.AllowedReferences;
 
     /// <summary>
     /// コンテキストではなく、組み立てを担当するプロジェクト。どのコンテキストも参照してよい。

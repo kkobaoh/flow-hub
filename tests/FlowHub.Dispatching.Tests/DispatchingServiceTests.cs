@@ -176,21 +176,18 @@ public class DispatchingServiceTests
     }
 
     [Fact]
-    public async Task 受け渡しが終わったらキャリアを上げ上がったら積み込んだことを知らせて搬送先へ動かす()
+    public async Task 受け渡しが終わったらキャリアを上げ上がったら搬送先へ動かす()
     {
-        var (service, traffic, events) = Setup(A);
+        var (service, traffic, _) = Setup(A);
 
         var id = await LoadedTransport(service, traffic);
 
         Assert.Equal([Agv], traffic.Raises);
-        var loaded = Assert.Single(events.Of<CargoLoaded>());
-        Assert.Equal((id, "ToolPlanning", "station-1"), (loaded.Transport, loaded.Requester, loaded.Endpoint));
-        Assert.Equal(["C-1"], loaded.CargoRefs);
         Assert.Equal((Agv, D, $"transport:{id}"), traffic.Moves[^1]);
     }
 
     [Fact]
-    public async Task 搬送先で降ろしたら降ろしたことと完了を知らせ次の搬送を割り当てる()
+    public async Task 搬送先で降ろしたら完了を知らせ次の搬送を割り当てる()
     {
         var (service, traffic, events) = Setup(A);
         var first = await LoadedTransport(service, traffic);
@@ -198,9 +195,6 @@ public class DispatchingServiceTests
 
         await CompleteTransport(service, traffic, first);
 
-        var unloaded = Assert.Single(events.Of<CargoUnloaded>());
-        Assert.Equal((first, "ToolPlanning", "device-1"), (unloaded.Transport, unloaded.Requester, unloaded.Endpoint));
-        Assert.Equal(["C-1"], unloaded.CargoRefs);
         Assert.Equal("ToolPlanning", Assert.Single(events.Of<TransportCompleted>()).Requester);
         Assert.Equal(first, Assert.Single(events.Of<TransportCompleted>()).Transport);
         Assert.Equal((Agv, S, $"transport:{second}"), traffic.Moves[^1]);

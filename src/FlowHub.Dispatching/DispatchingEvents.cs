@@ -17,22 +17,6 @@ public sealed record TransferPermissionRequested(
     string Endpoint,
     TransferSide Side) : IIntegrationEvent;
 
-/// <summary>積み込んだ（搬送元でキャリアが上がった）。</summary>
-public sealed record CargoLoaded(
-    EventMetadata Metadata,
-    TransportId Transport,
-    string Requester,
-    IReadOnlyList<string> CargoRefs,
-    string Endpoint) : IIntegrationEvent;
-
-/// <summary>降ろした（搬送先でキャリアが上がった）。</summary>
-public sealed record CargoUnloaded(
-    EventMetadata Metadata,
-    TransportId Transport,
-    string Requester,
-    IReadOnlyList<string> CargoRefs,
-    string Endpoint) : IIntegrationEvent;
-
 /// <summary>搬送が完了した。</summary>
 public sealed record TransportCompleted(EventMetadata Metadata, TransportId Transport, string Requester) : IIntegrationEvent;
 
