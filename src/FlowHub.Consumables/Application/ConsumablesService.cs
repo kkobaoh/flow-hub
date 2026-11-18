@@ -45,8 +45,12 @@ public sealed partial class ConsumablesService(
     IStationGateway stations,
     IUpstreamGateway upstream,
     IEventPublisher publisher,
-    TimeProvider timeProvider) : IDisposable
+    TimeProvider timeProvider,
+    IConsumablesPersistence? persistence = null) : IDisposable
 {
+    /// <summary>実行中に変わる構成のデータ（ストッカーの設定、入庫の予定）の保存先。省略したら、何も保存しない。</summary>
+    private readonly IConsumablesPersistence _persistence = persistence ?? NoConsumablesPersistence.Instance;
+
     /// <summary>消耗品の搬送を頼むときの要求元。この要求元の搬送のイベントだけを扱う。</summary>
     public const string Requester = "consumables";
 
@@ -87,6 +91,49 @@ public sealed partial class ConsumablesService(
     public void Dispose() => _gate.Dispose();
 
     // ---- 登録と参照 ----
+
+    /// <summary>
+    /// 保存しておいた構成のデータを読み込む（起動したとき）。もう一度は保存しない。
+    /// </summary>
+    public void LoadConfiguration(ConsumablesConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        Locked(() =>
+        {
+            foreach (var processType in configuration.ProcessTypes)
+            {
+                Add(_processTypes, processType.Id, processType, "加工の種類");
+            }
+
+            foreach (var variety in configuration.Varieties)
+            {
+                ProcessType(variety.ProcessType);
+                Add(_varieties, variety.Variety, variety.ProcessType, "品種");
+            }
+
+            foreach (var device in configuration.Devices)
+            {
+                Add(_devices, device.Id, device, "装置");
+            }
+
+            foreach (var station in configuration.Stations)
+            {
+                Add(_stations, station.Id, station, "ステーション");
+            }
+
+            foreach (var setting in configuration.StockerSettings)
+            {
+                Layout(setting.Device);
+                _settings[setting.Device] = new Dictionary<VarietyId, int>(setting.Counts);
+            }
+
+            foreach (var arrival in configuration.ExpectedArrivals)
+            {
+                VarietyProcessType(arrival.Variety);
+                Add(_expected, arrival.Consumable, arrival.Variety, "入庫の予定");
+            }
+        });
+    }
 
     /// <summary>
     /// 品種と、その品種が属する加工の種類を登録する。
@@ -167,7 +214,9 @@ public sealed partial class ConsumablesService(
                 ArgumentOutOfRangeException.ThrowIfNegative(count, nameof(counts));
             }
 
-            _settings[device] = new Dictionary<VarietyId, int>(counts);
+            var setting = new Dictionary<VarietyId, int>(counts);
+            _persistence.SaveStockerSetting(device, setting);
+            _settings[device] = setting;
             return Task.CompletedTask;
         }, cancellationToken).ConfigureAwait(false);
 

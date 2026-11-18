@@ -19,6 +19,7 @@ public sealed partial class ConsumablesService
             }
 
             Add(_expected, id, variety, "入庫の予定");
+            _persistence.AddExpectedArrival(id, variety);
         });
 
     /// <summary>
@@ -146,9 +147,16 @@ public sealed partial class ConsumablesService
     /// </summary>
     private void RegisterArrival(ConsumableId id, AtStation location)
     {
-        _consumables[id] = _expected.Remove(id, out var variety)
-            ? new ConsumableView(id, variety, VarietyProcessType(variety), ConsumableCondition.New, location)
-            : new ConsumableView(id, null, null, ConsumableCondition.New, location, NeedsCheck: true);
+        if (_expected.Remove(id, out var variety))
+        {
+            _persistence.RemoveExpectedArrival(id);
+            _consumables[id] = new ConsumableView(id, variety, VarietyProcessType(variety), ConsumableCondition.New, location);
+        }
+        else
+        {
+            _consumables[id] = new ConsumableView(id, null, null, ConsumableCondition.New, location, NeedsCheck: true);
+        }
+
         NoteArrival(id, location);
         if (_consumables[id].Variety is { } arrived)
         {
