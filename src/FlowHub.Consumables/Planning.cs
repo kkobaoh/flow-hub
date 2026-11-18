@@ -7,6 +7,9 @@ namespace FlowHub.Consumables;
 /// </summary>
 public enum RecoveryReason
 {
+    /// <summary>照合のエラーや交換で、記録と現物が合わない（スロットをふさいでいるので一番先に回収する）。</summary>
+    Mismatch,
+
     /// <summary>設定にない品種の新品。</summary>
     NotInSetting,
 
@@ -20,7 +23,13 @@ public enum RecoveryReason
 /// <summary>
 /// 回収が必要な消耗品。
 /// </summary>
-public sealed record DeviceRecovery(ConsumableId Consumable, VarietyId Variety, ProcessTypeId ProcessType, RecoveryReason Reason);
+/// <param name="Variety">品種。未登録の ID を仮に登録したものなど、わからなければ null。</param>
+public sealed record DeviceRecovery(ConsumableId Consumable, VarietyId? Variety, ProcessTypeId ProcessType, RecoveryReason Reason);
+
+/// <summary>
+/// 装置からの通知を受けた結果。通知を正として所在を更新し、記録と食い違っていた消耗品を返す（ログに残し、画面で警告する）。
+/// </summary>
+public sealed record DeviceReport(IReadOnlyList<ConsumableId> Mismatched);
 
 /// <summary>
 /// 装置の不足と回収の判断の結果。

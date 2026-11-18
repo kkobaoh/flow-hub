@@ -17,13 +17,16 @@ public interface IDeviceGateway
 }
 
 /// <summary>
-/// 上位システムに補充を頼むポート。上位システムがない構成では、ユーザーに知らせる実装に差し替える。
+/// 上位システムとのやり取りのポート。上位システムがない構成では、ユーザーに知らせる実装に差し替える。
 /// </summary>
-public interface IReplenishmentGateway
+public interface IUpstreamGateway
 {
     /// <summary>ステーションへの補充を頼む。</summary>
     /// <param name="quantity">足りない数。</param>
     Task RequestReplenishmentAsync(VarietyId variety, int quantity, CancellationToken cancellationToken);
+
+    /// <summary>段取り替えのエラー（リクエストされた品種が、ストッカーの設定に含まれていない）を知らせる。</summary>
+    Task NotifySetupErrorAsync(DeviceId device, VarietyId variety, CancellationToken cancellationToken);
 }
 
 /// <summary>

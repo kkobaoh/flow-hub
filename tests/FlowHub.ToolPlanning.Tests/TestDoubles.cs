@@ -78,7 +78,7 @@ internal sealed class NoStations : IStationGateway
         Task.CompletedTask;
 }
 
-internal sealed class RecordingReplenishment : IReplenishmentGateway
+internal sealed class RecordingReplenishment : IUpstreamGateway
 {
     public List<(VarietyId Variety, int Quantity)> Requests { get; } = [];
 
@@ -87,6 +87,8 @@ internal sealed class RecordingReplenishment : IReplenishmentGateway
         Requests.Add((variety, quantity));
         return Task.CompletedTask;
     }
+
+    public Task NotifySetupErrorAsync(DeviceId device, VarietyId variety, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 internal sealed class IgnoringPublisher : IEventPublisher

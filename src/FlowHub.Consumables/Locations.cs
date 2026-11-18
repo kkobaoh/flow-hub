@@ -38,10 +38,14 @@ public sealed record AtTransferUnit(DeviceId Device, SlotRef? PlannedSlot) : Con
 public sealed record InStocker(DeviceId Device, SlotRef Slot) : ConsumableLocation;
 
 /// <summary>装置の加工部にある（管理しない。存在を描画するだけ）。</summary>
-public sealed record InProcessing(DeviceId Device) : ConsumableLocation;
+/// <param name="HomeSlot">取り込む前にあったスロット（使い終わったら原則ここに戻る）。わからなければ null。</param>
+public sealed record InProcessing(DeviceId Device, SlotRef? HomeSlot) : ConsumableLocation;
 
-/// <summary>所在不明（ID の照合エラーで、ステーションで ID が読み取られるまで）。</summary>
-public sealed record UnknownLocation : ConsumableLocation;
+/// <summary>
+/// 所在不明（ID の照合エラーなどで、人が確かめるか、ステーションで ID が読み取られるまで）。
+/// 現物が装置のスロットにあるとわかっているときは、その装置とスロットを持つ（そのスロットはふさがっている）。
+/// </summary>
+public sealed record UnknownLocation(DeviceId? Device = null, SlotRef? Slot = null) : ConsumableLocation;
 
 /// <summary>
 /// 装置の構成。

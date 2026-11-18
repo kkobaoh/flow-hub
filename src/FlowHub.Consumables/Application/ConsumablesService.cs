@@ -7,12 +7,15 @@ namespace FlowHub.Consumables.Application;
 /// <summary>
 /// 消耗品の、今の様子。
 /// </summary>
+/// <param name="Variety">品種。未登録の ID を仮に登録したもの（照合のエラーなど）は、わからないので null。</param>
+/// <param name="NeedsCheck">記録と現物が合わず、人の確認が要る（ステーションで届ける候補にしない）。</param>
 public sealed record ConsumableView(
     ConsumableId Id,
-    VarietyId Variety,
+    VarietyId? Variety,
     ProcessTypeId ProcessType,
     ConsumableCondition Condition,
-    ConsumableLocation Location);
+    ConsumableLocation Location,
+    bool NeedsCheck = false);
 
 /// <summary>
 /// 受け渡しの完了の通知を受けた結果。通知の ID を正として所在を更新し、食い違いを返す（ログに残し、画面で警告する）。
@@ -35,11 +38,11 @@ public sealed record TransferReport(
 /// 搬送計画のために、不足と回収の判断、ステーションの在庫、届ける・回収する予約、補充の頼みの口も持つ。
 /// 判断にかかわる在庫が変わったら <see cref="StockChanged"/> で知らせる（予約は搬送計画自身が行うので知らせない）。
 /// </remarks>
-public sealed class ConsumablesService(
+public sealed partial class ConsumablesService(
     IDispatchingService dispatching,
     IDeviceGateway devices,
     IStationGateway stations,
-    IReplenishmentGateway replenishment,
+    IUpstreamGateway upstream,
     IEventPublisher publisher,
     TimeProvider timeProvider) : IDisposable
 {
@@ -203,31 +206,44 @@ public sealed class ConsumablesService(
     }
 
     /// <summary>
-    /// 装置の設定と中身を比べ、不足と回収を判断する。設定がまだない装置は、不足も回収もないものとする。
+    /// 装置の設定と中身を比べ、不足と回収を判断する。設定がまだない装置は、不足も回収もないものとする（不整合の回収だけを返す）。
     /// </summary>
+    /// <remarks>
+    /// 取り込み中の元のスロットは、届ける数の上限では空きとして数える（足りなければ入れ先に使うため）。
+    /// </remarks>
     public DeviceNeeds EvaluateDevice(DeviceId device) => Locked(() =>
     {
         var layout = Layout(device);
         var capacity = layout.SlotsPerStocker.Sum();
         var inStocker = _consumables.Values.Where(c => c.Location is InStocker s && s.Device == device).ToArray();
         var atTransferUnit = _consumables.Values.Where(c => c.Location is AtTransferUnit u && u.Device == device).ToArray();
+        var lostAtSlot = _consumables.Values.Where(c => c.Location is UnknownLocation { Slot: not null } u && u.Device == device).ToArray();
         var reserved = _deliveries.Where(pair => pair.Value == device).Select(pair => _consumables[pair.Key]).ToArray();
 
-        var free = Math.Max(0, capacity - inStocker.Length - atTransferUnit.Length - reserved.Length);
+        var free = Math.Max(0, capacity - inStocker.Length - atTransferUnit.Length - lostAtSlot.Length - reserved.Length);
+        var mismatches = lostAtSlot
+            .Where(c => !_recoveries.Contains(c.Id))
+            .OrderBy(c => c.Id.Value, StringComparer.Ordinal)
+            .Select(c => new DeviceRecovery(c.Id, c.Variety, c.ProcessType, RecoveryReason.Mismatch))
+            .ToArray();
         if (!_settings.TryGetValue(device, out var counts))
         {
-            return new DeviceNeeds(new Dictionary<VarietyId, int>(), [], free);
+            return new DeviceNeeds(new Dictionary<VarietyId, int>(), mismatches, free);
         }
 
         // 届ける途中：届ける予約をしたものと、受け渡し部にある新品
         var inbound = reserved
             .Concat(atTransferUnit.Where(c => c.Condition == ConsumableCondition.New))
-            .GroupBy(c => c.Variety)
+            .Where(c => c.Variety is not null)
+            .GroupBy(c => c.Variety.GetValueOrDefault())
             .ToDictionary(g => g.Key, g => g.Count());
         var evaluation = StockerEvaluator.Evaluate(
             new StockerSetting(counts, capacity),
             new StockerContents(
-                inStocker.Select(c => new StockedItem(c.Id, c.Variety, c.Condition)).ToArray(),
+                inStocker
+                    .Where(c => c.Variety is not null)
+                    .Select(c => new StockedItem(c.Id, c.Variety.GetValueOrDefault(), c.Condition))
+                    .ToArray(),
                 inbound,
                 _recoveries));
 
@@ -235,12 +251,12 @@ public sealed class ConsumablesService(
             .Where(c => _discards.ContainsKey(c.Id) && !_recoveries.Contains(c.Id))
             .OrderBy(c => c.Id.Value, StringComparer.Ordinal)
             .Select(c => new DeviceRecovery(c.Id, c.Variety, c.ProcessType, RecoveryReason.Discard));
-        var recoveries = evaluation.Recoveries
-            .Select(r =>
+        var recoveries = mismatches
+            .Concat(evaluation.Recoveries.Select(r =>
             {
                 var c = _consumables[r.Id];
                 return new DeviceRecovery(c.Id, c.Variety, c.ProcessType, r.Reason);
-            })
+            }))
             .Concat(discards)
             .ToArray();
 
@@ -254,7 +270,7 @@ public sealed class ConsumablesService(
     /// </summary>
     public IReadOnlyList<StationStock> GetStationStock(VarietyId variety) => Locked(() =>
         _consumables.Values
-            .Where(c => c.Variety == variety && c.Condition == ConsumableCondition.New && c.Location is AtStation && !_deliveries.ContainsKey(c.Id))
+            .Where(c => c.Variety == variety && c.Condition == ConsumableCondition.New && !c.NeedsCheck && c.Location is AtStation && !_deliveries.ContainsKey(c.Id))
             .OrderBy(c => _arrivalOrder.GetValueOrDefault(c.Id))
             .Select(c => new StationStock(c.Id, ((AtStation)c.Location).Station))
             .ToArray());
@@ -316,7 +332,7 @@ public sealed class ConsumablesService(
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
         return LockedAsync(
             () => _replenishing.Add(variety)
-                ? replenishment.RequestReplenishmentAsync(variety, quantity, cancellationToken)
+                ? upstream.RequestReplenishmentAsync(variety, quantity, cancellationToken)
                 : Task.CompletedTask,
             cancellationToken);
     }
@@ -461,6 +477,32 @@ public sealed class ConsumablesService(
             ? processType
             : throw new InvalidOperationException($"品種 {variety} は登録されていません。");
 
+    private async Task LockedAsync(Action action, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<T> LockedAsync<T>(Func<T> action, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return action();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task LockedAsync(Func<Task> action, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -483,37 +525,53 @@ public sealed class ConsumablesService(
 
     /// <summary>
     /// 入れ先のスロットを、空いているうち番号が一番小さいものから決める。消耗品があるスロットと、入れ先に決めたスロットは使わない。
+    /// 空いているスロットが足りなければ、取り込み中の元のスロットも番号の順に使う。
     /// </summary>
     private CargoSlot[] AllocateSlots(DeviceId device, ConsumableId[] cargo)
     {
-        var layout = _devices.TryGetValue(device, out var found)
-            ? found
-            : throw new InvalidOperationException($"装置 {device} は登録されていません。");
+        var layout = Layout(device);
 
         var taken = _consumables.Values
             .Select(c => c.Location switch
             {
                 InStocker stocker when stocker.Device == device => stocker.Slot,
                 AtTransferUnit unit when unit.Device == device => unit.PlannedSlot,
+                UnknownLocation lost when lost.Device == device => lost.Slot,
                 _ => null,
             })
             .OfType<SlotRef>()
             .Concat(_pending.Values.Where(p => p.Device == device && p.Side == TransferSide.Unload).SelectMany(p => p.Slots.Values))
             .ToHashSet();
+        var homes = _consumables.Values
+            .Select(c => c.Location is InProcessing processing && processing.Device == device ? processing.HomeSlot : null)
+            .OfType<SlotRef>()
+            .ToHashSet();
 
-        var free = layout.AllSlots.Where(slot => !taken.Contains(slot)).Order().ToArray();
-        if (free.Length < cargo.Length)
+        var available = layout.AllSlots
+            .Where(slot => !taken.Contains(slot))
+            .OrderBy(slot => homes.Contains(slot))
+            .ThenBy(slot => slot)
+            .ToArray();
+        if (available.Length < cargo.Length)
         {
             throw new InvalidOperationException($"装置 {device} のストッカーに、空いているスロットが足りません。");
         }
 
-        return cargo.Select((id, index) => new CargoSlot(id, free[index])).ToArray();
+        return cargo.Select((id, index) => new CargoSlot(id, available[index])).ToArray();
     }
 
+    /// <summary>
+    /// 回収で取り出すスロット。ストッカーにあるものと、照合のエラーなどで現物がスロットにあるとわかっている所在不明のもの。
+    /// </summary>
     private SlotRef SlotOf(ConsumableId id) =>
-        _consumables.TryGetValue(id, out var consumable) && consumable.Location is InStocker stocker
-            ? stocker.Slot
-            : throw new InvalidOperationException($"消耗品 {id} はストッカーにありません。");
+        _consumables.TryGetValue(id, out var consumable)
+            ? consumable.Location switch
+            {
+                InStocker stocker => stocker.Slot,
+                UnknownLocation { Slot: { } slot } => slot,
+                _ => throw new InvalidOperationException($"消耗品 {id} はストッカーにありません。"),
+            }
+            : throw new InvalidOperationException($"消耗品 {id} は登録されていません。");
 
     private static void Add<TKey, TValue>(Dictionary<TKey, TValue> items, TKey key, TValue value, string kind)
         where TKey : notnull

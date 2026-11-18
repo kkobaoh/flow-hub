@@ -104,7 +104,7 @@ internal static class TripPlanner
     }
 
     /// <summary>
-    /// 回収の往復を組み立てる。設定にない品種、設定より多い品種、廃棄の順（同じ理由なら品種の ID、消耗品の ID の順）に積み、
+    /// 回収の往復を組み立てる。不整合、設定にない品種、設定より多い品種、廃棄の順（同じ理由なら品種の ID、消耗品の ID の順。品種がわからないものは先）に積み、
     /// 同じ装置・同じ加工の種類ごとにキャリアに入る個数で分ける。
     /// </summary>
     public static IReadOnlyList<Trip> PlanRecoveries(IEnumerable<Recovery> recoveries)
@@ -113,7 +113,7 @@ internal static class TripPlanner
 
         return recoveries
             .OrderBy(r => r.Item.Reason)
-            .ThenBy(r => r.Item.Variety.Value, StringComparer.Ordinal)
+            .ThenBy(r => r.Item.Variety?.Value ?? string.Empty, StringComparer.Ordinal)
             .ThenBy(r => r.Item.Consumable.Value, StringComparer.Ordinal)
             .GroupBy(r => (r.Device, r.ProcessType))
             .SelectMany(group => group

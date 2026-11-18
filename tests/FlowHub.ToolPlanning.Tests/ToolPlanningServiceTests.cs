@@ -287,6 +287,36 @@ public class ToolPlanningServiceTests
     }
 
     [Fact]
+    public async Task 不整合の消耗品はほかの回収より先に積む()
+    {
+        // スロット1の照合が合わず、読み取ったのは Z-9。ID の順なら Z-1 が先だが、不整合の Z-9 を先に積む
+        var f = Setup();
+        InStocker(f, "A-1", VarietyA, 1);
+        InStocker(f, "Z-1", VarietyZ, 2);
+        AtStation(f, "Z-9", VarietyZ);
+        await SetAsync(f, (VarietyA, 0));
+        await f.Consumables.ReportIdMismatchAsync(Device, new SlotRef(1, 1), new ConsumableId("Z-9"), None);
+
+        await f.Planning.ReplanAsync(None);
+
+        Assert.Equal(["Z-9,Z-1"], ActiveCargo(f));
+    }
+
+    [Fact]
+    public async Task 品種がわからない不整合の消耗品も加工の種類のキャリアで回収する()
+    {
+        var f = Setup();
+        InStocker(f, "A-1", VarietyA, 1);
+        await f.Consumables.ReportIdMismatchAsync(Device, new SlotRef(1, 1), new ConsumableId("X-1"), None);
+
+        await f.Planning.ReplanAsync(None);
+
+        var order = Assert.Single(f.Dispatching.ActiveOrders);
+        Assert.Equal(["X-1"], order.CargoRefs);
+        Assert.Equal(Carrier, order.Carrier);
+    }
+
+    [Fact]
     public async Task 届けるものと回収するものは別々の往復にする()
     {
         var f = Setup();

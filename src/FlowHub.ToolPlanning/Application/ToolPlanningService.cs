@@ -49,7 +49,7 @@ public sealed class ToolPlanningService(
                     device,
                     item,
                     Since(_recoverySince, item.Consumable, now),
-                    consumables.ProcessTypeOf(item.Variety))));
+                    consumables.GetProcessType(item.ProcessType))));
             }
 
             Forget(_recoverySince, recoveries.Select(r => r.Item.Consumable));

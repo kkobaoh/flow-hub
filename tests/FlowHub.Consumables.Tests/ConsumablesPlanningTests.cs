@@ -46,7 +46,7 @@ public class ConsumablesPlanningTests
             Task.CompletedTask;
     }
 
-    private sealed class RecordingReplenishment : IReplenishmentGateway
+    private sealed class RecordingReplenishment : IUpstreamGateway
     {
         public List<(VarietyId Variety, int Quantity)> Requests { get; } = [];
 
@@ -55,6 +55,8 @@ public class ConsumablesPlanningTests
             Requests.Add((variety, quantity));
             return Task.CompletedTask;
         }
+
+        public Task NotifySetupErrorAsync(DeviceId device, VarietyId variety, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class RecordingPublisher : IEventPublisher
