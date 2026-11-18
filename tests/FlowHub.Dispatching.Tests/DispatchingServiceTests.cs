@@ -240,11 +240,32 @@ public class DispatchingServiceTests
         traffic.SetAgv(A, AgvState.EmergencyStopped);
         var id = await service.RequestTransportAsync(Order(), None);
 
-        await service.CancelTransportAsync(id, None);
+        var cancelled = await service.CancelTransportAsync(id, None);
         traffic.SetAgv(A);
         await service.OnAgvResumedAsync(new AgvResumed(Meta(), Agv), None);
 
+        Assert.True(cancelled);
         Assert.Empty(traffic.Moves);
+    }
+
+    [Fact]
+    public async Task 割り当てたあとの搬送は取りやめずにそのまま運ぶ()
+    {
+        var (service, traffic, _) = Setup(A);
+        var id = await service.RequestTransportAsync(Order(), None);
+
+        var cancelled = await service.CancelTransportAsync(id, None);
+
+        Assert.False(cancelled);
+        Assert.Single(traffic.Moves);
+    }
+
+    [Fact]
+    public async Task 知らない搬送は取りやめられない()
+    {
+        var (service, _, _) = Setup(A);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CancelTransportAsync(new TransportId(99), None));
     }
 
     [Fact]

@@ -70,11 +70,21 @@ public sealed class DispatchingService(
     }
 
     /// <summary>
-    /// 割り当て前の搬送を取りやめる。
+    /// 割り当て前の搬送を取りやめる。割り当てたあとなら取りやめずに false を返す（そのまま運ぶ）。
     /// </summary>
-    public Task CancelTransportAsync(TransportId id, CancellationToken cancellationToken) =>
+    public Task<bool> CancelTransportAsync(TransportId id, CancellationToken cancellationToken) =>
         RunAsync(() =>
         {
+            if (!_transports.ContainsKey(id))
+            {
+                throw new InvalidOperationException($"搬送 {id} はありません。");
+            }
+
+            if (!_queue.Waiting.Any(t => t.Id == id))
+            {
+                return Task.FromResult(false);
+            }
+
             _queue.Cancel(id);
             return Task.FromResult(true);
         });

@@ -8,8 +8,8 @@ public interface IDispatchingService
     /// <summary>搬送を頼む（1往復ぶん）。</summary>
     Task<TransportId> RequestTransportAsync(TransportOrder order, CancellationToken cancellationToken);
 
-    /// <summary>割り当て前の搬送を取りやめる。</summary>
-    Task CancelTransportAsync(TransportId id, CancellationToken cancellationToken);
+    /// <summary>割り当て前の搬送を取りやめる。割り当てたあとなら取りやめずに false を返す（そのまま運ぶ）。</summary>
+    Task<bool> CancelTransportAsync(TransportId id, CancellationToken cancellationToken);
 
     /// <summary>受け渡しの相手が、受け渡しを終えた。</summary>
     Task ReportTransferCompletedAsync(TransportId id, CancellationToken cancellationToken);

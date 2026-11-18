@@ -32,7 +32,7 @@ public class ConsumablesServiceTests
         public Task<TransportId> RequestTransportAsync(TransportOrder order, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task CancelTransportAsync(TransportId id, CancellationToken cancellationToken) =>
+        public Task<bool> CancelTransportAsync(TransportId id, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task ReportTransferCompletedAsync(TransportId id, CancellationToken cancellationToken)
@@ -74,7 +74,7 @@ public class ConsumablesServiceTests
         var dispatching = new FakeDispatching();
         var devices = new FakeDeviceGateway();
         var stations = new FakeStationGateway();
-        var service = new ConsumablesService(dispatching, devices, stations);
+        var service = new ConsumablesService(dispatching, devices, stations, new IgnoringReplenishment(), new IgnoringPublisher(), new FixedTimeProvider());
         service.RegisterDevice(new DeviceLayout(Device, new PanelId("D"), SlotsPerStocker: [2, 2]));
         service.RegisterStation(new StationLayout(Station, new PanelId("S")));
         service.RegisterProcessType(new ProcessTypeSettings(Process, new CarrierTypeId("X"), CarrierCapacity: 2));

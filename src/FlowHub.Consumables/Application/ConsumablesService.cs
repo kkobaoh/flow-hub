@@ -1,3 +1,4 @@
+using FlowHub.BuildingBlocks;
 using FlowHub.Consumables.Domain;
 using FlowHub.Dispatching;
 
@@ -30,10 +31,17 @@ public sealed record TransferReport(
 /// <summary>
 /// 消耗品の管理の窓口。消耗品の所在を持ち、装置やステーションとの受け渡しをとりもつ。
 /// </summary>
+/// <remarks>
+/// 搬送計画のために、不足と回収の判断、ステーションの在庫、届ける・回収する予約、補充の頼みの口も持つ。
+/// 判断にかかわる在庫が変わったら <see cref="StockChanged"/> で知らせる（予約は搬送計画自身が行うので知らせない）。
+/// </remarks>
 public sealed class ConsumablesService(
     IDispatchingService dispatching,
     IDeviceGateway devices,
-    IStationGateway stations) : IDisposable
+    IStationGateway stations,
+    IReplenishmentGateway replenishment,
+    IEventPublisher publisher,
+    TimeProvider timeProvider) : IDisposable
 {
     /// <summary>消耗品の搬送を頼むときの要求元。この要求元の搬送のイベントだけを扱う。</summary>
     public const string Requester = "consumables";
@@ -42,12 +50,57 @@ public sealed class ConsumablesService(
     private readonly Dictionary<DeviceId, DeviceLayout> _devices = [];
     private readonly Dictionary<StationId, StationLayout> _stations = [];
     private readonly Dictionary<ProcessTypeId, ProcessTypeSettings> _processTypes = [];
+    private readonly Dictionary<VarietyId, ProcessTypeId> _varieties = [];
+    private readonly Dictionary<DeviceId, IReadOnlyDictionary<VarietyId, int>> _settings = [];
     private readonly Dictionary<ConsumableId, ConsumableView> _consumables = [];
     private readonly Dictionary<TransportId, PendingTransfer> _pending = [];
+
+    /// <summary>ステーションに入庫した順の番号（先入れ先出しの仮の基準）。</summary>
+    private readonly Dictionary<ConsumableId, long> _arrivalOrder = [];
+    private long _nextArrival = 1;
+
+    /// <summary>届ける予約（消耗品 → 届け先の装置）。装置で降ろしたら外す。</summary>
+    private readonly Dictionary<ConsumableId, DeviceId> _deliveries = [];
+
+    /// <summary>回収の予約。装置から積み込んだら外す。</summary>
+    private readonly HashSet<ConsumableId> _recoveries = [];
+
+    /// <summary>廃棄リクエストを受けた消耗品と装置。装置から積み込んだら外す。</summary>
+    private readonly Dictionary<ConsumableId, DeviceId> _discards = [];
+
+    /// <summary>補充を頼んで、まだ入庫されていない品種。</summary>
+    private readonly HashSet<VarietyId> _replenishing = [];
 
     public void Dispose() => _gate.Dispose();
 
     // ---- 登録と参照 ----
+
+    /// <summary>
+    /// 品種と、その品種が属する加工の種類を登録する。
+    /// </summary>
+    public void RegisterVariety(VarietyId variety, ProcessTypeId processType) =>
+        Locked(() =>
+        {
+            ProcessType(processType);
+            Add(_varieties, variety, processType, "品種");
+        });
+
+    /// <summary>登録されている装置（登録した順）。</summary>
+    public IReadOnlyList<DeviceId> Devices => Locked(() => _devices.Keys.ToArray());
+
+    /// <summary>登録されているステーション（登録した順）。</summary>
+    public IReadOnlyList<StationId> Stations => Locked(() => _stations.Keys.ToArray());
+
+    public TransferEndpoint DeviceEndpoint(DeviceId device) =>
+        Locked(() => new TransferEndpoint(Layout(device).TransferPanel, Endpoints.Device(device)));
+
+    public TransferEndpoint StationEndpoint(StationId station) =>
+        Locked(() => new TransferEndpoint(
+            _stations.TryGetValue(station, out var layout) ? layout.TransferPanel : throw new InvalidOperationException($"ステーション {station} は登録されていません。"),
+            Endpoints.Station(station)));
+
+    /// <summary>品種が属する加工の種類の設定。</summary>
+    public ProcessTypeSettings ProcessTypeOf(VarietyId variety) => Locked(() => ProcessType(VarietyProcessType(variety)));
 
     public void RegisterDevice(DeviceLayout layout)
     {
@@ -74,13 +127,199 @@ public sealed class ConsumablesService(
         ConsumableId id, VarietyId variety, ProcessTypeId processType, ConsumableCondition condition, ConsumableLocation location)
     {
         ArgumentNullException.ThrowIfNull(location);
-        Locked(() => Add(_consumables, id, new ConsumableView(id, variety, processType, condition, location), "消耗品"));
+        Locked(() =>
+        {
+            Add(_consumables, id, new ConsumableView(id, variety, processType, condition, location), "消耗品");
+            NoteArrival(id, location);
+        });
     }
 
-    public ConsumableView GetConsumable(ConsumableId id) =>
-        Locked(() => _consumables.TryGetValue(id, out var consumable)
-            ? consumable
-            : throw new InvalidOperationException($"消耗品 {id} は登録されていません。"));
+    public ConsumableView GetConsumable(ConsumableId id) => Locked(() => Consumable(id));
+
+    /// <summary>
+    /// ステーションに新品が入庫された。その品種の補充を、また頼めるようにする。
+    /// </summary>
+    public async Task ReceiveAtStationAsync(ConsumableId id, VarietyId variety, StationId station, CancellationToken cancellationToken)
+    {
+        await LockedAsync(() =>
+        {
+            if (!_stations.ContainsKey(station))
+            {
+                throw new InvalidOperationException($"ステーション {station} は登録されていません。");
+            }
+
+            var location = new AtStation(station);
+            Add(_consumables, id, new ConsumableView(id, variety, VarietyProcessType(variety), ConsumableCondition.New, location), "消耗品");
+            NoteArrival(id, location);
+            _replenishing.Remove(variety);
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
+
+        await PublishStockChangedAsync($"station:{station}", cancellationToken).ConfigureAwait(false);
+    }
+
+    // ---- 不足と回収の判断 ----
+
+    /// <summary>
+    /// 装置のストッカーの設定（品種ごとにストックしておく個数）を変える。
+    /// </summary>
+    public async Task SetStockerSettingAsync(DeviceId device, IReadOnlyDictionary<VarietyId, int> counts, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(counts);
+
+        await LockedAsync(() =>
+        {
+            Layout(device);
+            foreach (var (variety, count) in counts)
+            {
+                VarietyProcessType(variety);
+                ArgumentOutOfRangeException.ThrowIfNegative(count, nameof(counts));
+            }
+
+            _settings[device] = new Dictionary<VarietyId, int>(counts);
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
+
+        await PublishStockChangedAsync($"device:{device}", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 装置から、中古品の廃棄リクエストが来た。
+    /// </summary>
+    public async Task RequestDiscardAsync(DeviceId device, ConsumableId id, CancellationToken cancellationToken)
+    {
+        await LockedAsync(() =>
+        {
+            if (Consumable(id).Location is not InStocker stocker || stocker.Device != device)
+            {
+                throw new InvalidOperationException($"消耗品 {id} は装置 {device} のストッカーにありません。");
+            }
+
+            _discards[id] = device;
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
+
+        await PublishStockChangedAsync($"device:{device}", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 装置の設定と中身を比べ、不足と回収を判断する。設定がまだない装置は、不足も回収もないものとする。
+    /// </summary>
+    public DeviceNeeds EvaluateDevice(DeviceId device) => Locked(() =>
+    {
+        var layout = Layout(device);
+        var capacity = layout.SlotsPerStocker.Sum();
+        var inStocker = _consumables.Values.Where(c => c.Location is InStocker s && s.Device == device).ToArray();
+        var atTransferUnit = _consumables.Values.Where(c => c.Location is AtTransferUnit u && u.Device == device).ToArray();
+        var reserved = _deliveries.Where(pair => pair.Value == device).Select(pair => _consumables[pair.Key]).ToArray();
+
+        var free = Math.Max(0, capacity - inStocker.Length - atTransferUnit.Length - reserved.Length);
+        if (!_settings.TryGetValue(device, out var counts))
+        {
+            return new DeviceNeeds(new Dictionary<VarietyId, int>(), [], free);
+        }
+
+        // 届ける途中：届ける予約をしたものと、受け渡し部にある新品
+        var inbound = reserved
+            .Concat(atTransferUnit.Where(c => c.Condition == ConsumableCondition.New))
+            .GroupBy(c => c.Variety)
+            .ToDictionary(g => g.Key, g => g.Count());
+        var evaluation = StockerEvaluator.Evaluate(
+            new StockerSetting(counts, capacity),
+            new StockerContents(
+                inStocker.Select(c => new StockedItem(c.Id, c.Variety, c.Condition)).ToArray(),
+                inbound,
+                _recoveries));
+
+        var discards = inStocker
+            .Where(c => _discards.ContainsKey(c.Id) && !_recoveries.Contains(c.Id))
+            .OrderBy(c => c.Id.Value, StringComparer.Ordinal)
+            .Select(c => new DeviceRecovery(c.Id, c.Variety, c.ProcessType, RecoveryReason.Discard));
+        var recoveries = evaluation.Recoveries
+            .Select(r =>
+            {
+                var c = _consumables[r.Id];
+                return new DeviceRecovery(c.Id, c.Variety, c.ProcessType, r.Reason);
+            })
+            .Concat(discards)
+            .ToArray();
+
+        return new DeviceNeeds(evaluation.Shortages, recoveries, free);
+    });
+
+    // ---- ステーションの在庫と予約 ----
+
+    /// <summary>
+    /// ステーションにある、届けられるその品種の新品（予約していないもの）。入庫した順に返す。
+    /// </summary>
+    public IReadOnlyList<StationStock> GetStationStock(VarietyId variety) => Locked(() =>
+        _consumables.Values
+            .Where(c => c.Variety == variety && c.Condition == ConsumableCondition.New && c.Location is AtStation && !_deliveries.ContainsKey(c.Id))
+            .OrderBy(c => _arrivalOrder.GetValueOrDefault(c.Id))
+            .Select(c => new StationStock(c.Id, ((AtStation)c.Location).Station))
+            .ToArray());
+
+    /// <summary>
+    /// 消耗品を、装置へ届けるものとして予約する。届ける途中の数に入り、ステーションの在庫から外れる。
+    /// </summary>
+    public void ReserveForDelivery(DeviceId device, IReadOnlyList<ConsumableId> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        Locked(() =>
+        {
+            Layout(device);
+            foreach (var id in ids)
+            {
+                Consumable(id);
+                _deliveries[id] = device;
+            }
+        });
+    }
+
+    /// <summary>
+    /// 消耗品を、回収するものとして予約する。もう一度は回収を頼まず、不足の数にも空きの数にも入れない。
+    /// </summary>
+    public void ReserveForRecovery(IReadOnlyList<ConsumableId> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        Locked(() =>
+        {
+            foreach (var id in ids)
+            {
+                Consumable(id);
+                _recoveries.Add(id);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 届ける・回収する予約を解く（搬送の要求を取りやめたとき）。
+    /// </summary>
+    public void ReleaseReservations(IReadOnlyList<ConsumableId> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        Locked(() =>
+        {
+            foreach (var id in ids)
+            {
+                _deliveries.Remove(id);
+                _recoveries.Remove(id);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 上位システムに補充を頼む。同じ品種の補充は、入庫されるまで重ねて頼まない。
+    /// </summary>
+    public Task RequestReplenishmentAsync(VarietyId variety, int quantity, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
+        return LockedAsync(
+            () => _replenishing.Add(variety)
+                ? replenishment.RequestReplenishmentAsync(variety, quantity, cancellationToken)
+                : Task.CompletedTask,
+            cancellationToken);
+    }
 
     // ---- 受け渡し ----
 
@@ -144,7 +383,10 @@ public sealed class ConsumablesService(
             var unknown = transferred.Where(id => !_consumables.ContainsKey(id)).ToArray();
             foreach (var id in transferred.Except(unknown))
             {
-                _consumables[id] = _consumables[id] with { Location = LocationAfter(pending, transport, id) };
+                var location = LocationAfter(pending, transport, id);
+                _consumables[id] = _consumables[id] with { Location = location };
+                NoteArrival(id, location);
+                ForgetReservations(pending, id);
             }
 
             report = new TransferReport(
@@ -158,10 +400,79 @@ public sealed class ConsumablesService(
         }
 
         await dispatching.ReportTransferCompletedAsync(transport, cancellationToken).ConfigureAwait(false);
+        await PublishStockChangedAsync($"transport:{transport}", cancellationToken).ConfigureAwait(false);
         return report;
     }
 
     // ---- 内部 ----
+
+    /// <summary>
+    /// 装置で降ろしたら届ける予約を、装置から積み込んだら回収の予約と廃棄リクエストを外す（もう所在で数えられるため）。
+    /// </summary>
+    private void ForgetReservations(PendingTransfer pending, ConsumableId id)
+    {
+        if (pending.Device is null)
+        {
+            return;
+        }
+
+        if (pending.Side == TransferSide.Unload)
+        {
+            _deliveries.Remove(id);
+        }
+        else
+        {
+            _recoveries.Remove(id);
+            _discards.Remove(id);
+        }
+    }
+
+    /// <summary>
+    /// ステーションに入ったら、入庫した順の番号を付ける。
+    /// </summary>
+    private void NoteArrival(ConsumableId id, ConsumableLocation location)
+    {
+        if (location is AtStation)
+        {
+            _arrivalOrder[id] = _nextArrival++;
+        }
+    }
+
+    private Task PublishStockChangedAsync(string correlationId, CancellationToken cancellationToken) =>
+        publisher.PublishAsync(new StockChanged(EventMetadata.Start($"stock:{correlationId}", timeProvider)), cancellationToken);
+
+    private ConsumableView Consumable(ConsumableId id) =>
+        _consumables.TryGetValue(id, out var consumable)
+            ? consumable
+            : throw new InvalidOperationException($"消耗品 {id} は登録されていません。");
+
+    private DeviceLayout Layout(DeviceId device) =>
+        _devices.TryGetValue(device, out var layout)
+            ? layout
+            : throw new InvalidOperationException($"装置 {device} は登録されていません。");
+
+    private ProcessTypeSettings ProcessType(ProcessTypeId id) =>
+        _processTypes.TryGetValue(id, out var settings)
+            ? settings
+            : throw new InvalidOperationException($"加工の種類 {id} は登録されていません。");
+
+    private ProcessTypeId VarietyProcessType(VarietyId variety) =>
+        _varieties.TryGetValue(variety, out var processType)
+            ? processType
+            : throw new InvalidOperationException($"品種 {variety} は登録されていません。");
+
+    private async Task LockedAsync(Func<Task> action, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await action().ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
     private static ConsumableLocation LocationAfter(PendingTransfer pending, TransportId transport, ConsumableId id) =>
         pending.Side == TransferSide.Load

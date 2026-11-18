@@ -17,6 +17,16 @@ public interface IDeviceGateway
 }
 
 /// <summary>
+/// 上位システムに補充を頼むポート。上位システムがない構成では、ユーザーに知らせる実装に差し替える。
+/// </summary>
+public interface IReplenishmentGateway
+{
+    /// <summary>ステーションへの補充を頼む。</summary>
+    /// <param name="quantity">足りない数。</param>
+    Task RequestReplenishmentAsync(VarietyId variety, int quantity, CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// ステーションとのやり取りのポート。やり取りの方式は未定（未決事項）。
 /// </summary>
 public interface IStationGateway

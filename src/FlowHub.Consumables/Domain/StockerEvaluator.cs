@@ -46,18 +46,6 @@ internal sealed record StockerContents(
     IReadOnlySet<ConsumableId> RecoveryRequested);
 
 /// <summary>
-/// 回収する理由。
-/// </summary>
-internal enum RecoveryReason
-{
-    /// <summary>設定にない品種の新品。</summary>
-    NotInSetting,
-
-    /// <summary>設定より多い品種のせいで、ほかの品種の不足を補う空きが足りない。</summary>
-    Surplus,
-}
-
-/// <summary>
 /// 回収が必要な消耗品。
 /// </summary>
 internal sealed record RecoveryNeed(ConsumableId Id, RecoveryReason Reason);

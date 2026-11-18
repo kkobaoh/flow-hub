@@ -10,7 +10,7 @@ public class ConsumablesSubscriptionsTests
     {
         public Task<TransportId> RequestTransportAsync(TransportOrder order, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task CancelTransportAsync(TransportId id, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<bool> CancelTransportAsync(TransportId id, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task ReportTransferCompletedAsync(TransportId id, CancellationToken cancellationToken) => Task.CompletedTask;
     }
@@ -41,7 +41,7 @@ public class ConsumablesSubscriptionsTests
     public async Task 配車の搬送の許可の依頼を購読して許可を出す()
     {
         var stations = new RecordingStations();
-        using var service = new ConsumablesService(new NoDispatching(), new NoDevices(), stations);
+        using var service = new ConsumablesService(new NoDispatching(), new NoDevices(), stations, new IgnoringReplenishment(), new IgnoringPublisher(), new FixedTimeProvider());
         service.RegisterStation(new StationLayout(new StationId("S1"), new Map.PanelId("S")));
         var subscriptions = new EventSubscriptions();
         ConsumablesSubscriptions.Register(subscriptions, service);
