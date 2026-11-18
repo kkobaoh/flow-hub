@@ -15,6 +15,7 @@
 | [docs/open-issues.md](docs/open-issues.md) | 未決事項（仕様が決まっていないもの） |
 | [docs/backlog.md](docs/backlog.md) | やることリスト（仕様は決まっているが、まだ実装していないもの） |
 | [docs/plan.md](docs/plan.md) | 作業計画（実装を進める順番と、それぞれの状態） |
+| [docs/agv-protocol.md](docs/agv-protocol.md) | AGV との通信の仕様（URL、JSON の形式） |
 
 - 設計の検討や仕様に関わる作業の前に、**docs/domain.md と docs/open-issues.md を読みます**。
 - 仕様が決まったら、docs/domain.md に反映し、docs/open-issues.md から該当する項目を削除します。

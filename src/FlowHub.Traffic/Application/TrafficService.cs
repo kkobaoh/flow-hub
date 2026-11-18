@@ -183,11 +183,43 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
 
     // ---- AGV からのリクエストと通知（AGV との通信の部分から呼ぶ） ----
 
+    /// <summary>登録されている AGV か。</summary>
+    internal bool IsRegistered(AgvId id)
+    {
+        _gate.Wait();
+        try
+        {
+            return _agvs.ContainsKey(id);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 次に状態が変わったときに完了する。コマンドを取りに来た GET が、渡すコマンドができるのを待つのに使う。
+    /// 取り逃しのないよう、コマンドを取り出す前に呼んでおく。
+    /// </summary>
+    internal Task NextChangeAsync(AgvId id)
+    {
+        _gate.Wait();
+        try
+        {
+            return Entry(id).Changed.Task;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    // コマンドや位置を取り出すだけの処理では、待っている GET を起こさない（起こすと、取りに来るたびに起き続けるため）
     internal Task<IReadOnlyList<AgvCommand>> HandleCommandRequestAsync(AgvId id, long lastReceived, CancellationToken cancellationToken) =>
-        RunAsync(id, null, entry => entry.Travel.OnCommandRequest(lastReceived), cancellationToken);
+        RunAsync(id, null, entry => entry.Travel.OnCommandRequest(lastReceived), cancellationToken, wakesPollers: false);
 
     internal Task<Pose?> HandlePositionRequestAsync(AgvId id, CancellationToken cancellationToken) =>
-        RunAsync(id, null, entry => entry.Travel.OnPositionRequest(), cancellationToken);
+        RunAsync(id, null, entry => entry.Travel.OnPositionRequest(), cancellationToken, wakesPollers: false);
 
     internal Task<NotificationOutcome> HandleMotionReceivedAsync(AgvId id, long number, CancellationToken cancellationToken) =>
         RunAsync(id, null, entry => entry.Travel.OnMotionReceived(number), cancellationToken);
@@ -238,7 +270,8 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
     /// <summary>
     /// AGV ごとの処理を1つずつ順に行い、状態の変わり目（止まった、異常になった）と、処理の中で起きたことをイベントで知らせる。
     /// </summary>
-    private async Task<T> RunAsync<T>(AgvId id, string? correlationId, Func<AgvEntry, T> action, CancellationToken cancellationToken)
+    private async Task<T> RunAsync<T>(
+        AgvId id, string? correlationId, Func<AgvEntry, T> action, CancellationToken cancellationToken, bool wakesPollers = true)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -270,6 +303,11 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
             }
 
             entry.PendingEvents.Clear();
+            if (wakesPollers)
+            {
+                entry.NotifyChanged();
+            }
+
             return result;
         }
         finally
@@ -345,5 +383,19 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
 
         /// <summary>処理の中で起きたこと。処理の終わりにイベントとして公開する。</summary>
         public List<Func<EventMetadata, IIntegrationEvent>> PendingEvents { get; } = [];
+
+        /// <summary>
+        /// 状態が変わった（渡すコマンドができたかもしれない）ことを、コマンドを取りに来て待っている GET に知らせる。
+        /// </summary>
+        public TaskCompletionSource Changed { get; private set; } = NewSignal();
+
+        public void NotifyChanged()
+        {
+            var changed = Changed;
+            Changed = NewSignal();
+            changed.TrySetResult();
+        }
+
+        private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }
