@@ -136,7 +136,12 @@
   - SQLite にはスキーマがないので、**コンテキストごとに別の DB ファイル** にします。
   - マイグレーションは **PostgreSQL 用だけ** 作ります。SQLite は、今のモデルからテーブルを作ります（`EnsureCreated`）。
   - DB に頼む検索は単純に保ちます（DB の種類による違いを避けるため）。
-  - テストは SQLite で流します。PostgreSQL での確認は、本番に出す前に、PostgreSQL のある環境で行います。
+  - DB を使うテストは、基本的に **SQLite** で流します。テストは、できるだけ **軽く、たくさん回せる** ように保ちます。
+  - **ローカルの PostgreSQL** を使うのは、**最後の統合テストだけ** です。
+    - 統合テストは `tests/FlowHub.IntegrationTests` に置きます。ふだんの `dotnet test` には **含めません**（PostgreSQL なしで軽く回せるようにするため）。
+    - 流すときは `dotnet test --project tests/FlowHub.IntegrationTests -p:RunIntegrationTests=true` とします。DB の部分（マイグレーションやテーブルの作り）を変えたとき、push する前に流します。
+    - 接続文字列は **ユーザーシークレット** に置きます（リポジトリに入れないため）。雛型は `tests/FlowHub.IntegrationTests/secrets.template.json` です。環境変数があれば、そちらを優先します。
+      - 設定のしかた：`dotnet user-secrets set "Postgres:ConnectionString" "Host=localhost;..." --project tests/FlowHub.IntegrationTests`
 - `FlowHub.Api` は、各コンテキストの組み立てとエントリーポイントだけを担当します。
 
 #### コンテキストの間のやり取り
@@ -171,6 +176,7 @@ src/
   FlowHub.Consumables/
   FlowHub.Api/
 tests/
+  FlowHub.Api.Tests/
   FlowHub.BuildingBlocks.Tests/
   FlowHub.Map.Tests/
   FlowHub.Routing.Tests/
@@ -178,6 +184,7 @@ tests/
   FlowHub.Dispatching.Tests/
   FlowHub.ToolPlanning.Tests/
   FlowHub.Consumables.Tests/
+  FlowHub.IntegrationTests/
   FlowHub.ArchitectureTests/
 ```
 

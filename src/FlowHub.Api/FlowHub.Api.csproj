@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <InternalsVisibleTo Include="FlowHub.Api.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FlowHub.BuildingBlocks\FlowHub.BuildingBlocks.csproj" />
     <ProjectReference Include="..\FlowHub.Map\FlowHub.Map.csproj" />
     <ProjectReference Include="..\FlowHub.Routing\FlowHub.Routing.csproj" />
