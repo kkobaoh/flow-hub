@@ -171,6 +171,8 @@ public class DispatchingServiceTests
         await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None);
         var permission = Assert.Single(events.Of<TransferPermissionRequested>());
         Assert.Equal((id, "station-1", TransferSide.Load), (permission.Transport, permission.Endpoint, permission.Side));
+        Assert.Equal("ToolPlanning", permission.Requester); // 要求元を入れる
+        Assert.Equal(["C-1"], permission.CargoRefs);
     }
 
     [Fact]
@@ -181,7 +183,9 @@ public class DispatchingServiceTests
         var id = await LoadedTransport(service, traffic);
 
         Assert.Equal([Agv], traffic.Raises);
-        Assert.Equal(id, Assert.Single(events.Of<CargoLoaded>()).Transport);
+        var loaded = Assert.Single(events.Of<CargoLoaded>());
+        Assert.Equal((id, "ToolPlanning", "station-1"), (loaded.Transport, loaded.Requester, loaded.Endpoint));
+        Assert.Equal(["C-1"], loaded.CargoRefs);
         Assert.Equal((Agv, D, $"transport:{id}"), traffic.Moves[^1]);
     }
 
@@ -194,7 +198,10 @@ public class DispatchingServiceTests
 
         await CompleteTransport(service, traffic, first);
 
-        Assert.Equal(first, Assert.Single(events.Of<CargoUnloaded>()).Transport);
+        var unloaded = Assert.Single(events.Of<CargoUnloaded>());
+        Assert.Equal((first, "ToolPlanning", "device-1"), (unloaded.Transport, unloaded.Requester, unloaded.Endpoint));
+        Assert.Equal(["C-1"], unloaded.CargoRefs);
+        Assert.Equal("ToolPlanning", Assert.Single(events.Of<TransportCompleted>()).Requester);
         Assert.Equal(first, Assert.Single(events.Of<TransportCompleted>()).Transport);
         Assert.Equal((Agv, S, $"transport:{second}"), traffic.Moves[^1]);
     }
@@ -361,6 +368,25 @@ public class DispatchingServiceTests
         await service.OnAgvPositionResetCompletedAsync(new AgvPositionResetCompleted(Meta(), Agv), None);
 
         Assert.Equal(2, traffic.Moves.Count(m => m.To == CP));
+    }
+
+    [Fact]
+    public async Task 中断の知らせにも要求元を入れる()
+    {
+        var (service, _, events) = Setup(A);
+        await service.RequestTransportAsync(Order(), None);
+
+        await service.OnAgvFaultedAsync(new AgvFaulted(Meta(), Agv), None);
+
+        Assert.Equal("ToolPlanning", Assert.Single(events.Of<TransportInterrupted>()).Requester);
+    }
+
+    [Fact]
+    public void ほかのコンテキストからはインターフェースを通して使える()
+    {
+        var (service, _, _) = Setup(A);
+
+        Assert.IsAssignableFrom<IDispatchingService>(service);
     }
 
     [Fact]

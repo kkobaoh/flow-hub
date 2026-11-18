@@ -1,15 +1,6 @@
 namespace FlowHub.Consumables.Domain;
 
 /// <summary>
-/// 消耗品の状態（新品か中古品か）。加工部に取り込まれた時点で中古品になる。
-/// </summary>
-internal enum ConsumableCondition
-{
-    New,
-    Used,
-}
-
-/// <summary>
 /// 装置のストッカーにある消耗品。
 /// </summary>
 internal sealed record StockedItem(ConsumableId Id, VarietyId Variety, ConsumableCondition Condition);

@@ -4,4 +4,10 @@
     <InternalsVisibleTo Include="FlowHub.Consumables.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\FlowHub.BuildingBlocks\FlowHub.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\FlowHub.Dispatching\FlowHub.Dispatching.csproj" />
+    <ProjectReference Include="..\FlowHub.Map\FlowHub.Map.csproj" />
+  </ItemGroup>
+
 </Project>

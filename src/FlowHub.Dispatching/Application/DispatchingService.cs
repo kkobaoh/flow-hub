@@ -16,7 +16,7 @@ public sealed class DispatchingService(
     ITrafficService traffic,
     IMapStore mapStore,
     IEventPublisher publisher,
-    TimeProvider timeProvider) : IDisposable
+    TimeProvider timeProvider) : IDispatchingService, IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly TransportQueue _queue = new();
@@ -192,6 +192,7 @@ public sealed class DispatchingService(
     private async Task ExecuteAsync(Transport transport, IReadOnlyList<TransportAction> actions, CancellationToken cancellationToken)
     {
         var correlationId = $"transport:{transport.Id}";
+        var request = transport.Request;
         foreach (var action in actions)
         {
             switch (action)
@@ -220,24 +221,24 @@ public sealed class DispatchingService(
                     break;
 
                 case RequestTransferPermission permission:
-                    await PublishAsync(correlationId, m => new TransferPermissionRequested(m, permission.Transport, permission.At.Endpoint, permission.Side), cancellationToken).ConfigureAwait(false);
+                    await PublishAsync(correlationId, m => new TransferPermissionRequested(m, permission.Transport, request.Requester, request.CargoRefs, permission.At.Endpoint, permission.Side), cancellationToken).ConfigureAwait(false);
                     break;
 
                 case NotifyLoaded loaded:
-                    await PublishAsync(correlationId, m => new CargoLoaded(m, loaded.Transport), cancellationToken).ConfigureAwait(false);
+                    await PublishAsync(correlationId, m => new CargoLoaded(m, loaded.Transport, request.Requester, request.CargoRefs, request.Source.Endpoint), cancellationToken).ConfigureAwait(false);
                     break;
 
                 case NotifyUnloaded unloaded:
-                    await PublishAsync(correlationId, m => new CargoUnloaded(m, unloaded.Transport), cancellationToken).ConfigureAwait(false);
+                    await PublishAsync(correlationId, m => new CargoUnloaded(m, unloaded.Transport, request.Requester, request.CargoRefs, request.Destination.Endpoint), cancellationToken).ConfigureAwait(false);
                     break;
 
                 case NotifyCompleted completed:
-                    await PublishAsync(correlationId, m => new TransportCompleted(m, completed.Transport), cancellationToken).ConfigureAwait(false);
+                    await PublishAsync(correlationId, m => new TransportCompleted(m, completed.Transport, request.Requester), cancellationToken).ConfigureAwait(false);
                     await OnTransportFinishedAsync(transport.AssignedAgv!.Value, cancellationToken).ConfigureAwait(false);
                     break;
 
                 case NotifyInterrupted interrupted:
-                    await PublishAsync(correlationId, m => new TransportInterrupted(m, interrupted.Transport), cancellationToken).ConfigureAwait(false);
+                    await PublishAsync(correlationId, m => new TransportInterrupted(m, interrupted.Transport, request.Requester), cancellationToken).ConfigureAwait(false);
                     break;
 
                 default:
