@@ -8,11 +8,12 @@ namespace FlowHub.Consumables.Application;
 /// 消耗品の、今の様子。
 /// </summary>
 /// <param name="Variety">品種。未登録の ID を仮に登録したもの（照合のエラーなど）は、わからないので null。</param>
+/// <param name="ProcessType">加工の種類。ステーションで読み取った未登録の ID など、わからなければ null。</param>
 /// <param name="NeedsCheck">記録と現物が合わず、人の確認が要る（ステーションで届ける候補にしない）。</param>
 public sealed record ConsumableView(
     ConsumableId Id,
     VarietyId? Variety,
-    ProcessTypeId ProcessType,
+    ProcessTypeId? ProcessType,
     ConsumableCondition Condition,
     ConsumableLocation Location,
     bool NeedsCheck = false);
@@ -71,8 +72,17 @@ public sealed partial class ConsumablesService(
     /// <summary>廃棄リクエストを受けた消耗品と装置。装置から積み込んだら外す。</summary>
     private readonly Dictionary<ConsumableId, DeviceId> _discards = [];
 
-    /// <summary>補充を頼んで、まだ入庫されていない品種。</summary>
-    private readonly HashSet<VarietyId> _replenishing = [];
+    /// <summary>品種ごとの、補充を頼んで、まだ入庫されていない数。</summary>
+    private readonly Dictionary<VarietyId, int> _outstanding = [];
+
+    /// <summary>前もって登録された、入庫する予定の ID と品種の対応。</summary>
+    private readonly Dictionary<ConsumableId, VarietyId> _expected = [];
+
+    /// <summary>未登録の ID として入庫した（品種の対応がなかった）消耗品。新品と直したら、補充の入庫に数える。</summary>
+    private readonly HashSet<ConsumableId> _arrivedUnregistered = [];
+
+    /// <summary>出庫を頼んで、まだ出ていない消耗品（届ける候補にしない）。</summary>
+    private readonly HashSet<ConsumableId> _shipping = [];
 
     public void Dispose() => _gate.Dispose();
 
@@ -139,28 +149,6 @@ public sealed partial class ConsumablesService(
 
     public ConsumableView GetConsumable(ConsumableId id) => Locked(() => Consumable(id));
 
-    /// <summary>
-    /// ステーションに新品が入庫された。その品種の補充を、また頼めるようにする。
-    /// </summary>
-    public async Task ReceiveAtStationAsync(ConsumableId id, VarietyId variety, StationId station, CancellationToken cancellationToken)
-    {
-        await LockedAsync(() =>
-        {
-            if (!_stations.ContainsKey(station))
-            {
-                throw new InvalidOperationException($"ステーション {station} は登録されていません。");
-            }
-
-            var location = new AtStation(station);
-            Add(_consumables, id, new ConsumableView(id, variety, VarietyProcessType(variety), ConsumableCondition.New, location), "消耗品");
-            NoteArrival(id, location);
-            _replenishing.Remove(variety);
-            return Task.CompletedTask;
-        }, cancellationToken).ConfigureAwait(false);
-
-        await PublishStockChangedAsync($"station:{station}", cancellationToken).ConfigureAwait(false);
-    }
-
     // ---- 不足と回収の判断 ----
 
     /// <summary>
@@ -224,7 +212,7 @@ public sealed partial class ConsumablesService(
         var mismatches = lostAtSlot
             .Where(c => !_recoveries.Contains(c.Id))
             .OrderBy(c => c.Id.Value, StringComparer.Ordinal)
-            .Select(c => new DeviceRecovery(c.Id, c.Variety, c.ProcessType, RecoveryReason.Mismatch))
+            .Select(c => new DeviceRecovery(c.Id, c.Variety, KnownProcessType(c), RecoveryReason.Mismatch))
             .ToArray();
         if (!_settings.TryGetValue(device, out var counts))
         {
@@ -250,12 +238,12 @@ public sealed partial class ConsumablesService(
         var discards = inStocker
             .Where(c => _discards.ContainsKey(c.Id) && !_recoveries.Contains(c.Id))
             .OrderBy(c => c.Id.Value, StringComparer.Ordinal)
-            .Select(c => new DeviceRecovery(c.Id, c.Variety, c.ProcessType, RecoveryReason.Discard));
+            .Select(c => new DeviceRecovery(c.Id, c.Variety, KnownProcessType(c), RecoveryReason.Discard));
         var recoveries = mismatches
             .Concat(evaluation.Recoveries.Select(r =>
             {
                 var c = _consumables[r.Id];
-                return new DeviceRecovery(c.Id, c.Variety, c.ProcessType, r.Reason);
+                return new DeviceRecovery(c.Id, c.Variety, KnownProcessType(c), r.Reason);
             }))
             .Concat(discards)
             .ToArray();
@@ -270,7 +258,7 @@ public sealed partial class ConsumablesService(
     /// </summary>
     public IReadOnlyList<StationStock> GetStationStock(VarietyId variety) => Locked(() =>
         _consumables.Values
-            .Where(c => c.Variety == variety && c.Condition == ConsumableCondition.New && !c.NeedsCheck && c.Location is AtStation && !_deliveries.ContainsKey(c.Id))
+            .Where(c => c.Variety == variety && c.Condition == ConsumableCondition.New && !c.NeedsCheck && c.Location is AtStation && !_deliveries.ContainsKey(c.Id) && !_shipping.Contains(c.Id))
             .OrderBy(c => _arrivalOrder.GetValueOrDefault(c.Id))
             .Select(c => new StationStock(c.Id, ((AtStation)c.Location).Station))
             .ToArray());
@@ -325,15 +313,24 @@ public sealed partial class ConsumablesService(
     }
 
     /// <summary>
-    /// 上位システムに補充を頼む。同じ品種の補充は、入庫されるまで重ねて頼まない。
+    /// 上位システムに補充を頼む。頼んでまだ入庫されていない数を引いたぶんだけ頼む（1以上のときだけ）。
     /// </summary>
+    /// <param name="quantity">今足りない数。</param>
     public Task RequestReplenishmentAsync(VarietyId variety, int quantity, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
         return LockedAsync(
-            () => _replenishing.Add(variety)
-                ? upstream.RequestReplenishmentAsync(variety, quantity, cancellationToken)
-                : Task.CompletedTask,
+            () =>
+            {
+                var more = quantity - _outstanding.GetValueOrDefault(variety);
+                if (more <= 0)
+                {
+                    return Task.CompletedTask;
+                }
+
+                _outstanding[variety] = quantity;
+                return upstream.RequestReplenishmentAsync(variety, more, cancellationToken);
+            },
             cancellationToken);
     }
 
@@ -456,6 +453,10 @@ public sealed partial class ConsumablesService(
 
     private Task PublishStockChangedAsync(string correlationId, CancellationToken cancellationToken) =>
         publisher.PublishAsync(new StockChanged(EventMetadata.Start($"stock:{correlationId}", timeProvider)), cancellationToken);
+
+    /// <summary>装置にある消耗品の加工の種類（装置にあるものは、必ずわかっている）。</summary>
+    private static ProcessTypeId KnownProcessType(ConsumableView consumable) =>
+        consumable.ProcessType ?? throw new InvalidOperationException($"消耗品 {consumable.Id} の加工の種類がわかりません。");
 
     private ConsumableView Consumable(ConsumableId id) =>
         _consumables.TryGetValue(id, out var consumable)

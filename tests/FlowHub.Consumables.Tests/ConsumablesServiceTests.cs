@@ -62,6 +62,8 @@ public class ConsumablesServiceTests
             Grants.Add((station, transport, side, cargo));
             return Task.CompletedTask;
         }
+
+        public Task RequestShipmentAsync(StationId station, ConsumableId consumable, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed record Fixture(ConsumablesService Service, FakeDispatching Dispatching, FakeDeviceGateway Devices, FakeStationGateway Stations);

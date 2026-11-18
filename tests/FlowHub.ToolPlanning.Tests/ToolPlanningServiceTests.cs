@@ -25,6 +25,7 @@ public class ToolPlanningServiceTests
         ConsumablesService Consumables,
         FakeDispatching Dispatching,
         RecordingReplenishment Replenishment,
+        NoStations Stations,
         ManualTimeProvider Time);
 
     /// <summary>
@@ -35,7 +36,8 @@ public class ToolPlanningServiceTests
         var time = new ManualTimeProvider(T0);
         var dispatching = new FakeDispatching();
         var replenishment = new RecordingReplenishment();
-        var consumables = new ConsumablesService(dispatching, new NoDevices(), new NoStations(), replenishment, new IgnoringPublisher(), time);
+        var stations = new NoStations();
+        var consumables = new ConsumablesService(dispatching, new NoDevices(), stations, replenishment, new IgnoringPublisher(), time);
         consumables.RegisterDevice(new DeviceLayout(Device, new PanelId("D"), SlotsPerStocker: [3]));
         consumables.RegisterStation(new StationLayout(Station, new PanelId("S")));
         consumables.RegisterProcessType(new ProcessTypeSettings(Process, Carrier, carrierCapacity));
@@ -43,7 +45,7 @@ public class ToolPlanningServiceTests
         consumables.RegisterVariety(VarietyB, Process);
         consumables.RegisterVariety(VarietyZ, Process);
         var planning = new ToolPlanningService(consumables, dispatching, time);
-        return new Fixture(planning, consumables, dispatching, replenishment, time);
+        return new Fixture(planning, consumables, dispatching, replenishment, stations, time);
     }
 
     private static void AtStation(Fixture f, string id, VarietyId variety) =>
@@ -105,7 +107,8 @@ public class ToolPlanningServiceTests
         await f.Planning.ReplanAsync(None);
 
         f.Time.Now = T1;
-        await f.Consumables.ReceiveAtStationAsync(new ConsumableId("B-1"), VarietyB, Station, None);
+        f.Consumables.RegisterExpectedArrival(new ConsumableId("B-1"), VarietyB);
+        await f.Consumables.ReportReadAtStationAsync(Station, new ConsumableId("B-1"), None);
         await SetAsync(f, (VarietyZ, 1), (VarietyA, 1), (VarietyB, 1));
         await f.Planning.ReplanAsync(None);
 
@@ -122,7 +125,8 @@ public class ToolPlanningServiceTests
         await f.Planning.ReplanAsync(None);
 
         f.Time.Now = T1;
-        await f.Consumables.ReceiveAtStationAsync(new ConsumableId("A-1"), VarietyA, Station, None);
+        f.Consumables.RegisterExpectedArrival(new ConsumableId("A-1"), VarietyA);
+        await f.Consumables.ReportReadAtStationAsync(Station, new ConsumableId("A-1"), None);
         AtStation(f, "B-1", VarietyB);
         await SetAsync(f, (VarietyA, 1), (VarietyB, 1));
         await f.Planning.ReplanAsync(None);
@@ -341,6 +345,52 @@ public class ToolPlanningServiceTests
         await f.Planning.ReplanAsync(None);
 
         Assert.Equal([T0], f.Dispatching.ActiveOrders.Select(o => o.NeededBy));
+    }
+
+    // ---- 上位システムの出庫の指示 ----
+
+    [Fact]
+    public async Task 予約のない消耗品の出庫の指示はそのまま出す()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+
+        var accepted = await f.Planning.RequestShipmentAsync(new ConsumableId("A-1"), None);
+
+        Assert.True(accepted);
+        Assert.Equal([new ConsumableId("A-1")], f.Stations.Shipments);
+    }
+
+    [Fact]
+    public async Task 割り当て前の要求に入っている消耗品の出庫の指示は要求を取りやめて出し残りを出し直す()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        AtStation(f, "A-2", VarietyA);
+        await SetAsync(f, (VarietyA, 2));
+        await f.Planning.ReplanAsync(None);
+
+        var accepted = await f.Planning.RequestShipmentAsync(new ConsumableId("A-1"), None);
+
+        Assert.True(accepted);
+        Assert.Equal([new ConsumableId("A-1")], f.Stations.Shipments);
+        Assert.Equal(["A-2"], ActiveCargo(f));
+    }
+
+    [Fact]
+    public async Task 割り当て済みの要求に入っている消耗品の出庫の指示は受け付けない()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        await SetAsync(f, (VarietyA, 1));
+        await f.Planning.ReplanAsync(None);
+        f.Dispatching.AssignAll();
+
+        var accepted = await f.Planning.RequestShipmentAsync(new ConsumableId("A-1"), None);
+
+        Assert.False(accepted);
+        Assert.Empty(f.Stations.Shipments);
+        Assert.Equal(["A-1"], ActiveCargo(f));
     }
 
     // ---- ステーション ----

@@ -30,7 +30,8 @@ public class ToolPlanningSubscriptionsTests
         consumables.RegisterStation(new StationLayout(new StationId("S1"), new PanelId("S")));
         consumables.RegisterProcessType(new ProcessTypeSettings(new ProcessTypeId("P"), new CarrierTypeId("X"), CarrierCapacity: 2));
         consumables.RegisterVariety(variety, new ProcessTypeId("P"));
-        await consumables.ReceiveAtStationAsync(new ConsumableId("A-1"), variety, new StationId("S1"), None);
+        consumables.RegisterExpectedArrival(new ConsumableId("A-1"), variety);
+        await consumables.ReportReadAtStationAsync(new StationId("S1"), new ConsumableId("A-1"), None);
 
         await consumables.SetStockerSettingAsync(device, new Dictionary<VarietyId, int> { [variety] = 1 }, None);
         await bus.FlushAsync(None);

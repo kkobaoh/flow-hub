@@ -74,8 +74,16 @@ internal sealed class NoDevices : IDeviceGateway
 
 internal sealed class NoStations : IStationGateway
 {
+    public List<ConsumableId> Shipments { get; } = [];
+
     public Task GrantTransferAsync(StationId station, TransportId transport, TransferSide side, IReadOnlyList<ConsumableId> cargo, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+
+    public Task RequestShipmentAsync(StationId station, ConsumableId consumable, CancellationToken cancellationToken)
+    {
+        Shipments.Add(consumable);
+        return Task.CompletedTask;
+    }
 }
 
 internal sealed class RecordingReplenishment : IUpstreamGateway

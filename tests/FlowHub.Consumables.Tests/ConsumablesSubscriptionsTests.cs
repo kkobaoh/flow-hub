@@ -24,6 +24,8 @@ public class ConsumablesSubscriptionsTests
             Grants.Add(transport);
             return Task.CompletedTask;
         }
+
+        public Task RequestShipmentAsync(StationId station, ConsumableId consumable, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class NoDevices : IDeviceGateway

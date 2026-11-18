@@ -44,6 +44,8 @@ public class ConsumablesPlanningTests
     {
         public Task GrantTransferAsync(StationId station, TransportId transport, TransferSide side, IReadOnlyList<ConsumableId> cargo, CancellationToken cancellationToken) =>
             Task.CompletedTask;
+
+        public Task RequestShipmentAsync(StationId station, ConsumableId consumable, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class RecordingReplenishment : IUpstreamGateway
@@ -284,7 +286,9 @@ public class ConsumablesPlanningTests
         var f = Setup();
         var a = new ConsumableId("C-1");
 
-        await f.Service.ReceiveAtStationAsync(a, VarietyA, Station, None);
+        f.Service.RegisterExpectedArrival(a, VarietyA);
+
+        await f.Service.ReportReadAtStationAsync(Station, a, None);
 
         Assert.Equal([new StationStock(a, Station)], f.Service.GetStationStock(VarietyA));
         Assert.Equal(Process, f.Service.GetConsumable(a).ProcessType);
@@ -303,27 +307,73 @@ public class ConsumablesPlanningTests
     }
 
     [Fact]
-    public async Task 同じ品種の補充は入庫されるまで重ねて頼まない()
+    public async Task 頼んでまだ届いていない数を引いたぶんだけ頼む()
     {
+        // A は2個頼んだあと、足りない数が3個に増えたので1個だけ足す。足りない数が2個に戻っても頼まない
         var f = Setup();
         await f.Service.RequestReplenishmentAsync(VarietyA, 2, None);
 
         await f.Service.RequestReplenishmentAsync(VarietyA, 3, None);
+        await f.Service.RequestReplenishmentAsync(VarietyA, 2, None);
         await f.Service.RequestReplenishmentAsync(VarietyB, 1, None);
 
-        Assert.Equal([(VarietyA, 2), (VarietyB, 1)], f.Replenishment.Requests);
+        Assert.Equal([(VarietyA, 2), (VarietyA, 1), (VarietyB, 1)], f.Replenishment.Requests);
     }
 
     [Fact]
-    public async Task 入庫されたらその品種の補充をまた頼める()
+    public async Task 入庫したらその品種の届いていない数を減らす()
     {
         var f = Setup();
         await f.Service.RequestReplenishmentAsync(VarietyA, 2, None);
-        await f.Service.ReceiveAtStationAsync(new ConsumableId("C-1"), VarietyA, Station, None);
+        f.Service.RegisterExpectedArrival(new ConsumableId("C-1"), VarietyA);
+        await f.Service.ReportReadAtStationAsync(Station, new ConsumableId("C-1"), None);
 
-        await f.Service.RequestReplenishmentAsync(VarietyA, 1, None);
+        await f.Service.RequestReplenishmentAsync(VarietyA, 2, None);
 
         Assert.Equal([(VarietyA, 2), (VarietyA, 1)], f.Replenishment.Requests);
+    }
+
+    [Fact]
+    public async Task 未登録のIDとして入庫した消耗品を新品と直したら入庫に数える()
+    {
+        // 品種の対応を登録しないまま届いた補充とみなす
+        var f = Setup();
+        await f.Service.RequestReplenishmentAsync(VarietyA, 2, None);
+        await f.Service.ReportReadAtStationAsync(Station, new ConsumableId("X-1"), None);
+        await f.Service.CorrectAtStationAsync(new ConsumableId("X-1"), VarietyA, ConsumableCondition.New, None);
+
+        await f.Service.RequestReplenishmentAsync(VarietyA, 2, None);
+
+        Assert.Equal([(VarietyA, 2), (VarietyA, 1)], f.Replenishment.Requests);
+    }
+
+    [Fact]
+    public async Task 登録済みだった消耗品を直しても入庫に数えない()
+    {
+        // 所在不明だった C-9 がステーションで見つかった。前からあった消耗品なので、補充ではない
+        var f = Setup();
+        var c9 = new ConsumableId("C-9");
+        f.Service.RegisterConsumable(c9, VarietyA, Process, ConsumableCondition.New, new UnknownLocation());
+        await f.Service.RequestReplenishmentAsync(VarietyA, 2, None);
+        await f.Service.ReportReadAtStationAsync(Station, c9, None);
+        await f.Service.CorrectAtStationAsync(c9, VarietyA, ConsumableCondition.New, None);
+
+        await f.Service.RequestReplenishmentAsync(VarietyA, 2, None);
+
+        Assert.Equal([(VarietyA, 2)], f.Replenishment.Requests);
+    }
+
+    [Fact]
+    public async Task 未登録のIDとして入庫した消耗品でも中古品と直したら入庫に数えない()
+    {
+        var f = Setup();
+        await f.Service.RequestReplenishmentAsync(VarietyA, 2, None);
+        await f.Service.ReportReadAtStationAsync(Station, new ConsumableId("X-1"), None);
+        await f.Service.CorrectAtStationAsync(new ConsumableId("X-1"), VarietyA, ConsumableCondition.Used, None);
+
+        await f.Service.RequestReplenishmentAsync(VarietyA, 2, None);
+
+        Assert.Equal([(VarietyA, 2)], f.Replenishment.Requests);
     }
 
     // ---- 変化の知らせ ----
@@ -336,7 +386,8 @@ public class ConsumablesPlanningTests
         var a = AtStation(f, "C-1", VarietyA);
 
         await f.Service.SetStockerSettingAsync(Device, new Dictionary<VarietyId, int> { [VarietyA] = 1 }, None);
-        await f.Service.ReceiveAtStationAsync(new ConsumableId("C-2"), VarietyA, Station, None);
+        f.Service.RegisterExpectedArrival(new ConsumableId("C-2"), VarietyA);
+        await f.Service.ReportReadAtStationAsync(Station, new ConsumableId("C-2"), None);
         await f.Service.RequestDiscardAsync(Device, used, None);
         await f.Service.OnTransferPermissionRequestedAsync(Permission(Transport1, Endpoints.Station(Station), TransferSide.Load, a), None);
         await f.Service.ReportTransferCompletedAsync(Transport1, [a], None);

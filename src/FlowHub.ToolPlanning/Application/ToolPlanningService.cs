@@ -34,47 +34,84 @@ public sealed class ToolPlanningService(
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await CancelWaitingAsync(cancellationToken).ConfigureAwait(false);
-
-            var now = timeProvider.GetUtcNow();
-            var shortages = new List<Shortage>();
-            var recoveries = new List<Recovery>();
-            var freeSlots = new Dictionary<DeviceId, int>();
-            foreach (var device in consumables.Devices)
-            {
-                var needs = consumables.EvaluateDevice(device);
-                freeSlots[device] = needs.FreeSlots;
-                shortages.AddRange(ShortagesOf(device, needs, now));
-                recoveries.AddRange(needs.Recoveries.Select(item => new Recovery(
-                    device,
-                    item,
-                    Since(_recoverySince, item.Consumable, now),
-                    consumables.GetProcessType(item.ProcessType))));
-            }
-
-            Forget(_recoverySince, recoveries.Select(r => r.Item.Consumable));
-
-            var deliveries = TripPlanner.PlanDeliveries(
-                shortages,
-                freeSlots,
-                variety => consumables.GetStationStock(variety).Select(s => s.Consumable).ToArray());
-
-            // 必要時刻の順。同じなら届けるほうを先に頼む
-            var trips = deliveries.Trips
-                .Concat(TripPlanner.PlanRecoveries(recoveries))
-                .OrderBy(t => t.NeededBy)
-                .ThenBy(t => t.Kind)
-                .ToArray();
-            await RequestAsync(trips, cancellationToken).ConfigureAwait(false);
-
-            foreach (var (variety, quantity) in deliveries.Lacking)
-            {
-                await consumables.RequestReplenishmentAsync(variety, quantity, cancellationToken).ConfigureAwait(false);
-            }
+            await ReplanCoreAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 上位システムから、ステーションの消耗品の出庫を指示された。
+    /// 届ける要求に入っていれば、割り当て前ならその要求を取りやめて予約を解き、出庫を頼んでから、残りを出し直す。
+    /// 割り当て済みなら受け付けない。
+    /// </summary>
+    /// <returns>受け付けたら true。割り当て済みの要求に入っているか、ステーションにない消耗品なら false。</returns>
+    public async Task<bool> RequestShipmentAsync(ConsumableId id, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_requests.FirstOrDefault(pair => pair.Value.Cargo.Contains(id)) is { Value: not null } request)
+            {
+                if (!await dispatching.CancelTransportAsync(request.Key, cancellationToken).ConfigureAwait(false))
+                {
+                    return false;
+                }
+
+                consumables.ReleaseReservations(request.Value.Cargo);
+                _requests.Remove(request.Key);
+            }
+
+            var accepted = await consumables.RequestShipmentAsync(id, cancellationToken).ConfigureAwait(false);
+            await ReplanCoreAsync(cancellationToken).ConfigureAwait(false);
+            return accepted;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task ReplanCoreAsync(CancellationToken cancellationToken)
+    {
+        await CancelWaitingAsync(cancellationToken).ConfigureAwait(false);
+
+        var now = timeProvider.GetUtcNow();
+        var shortages = new List<Shortage>();
+        var recoveries = new List<Recovery>();
+        var freeSlots = new Dictionary<DeviceId, int>();
+        foreach (var device in consumables.Devices)
+        {
+            var needs = consumables.EvaluateDevice(device);
+            freeSlots[device] = needs.FreeSlots;
+            shortages.AddRange(ShortagesOf(device, needs, now));
+            recoveries.AddRange(needs.Recoveries.Select(item => new Recovery(
+                device,
+                item,
+                Since(_recoverySince, item.Consumable, now),
+                consumables.GetProcessType(item.ProcessType))));
+        }
+
+        Forget(_recoverySince, recoveries.Select(r => r.Item.Consumable));
+
+        var deliveries = TripPlanner.PlanDeliveries(
+            shortages,
+            freeSlots,
+            variety => consumables.GetStationStock(variety).Select(s => s.Consumable).ToArray());
+
+        // 必要時刻の順。同じなら届けるほうを先に頼む
+        var trips = deliveries.Trips
+            .Concat(TripPlanner.PlanRecoveries(recoveries))
+            .OrderBy(t => t.NeededBy)
+            .ThenBy(t => t.Kind)
+            .ToArray();
+        await RequestAsync(trips, cancellationToken).ConfigureAwait(false);
+
+        foreach (var (variety, quantity) in deliveries.Lacking)
+        {
+            await consumables.RequestReplenishmentAsync(variety, quantity, cancellationToken).ConfigureAwait(false);
         }
     }
 

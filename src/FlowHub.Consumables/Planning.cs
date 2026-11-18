@@ -27,9 +27,9 @@ public enum RecoveryReason
 public sealed record DeviceRecovery(ConsumableId Consumable, VarietyId? Variety, ProcessTypeId ProcessType, RecoveryReason Reason);
 
 /// <summary>
-/// 装置からの通知を受けた結果。通知を正として所在を更新し、記録と食い違っていた消耗品を返す（ログに残し、画面で警告する）。
+/// 装置やステーションからの通知を受けた結果。通知を正として所在を更新し、記録と食い違っていた消耗品を返す（ログに残し、画面で警告する）。
 /// </summary>
-public sealed record DeviceReport(IReadOnlyList<ConsumableId> Mismatched);
+public sealed record NotificationReport(IReadOnlyList<ConsumableId> Mismatched);
 
 /// <summary>
 /// 装置の不足と回収の判断の結果。

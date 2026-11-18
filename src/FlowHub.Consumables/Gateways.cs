@@ -36,4 +36,7 @@ public interface IStationGateway
 {
     /// <summary>ステーションに、受け渡しの許可を出す。終わったら、出し入れした消耗品の ID を付けて完了を通知してくる。</summary>
     Task GrantTransferAsync(StationId station, TransportId transport, TransferSide side, IReadOnlyList<ConsumableId> cargo, CancellationToken cancellationToken);
+
+    /// <summary>ステーションに、消耗品の出庫を頼む。出たら、出た ID を知らせてくる。</summary>
+    Task RequestShipmentAsync(StationId station, ConsumableId consumable, CancellationToken cancellationToken);
 }

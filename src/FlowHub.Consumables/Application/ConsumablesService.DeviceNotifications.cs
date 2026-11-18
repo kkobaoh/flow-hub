@@ -12,7 +12,7 @@ public sealed partial class ConsumablesService
     /// <summary>
     /// 装置が、消耗品を加工部に取り込んだ（照合は装置で済んでいる）。中古品にして、元のスロットを覚える。
     /// </summary>
-    public async Task<DeviceReport> ReportTakenIntoProcessingAsync(DeviceId device, ConsumableId id, CancellationToken cancellationToken)
+    public async Task<NotificationReport> ReportTakenIntoProcessingAsync(DeviceId device, ConsumableId id, CancellationToken cancellationToken)
     {
         var report = await LockedAsync(() =>
         {
@@ -22,7 +22,7 @@ public sealed partial class ConsumablesService
 
             _consumables[id] = consumable with { Condition = ConsumableCondition.Used, Location = new InProcessing(device, home) };
             ReleaseReservations(id);
-            return new DeviceReport(home is null ? [id] : []);
+            return new NotificationReport(home is null ? [id] : []);
         }, cancellationToken).ConfigureAwait(false);
 
         await PublishStockChangedAsync($"device:{device}", cancellationToken).ConfigureAwait(false);
@@ -33,7 +33,7 @@ public sealed partial class ConsumablesService
     /// 装置が、使い終わった中古品をストッカーに戻した（戻すスロットは装置が決める）。
     /// 戻したスロットに記録上別の消耗品があれば、その消耗品を所在不明にする。
     /// </summary>
-    public async Task<DeviceReport> ReportReturnedToStockerAsync(DeviceId device, ConsumableId id, SlotRef slot, CancellationToken cancellationToken)
+    public async Task<NotificationReport> ReportReturnedToStockerAsync(DeviceId device, ConsumableId id, SlotRef slot, CancellationToken cancellationToken)
     {
         var report = await LockedAsync(() =>
         {
@@ -52,7 +52,7 @@ public sealed partial class ConsumablesService
             }
 
             _consumables[id] = _consumables[id] with { Location = new InStocker(device, slot) };
-            return new DeviceReport(mismatched);
+            return new NotificationReport(mismatched);
         }, cancellationToken).ConfigureAwait(false);
 
         await PublishStockChangedAsync($"device:{device}", cancellationToken).ConfigureAwait(false);
@@ -124,9 +124,9 @@ public sealed partial class ConsumablesService
     /// </summary>
     private ProcessTypeId ProcessTypeForUnknown(DeviceId device, ConsumableView[] recorded)
     {
-        if (recorded.Length > 0)
+        if (recorded.Select(c => c.ProcessType).FirstOrDefault(p => p is not null) is { } known)
         {
-            return recorded[0].ProcessType;
+            return known;
         }
 
         var processTypes = _settings.TryGetValue(device, out var counts)
@@ -154,6 +154,7 @@ public sealed partial class ConsumablesService
         _deliveries.Remove(id);
         _recoveries.Remove(id);
         _discards.Remove(id);
+        _shipping.Remove(id);
     }
 
     private void EnsureSlot(DeviceId device, SlotRef slot)
