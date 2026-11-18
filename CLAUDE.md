@@ -86,7 +86,8 @@
 | コンテキスト | プロジェクト | 責務 | 状態 |
 |---|---|---|---|
 | マップ | `FlowHub.Map` | マップの編集、検証、版の管理（スナップショット）、有効な版の公開 | 持つ |
-| ルーティング | `FlowHub.Routing` | 経路探索、移動コストの計算。マップは引数で受け取る | 持たない（計算だけ） |
+| ルーティング | `FlowHub.Routing` | 1台の経路探索、移動コストの計算。マップは引数で受け取る | 持たない（計算だけ） |
+| 全台の経路の計画 | `FlowHub.PathPlanning` | 全台の経路をまとめて計画する（時刻つきで先の AGV を避ける、パネルごとの通る順番）。AGV の位置などは引数で受け取る | 持たない（計算だけ） |
 | 交通整理 | `FlowHub.Traffic` | パネルの予約、デッドロックの防止、走行の指示の分割と送信、位置の追跡、緊急停止 | 持つ |
 | 配車 | `FlowHub.Dispatching` | 搬送の要求の受け付け、要求の間の調停（必要時刻の順）、AGV の割り当て、搬送の実行（状態遷移）、充電の判断。**運ぶものを知りません** | 持つ |
 | 消耗品の搬送計画 | `FlowHub.ToolPlanning` | 消耗品の搬送の必要時刻（優先順位）の計算、加工の種類でまとめること、届ける順番 | 持つ |
@@ -100,8 +101,9 @@
 | ToolPlanning | Consumables、Dispatching、Map |
 | Consumables | Dispatching、Map |
 | Dispatching | Traffic、Routing（割り当てのときに移動コストを聞く）、Map |
-| Traffic | Routing、Map |
+| Traffic | Routing、PathPlanning、Map |
 | Routing | なし |
+| PathPlanning | なし |
 | Map | なし |
 
 - **配車は、運ぶもの（消耗品やワーク）を知りません。** 搬送の要求は、運ぶものに依存しない汎用の形で受け取ります。
@@ -111,11 +113,13 @@
   - 配車が公開するイベントには要求元を入れ、各コンテキストは自分が頼んだ搬送のイベントだけを処理します。
 - **消耗品の管理を、ワーク管理に入れ替えたり、両立させたりできる** 構成にします。ワークを扱うときは、ワーク管理と `FlowHub.WorkPlanning` を加えるだけで、配車から下（交通整理、ルーティング、マップ）には手を入れずに済むようにします。
 
-- Routing 以外のコンテキストは、**`FlowHub.BuildingBlocks`** を参照してかまいません。**ルーティングは BuildingBlocks にも依存しません。**
+- Routing と PathPlanning 以外のコンテキストは、**`FlowHub.BuildingBlocks`** を参照してかまいません。**ルーティングと PathPlanning は BuildingBlocks にも依存しません。**
   - BuildingBlocks に入れるのは、**コンテキストの間のやり取りに使う技術的な部品だけ** です（`IIntegrationEvent`、`IEventSubscriber<T>`、`IEventPublisher`、イベントのメタデータ）。DDD の「設計の構成要素（Building Blocks）」とは別の意味です。
   - **ドメインの概念は入れません。** ID の型（`AgvId`、`PanelId` など）も、その概念を持つコンテキストの公開インターフェースに置きます（例：`AgvId` は交通整理、`PanelId` はマップ）。
   - BuildingBlocks は、どのコンテキストも参照しません。
 
+- **全台の経路の計画（PathPlanning）も、ほかのコンテキストに依存しません**（BuildingBlocks にも、ルーティングにも依存しません）。ルーティングと同じく、状態を持たない計算に限り、自分専用の入力の形（ノードと辺のグラフ、AGV の姿勢など）を持ちます。ルーティングを既存システムのルート計算に差し替えても、影響を受けないようにするためです。
+  - 交通整理が、AGV の位置、渡した指示、止まっている AGV などを引数で渡して呼びます。計画から取り出した「パネルごとの通る順番」を守らせるのは、交通整理です。
 - **ルーティングは、ほかのコンテキストに依存しません。** マップのコンテキストにも依存せず、マップは引数で受け取ります。状態を持たない計算に限ることで、予約や位置などの状態を一緒に移さずに取り外せるようにします。
   - ルーティングは自分専用の入力の形（ノードと辺のグラフ）を持ちます。マップのスナップショットからこの形に変換するのは、呼び出す側の役割です。
 - **安全（AGV 同士の衝突の防止）は、ルーティングに頼りません。** 交通整理が、経路上のパネルを **すべて予約できたときだけ** 走行の指示を出すことで保証します。ルーティングは効率にだけ関わります。
@@ -173,6 +177,7 @@ src/
   FlowHub.BuildingBlocks/
   FlowHub.Map/
   FlowHub.Routing/
+  FlowHub.PathPlanning/
   FlowHub.Traffic/
   FlowHub.Dispatching/
   FlowHub.ToolPlanning/
@@ -183,6 +188,7 @@ tests/
   FlowHub.BuildingBlocks.Tests/
   FlowHub.Map.Tests/
   FlowHub.Routing.Tests/
+  FlowHub.PathPlanning.Tests/
   FlowHub.Traffic.Tests/
   FlowHub.Dispatching.Tests/
   FlowHub.ToolPlanning.Tests/
