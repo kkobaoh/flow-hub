@@ -10,4 +10,8 @@
     <ProjectReference Include="..\FlowHub.Consumables\FlowHub.Consumables.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+  </ItemGroup>
+
 </Project>

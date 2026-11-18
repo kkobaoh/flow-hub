@@ -74,6 +74,8 @@
 | パッケージ | 用途 | ライセンス |
 |---|---|---|
 | xunit.v3 | テスト | Apache-2.0 |
+| Npgsql.EntityFrameworkCore.PostgreSQL | 本番の DB（PostgreSQL）とのやり取り（EF Core） | PostgreSQL |
+| Npgsql | PostgreSQL のドライバー（上の部品が使う） | PostgreSQL |
 
 ### プロジェクトの構成（モジュラモノリス）
 
@@ -130,6 +132,11 @@
 - コンテキストの中は、**`Domain`、`Application`、`Infrastructure` のフォルダ（名前空間）** に分けます。層の間の依存の向きは「クリーンアーキテクチャ」の節に従います。
 - コンテキストの間の依存と、層の間の依存は、**アーキテクチャテストで機械的に守らせます**。
 - DB は、**コンテキストごとに PostgreSQL のスキーマを分けます**。ほかのコンテキストのテーブルは直接読みません。
+- DB とのやり取りには **EF Core** を使います。本番は **PostgreSQL**、テストとデバッグは **SQLite** で、設定で切り替えます。
+  - SQLite にはスキーマがないので、**コンテキストごとに別の DB ファイル** にします。
+  - マイグレーションは **PostgreSQL 用だけ** 作ります。SQLite は、今のモデルからテーブルを作ります（`EnsureCreated`）。
+  - DB に頼む検索は単純に保ちます（DB の種類による違いを避けるため）。
+  - テストは SQLite で流します。PostgreSQL での確認は、本番に出す前に、PostgreSQL のある環境で行います。
 - `FlowHub.Api` は、各コンテキストの組み立てとエントリーポイントだけを担当します。
 
 #### コンテキストの間のやり取り
