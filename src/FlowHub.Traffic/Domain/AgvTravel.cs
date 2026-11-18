@@ -46,7 +46,8 @@ internal sealed record StartRouteResult(ReservationResult Reservation)
 /// コマンドは、AGV が GET で取りに来たときに <see cref="OnCommandRequest"/> で渡す。
 /// GET に載っている「前回受信したコマンドの番号」で、AGV がどこまで受け取ったかを判断する。
 /// </remarks>
-internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
+/// <param name="firstNumber">最初に付けるコマンドの番号（再起動したら、保存しておいた続きの番号）。</param>
+internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long firstNumber = 1)
 {
     private const long NoneReceived = -1;
 
@@ -54,7 +55,7 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     private readonly List<TravelSection> _remainingSections = [];
     private readonly HashSet<long> _motionNumbers = [];
 
-    private long _nextNumber = 1;
+    private long _nextNumber = firstNumber >= 1 ? firstNumber : throw new ArgumentOutOfRangeException(nameof(firstNumber));
     private ActiveMotion? _active;
     private long? _awaitingAlarmClear;
     private long? _awaitingPositionReset;
@@ -75,6 +76,9 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations)
     private AgvCommand? _carrierToReissue;
 
     public AgvId Id { get; } = id;
+
+    /// <summary>次に付けるコマンドの番号。</summary>
+    public long NextNumber => _nextNumber;
 
     /// <summary>キャリアの状態。</summary>
     public CarrierState Carrier { get; private set; } = CarrierState.Raised;

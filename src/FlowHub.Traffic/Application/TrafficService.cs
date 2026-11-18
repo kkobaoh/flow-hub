@@ -13,8 +13,12 @@ namespace FlowHub.Traffic.Application;
 /// AGV からのリクエストと通知を受ける窓口は、同じプロジェクトの AGV との通信の部分から呼ぶので internal にする。
 /// 処理は1つずつ順に行う（同時に呼ばれても状態が崩れないようにする）。
 /// </remarks>
-public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher, TimeProvider timeProvider) : ITrafficService, IDisposable
+/// <param name="commandNumbers">次に付けるコマンドの番号の保存場所。省略したら、メモリーの中にだけ持つ（再起動すると 1 に戻る）。</param>
+public sealed class TrafficService(
+    IMapStore mapStore, IEventPublisher publisher, TimeProvider timeProvider, ICommandNumberStore? commandNumbers = null) : ITrafficService, IDisposable
 {
+    private readonly ICommandNumberStore _commandNumbers = commandNumbers ?? new InMemoryCommandNumberStore();
+
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public void Dispose() => _gate.Dispose();
@@ -33,7 +37,7 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
         _gate.Wait();
         try
         {
-            if (!_agvs.TryAdd(id, new AgvEntry(new AgvTravel(id, _reservations), motion)))
+            if (!_agvs.TryAdd(id, new AgvEntry(new AgvTravel(id, _reservations, _commandNumbers.NextNumberOf(id)), motion)))
             {
                 throw new InvalidOperationException($"{id} はすでに登録されています。");
             }
@@ -283,8 +287,15 @@ public sealed class TrafficService(IMapStore mapStore, IEventPublisher publisher
             }
 
             var before = entry.Travel.Status;
+            var numberBefore = entry.Travel.NextNumber;
             var result = action(entry);
             var after = entry.Travel.Status;
+
+            // 番号を付けたら、再起動しても続きから数えられるように保存する
+            if (entry.Travel.NextNumber != numberBefore)
+            {
+                _commandNumbers.Save(id, entry.Travel.NextNumber);
+            }
 
             if (after == AgvTravelStatus.EmergencyStopped && before != AgvTravelStatus.EmergencyStopped)
             {
