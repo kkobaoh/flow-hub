@@ -43,9 +43,9 @@ public static class TrafficDatabase
 }
 
 /// <summary>
-/// 交通整理の保存場所（DB）。AGV の種類と AGV（構成のデータ）、AGV ごとの次に付けるコマンドの番号を持つ。
+/// 交通整理の保存場所（DB）。AGV の種類と AGV（構成のデータ）、AGV ごとの次に付けるコマンドの番号とコントロールステータスを持つ。
 /// </summary>
-public sealed class TrafficStore : ICommandNumberStore
+public sealed class TrafficStore : ICommandNumberStore, IControlStatusStore
 {
     private readonly Func<TrafficDbContext> _createContext;
 
@@ -78,7 +78,7 @@ public sealed class TrafficStore : ICommandNumberStore
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>AGV を登録する。種類は、先に登録しておく。</summary>
+    /// <summary>AGV を登録する。種類は、先に登録しておく。コントロールステータスは、切り離しから始める。</summary>
     public async Task AddAgvAsync(AgvId id, string typeId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeId);
@@ -89,7 +89,7 @@ public sealed class TrafficStore : ICommandNumberStore
             throw new InvalidOperationException($"AGV の種類 {typeId} は登録されていません。");
         }
 
-        context.Agvs.Add(new AgvRow { Id = id.Value, TypeId = typeId });
+        context.Agvs.Add(new AgvRow { Id = id.Value, TypeId = typeId, ControlStatus = ControlStatus.Detached });
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -107,6 +107,26 @@ public sealed class TrafficStore : ICommandNumberStore
             .Select(r => new AgvConfiguration(new AgvId(r.Id), new MotionProfile(r.ForwardSpeedMmPerSecond, r.BackwardSpeedMmPerSecond, r.RotationSpeedDegreesPerSecond)))
             .ToArray();
     }
+
+    // ---- コントロールステータス ----
+
+    /// <exception cref="InvalidOperationException">DB に登録されていない AGV のとき。</exception>
+    public ControlStatus StatusOf(AgvId id)
+    {
+        using var context = _createContext();
+        return FindAgv(context, id).ControlStatus;
+    }
+
+    /// <exception cref="InvalidOperationException">DB に登録されていない AGV のとき。</exception>
+    public void Save(AgvId id, ControlStatus status)
+    {
+        using var context = _createContext();
+        FindAgv(context, id).ControlStatus = status;
+        context.SaveChanges();
+    }
+
+    private static AgvRow FindAgv(TrafficDbContext context, AgvId id) =>
+        context.Agvs.Find(id.Value) ?? throw new InvalidOperationException($"{id} は DB に登録されていません。");
 
     // ---- コマンドの番号 ----
 

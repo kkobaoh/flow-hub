@@ -35,6 +35,24 @@ public class TrafficAndDispatchingDatabaseTests
     }
 
     [Fact]
+    public async Task 交通整理のコントロールステータスを保存し読み直せる()
+    {
+        var options = LocalPostgres.Options();
+        await LocalPostgres.DropSchemaAsync(options, TrafficDatabase.Schema, Token);
+
+        var store = await OpenTrafficAsync(options);
+        await store.AddAgvTypeAsync("small", new MotionProfile(500, 250, 90), Token);
+        await store.AddAgvAsync(Agv, "small", Token);
+        var registered = store.StatusOf(Agv);
+        store.Save(Agv, ControlStatus.Locked);
+
+        var reopened = await OpenTrafficAsync(options);
+
+        Assert.Equal(ControlStatus.Detached, registered);
+        Assert.Equal(ControlStatus.Locked, reopened.StatusOf(Agv));
+    }
+
+    [Fact]
     public async Task 配車のAGVの構成と充電の設定値を保存し読み直せる()
     {
         var options = LocalPostgres.Options();

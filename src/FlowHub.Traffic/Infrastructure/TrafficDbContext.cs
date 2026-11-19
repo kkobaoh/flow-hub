@@ -21,6 +21,9 @@ internal sealed class AgvRow
     public string Id { get; set; } = string.Empty;
 
     public string TypeId { get; set; } = string.Empty;
+
+    /// <summary>コントロールステータス。新しく登録した AGV は、切り離しから始める。</summary>
+    public ControlStatus ControlStatus { get; set; } = ControlStatus.Detached;
 }
 
 /// <summary>AGV ごとの、次に付けるコマンドの番号。</summary>
@@ -59,6 +62,7 @@ internal sealed class TrafficDbContext(DbContextOptions<TrafficDbContext> option
             entity.HasKey(a => a.Id);
             entity.Property(a => a.Id).HasMaxLength(100);
             entity.Property(a => a.TypeId).HasMaxLength(100);
+            entity.Property(a => a.ControlStatus).HasConversion<string>().HasMaxLength(20);
             entity.HasOne<AgvTypeRow>().WithMany().HasForeignKey(a => a.TypeId).OnDelete(DeleteBehavior.Restrict);
         });
 

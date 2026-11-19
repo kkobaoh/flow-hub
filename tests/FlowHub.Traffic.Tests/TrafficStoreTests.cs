@@ -123,4 +123,92 @@ public sealed class TrafficStoreTests : IDisposable
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.AddAgvAsync(Agv, "unknown", Token));
     }
+
+    // ---- コントロールステータス ----
+
+    /// <summary>AGV-1 を DB に登録して、保存場所を開く。</summary>
+    private async Task<TrafficStore> OpenWithAgvAsync()
+    {
+        var store = await OpenAsync();
+        await store.AddAgvTypeAsync("small", Motion, Token);
+        await store.AddAgvAsync(Agv, "small", Token);
+        return store;
+    }
+
+    /// <summary>コマンドの番号とコントロールステータスを DB に保存する交通整理（起動したときと同じ）。</summary>
+    private static TrafficService ServiceWithStatuses(TrafficStore store)
+    {
+        var service = new TrafficService(Map(), new IgnoringPublisher(), new FixedTimeProvider(), store, controlStatuses: store);
+        service.RegisterAgv(Agv, Motion);
+        return service;
+    }
+
+    /// <summary>切り離しから、位置を指定してオートに戻す（位置リセットの完了まで）。</summary>
+    private static async Task AttachAsync(TrafficService service)
+    {
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.Auto, new Pose("A", 0), Token);
+        var reset = Assert.Single(await service.HandleCommandRequestAsync(Agv, -1, Token));
+        await service.HandlePositionResetCompletedAsync(Agv, reset.Number, Token);
+    }
+
+    [Fact]
+    public async Task 新しく登録したAGVは切り離しから始める()
+    {
+        using var service = ServiceWithStatuses(await OpenWithAgvAsync());
+
+        Assert.Equal(ControlStatus.Detached, service.GetAgv(Agv).Control);
+    }
+
+    [Fact]
+    public async Task コントロールステータスは再起動しても残る()
+    {
+        var store = await OpenWithAgvAsync();
+        using (var first = ServiceWithStatuses(store))
+        {
+            await AttachAsync(first);
+            await first.ChangeControlStatusAsync(Agv, ControlStatus.Locked, position: null, Token);
+        }
+
+        using var second = ServiceWithStatuses(await OpenAsync());
+
+        Assert.Equal(ControlStatus.Locked, second.GetAgv(Agv).Control);
+    }
+
+    [Fact]
+    public async Task 切り離しから戻す位置リセットが済んだら保存する()
+    {
+        var store = await OpenWithAgvAsync();
+        using (var first = ServiceWithStatuses(store))
+        {
+            await AttachAsync(first);
+        }
+
+        using var second = ServiceWithStatuses(await OpenAsync());
+
+        Assert.Equal(ControlStatus.Auto, second.GetAgv(Agv).Control);
+    }
+
+    [Fact]
+    public async Task 切り離しから戻す位置リセットの完了の前に再起動したら切り離しのまま()
+    {
+        var store = await OpenWithAgvAsync();
+        using (var first = ServiceWithStatuses(store))
+        {
+            await first.ChangeControlStatusAsync(Agv, ControlStatus.Auto, new Pose("A", 0), Token);
+        }
+
+        using var second = ServiceWithStatuses(await OpenAsync());
+
+        Assert.Equal(ControlStatus.Detached, second.GetAgv(Agv).Control);
+    }
+
+    [Fact]
+    public void DBを使わないときはコントロールステータスを覚えずオートから始める()
+    {
+        var statuses = new InMemoryControlStatusStore();
+        statuses.Save(Agv, ControlStatus.Locked);
+
+        Assert.Equal(ControlStatus.Locked, statuses.StatusOf(Agv));
+        Assert.Equal(ControlStatus.Auto, new InMemoryControlStatusStore().StatusOf(Agv));
+    }
 }

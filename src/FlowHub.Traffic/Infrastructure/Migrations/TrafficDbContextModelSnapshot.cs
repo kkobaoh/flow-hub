@@ -28,6 +28,11 @@ namespace FlowHub.Traffic.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("ControlStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("TypeId")
                         .IsRequired()
                         .HasMaxLength(100)

@@ -16,14 +16,17 @@ namespace FlowHub.Traffic.Application;
 /// </remarks>
 /// <param name="commandNumbers">次に付けるコマンドの番号の保存場所。省略したら、メモリーの中にだけ持つ（再起動すると 1 に戻る）。</param>
 /// <param name="planning">全台の経路の計画の設定。省略したら既定値。</param>
+/// <param name="controlStatuses">コントロールステータスの保存場所。省略したら、メモリーの中にだけ持つ（オートから始める）。</param>
 public sealed class TrafficService(
     IMapStore mapStore,
     IEventPublisher publisher,
     TimeProvider timeProvider,
     ICommandNumberStore? commandNumbers = null,
-    TrafficPlanningOptions? planning = null) : ITrafficService, IDisposable
+    TrafficPlanningOptions? planning = null,
+    IControlStatusStore? controlStatuses = null) : ITrafficService, IDisposable
 {
     private readonly ICommandNumberStore _commandNumbers = commandNumbers ?? new InMemoryCommandNumberStore();
+    private readonly IControlStatusStore _controlStatuses = controlStatuses ?? new InMemoryControlStatusStore();
     private readonly TrafficPlanningOptions _planning = planning ?? new TrafficPlanningOptions();
     private readonly PrioritizedPlanner _fleetPlanner = new(timeProvider);
     private PassingOrderGate? _passingGate;
@@ -43,6 +46,7 @@ public sealed class TrafficService(
 
     /// <summary>
     /// AGV を登録する。速さは移動コストの計算に使う（AGV の種類ごとの設定から渡す）。
+    /// コントロールステータスは、保存場所から読む（再起動しても残す）。
     /// </summary>
     public void RegisterAgv(AgvId id, MotionProfile motion)
     {
@@ -51,7 +55,11 @@ public sealed class TrafficService(
         try
         {
             _passingGate ??= new PassingOrderGate(agv => _agvs.TryGetValue(agv, out var entry) ? entry.Travel.RemainingRoutePanels : null);
-            if (!_agvs.TryAdd(id, new AgvEntry(new AgvTravel(id, _reservations, _commandNumbers.NextNumberOf(id), _passingGate), motion)))
+            var entry = new AgvEntry(new AgvTravel(id, _reservations, _commandNumbers.NextNumberOf(id), _passingGate), motion)
+            {
+                Control = _controlStatuses.StatusOf(id),
+            };
+            if (!_agvs.TryAdd(id, entry))
             {
                 throw new InvalidOperationException($"{id} はすでに登録されています。");
             }
@@ -168,10 +176,17 @@ public sealed class TrafficService(
                     break;
             }
 
-            entry.Control = target;
+            SetControl(entry, target);
             ReplanAll();
             return true;
         }, cancellationToken);
+
+    /// <summary>コントロールステータスを変え、再起動しても残るように保存する。</summary>
+    private void SetControl(AgvEntry entry, ControlStatus status)
+    {
+        entry.Control = status;
+        _controlStatuses.Save(entry.Travel.Id, status);
+    }
 
     /// <summary>切り離しから切り替える。位置リセットを送り、完了の通知を受けたら切り替わる。</summary>
     private static bool LeaveDetached(AgvEntry entry, ControlStatus target, Pose? position)
@@ -376,7 +391,7 @@ public sealed class TrafficService(
             if (outcome == NotificationOutcome.Accepted && entry.PendingControl is { } pending)
             {
                 // 切り離しから切り替える位置リセットが済んだので、切り替える
-                entry.Control = pending;
+                SetControl(entry, pending);
                 entry.PendingControl = null;
             }
 
@@ -748,7 +763,7 @@ public sealed class TrafficService(
         public MotionProfile Motion { get; } = motion;
 
         /// <summary>コントロールステータス。</summary>
-        public ControlStatus Control { get; set; } = ControlStatus.Auto;
+        public ControlStatus Control { get; set; }
 
         /// <summary>切り離しから切り替える先。位置リセットの完了の通知を受けたら、これに切り替える。</summary>
         public ControlStatus? PendingControl { get; set; }
