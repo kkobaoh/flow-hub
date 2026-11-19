@@ -92,7 +92,7 @@ public class PlanningInputTests
     [Fact]
     public void AGVの並び順が計画の順番になる()
     {
-        var request = new PlanningRequest(Map(), [Agent("AGV-2", "A", "T"), Agent("AGV-1", "B")], Obstacles: [], ImprovementBudget: TimeSpan.FromMilliseconds(200));
+        var request = new PlanningRequest(Map(), [Agent("AGV-2", "A", "T"), Agent("AGV-1", "B")], Obstacles: [], ImprovementBudget: TimeSpan.FromMilliseconds(200), Horizon: TimeSpan.FromMinutes(10));
 
         Assert.Equal(["AGV-2", "AGV-1"], request.Agents.Select(a => a.Id));
     }
@@ -101,25 +101,27 @@ public class PlanningInputTests
     public void 同じAGVが二度出てきたらエラーにする()
     {
         Assert.Throws<ArgumentException>(() =>
-            new PlanningRequest(Map(), [Agent("AGV-1", "A"), Agent("AGV-1", "B")], Obstacles: [], ImprovementBudget: TimeSpan.Zero));
+            new PlanningRequest(Map(), [Agent("AGV-1", "A"), Agent("AGV-1", "B")], Obstacles: [], ImprovementBudget: TimeSpan.Zero, Horizon: TimeSpan.FromMinutes(10)));
     }
 
     [Fact]
     public void AGVの位置やゴールや障害物がマップにないノードならエラーにする()
     {
         Assert.Throws<ArgumentException>(() =>
-            new PlanningRequest(Map(), [Agent("AGV-1", "X")], Obstacles: [], ImprovementBudget: TimeSpan.Zero));
+            new PlanningRequest(Map(), [Agent("AGV-1", "X")], Obstacles: [], ImprovementBudget: TimeSpan.Zero, Horizon: TimeSpan.FromMinutes(10)));
         Assert.Throws<ArgumentException>(() =>
-            new PlanningRequest(Map(), [Agent("AGV-1", "A", goal: "X")], Obstacles: [], ImprovementBudget: TimeSpan.Zero));
+            new PlanningRequest(Map(), [Agent("AGV-1", "A", goal: "X")], Obstacles: [], ImprovementBudget: TimeSpan.Zero, Horizon: TimeSpan.FromMinutes(10)));
         Assert.Throws<ArgumentException>(() =>
-            new PlanningRequest(Map(), [], Obstacles: [new PlanningObstacle("AGV-9", ["X"])], ImprovementBudget: TimeSpan.Zero));
+            new PlanningRequest(Map(), [], Obstacles: [new PlanningObstacle("AGV-9", ["X"])], ImprovementBudget: TimeSpan.Zero, Horizon: TimeSpan.FromMinutes(10)));
     }
 
     [Fact]
-    public void 改善にかける時間は0以上()
+    public void 改善にかける時間は0以上で計画する時間の長さの上限は0より大きい()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            new PlanningRequest(Map(), [], Obstacles: [], ImprovementBudget: TimeSpan.FromMilliseconds(-1)));
+            new PlanningRequest(Map(), [], Obstacles: [], ImprovementBudget: TimeSpan.FromMilliseconds(-1), Horizon: TimeSpan.FromMinutes(10)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new PlanningRequest(Map(), [], Obstacles: [], ImprovementBudget: TimeSpan.Zero, Horizon: TimeSpan.Zero));
     }
 
     [Fact]

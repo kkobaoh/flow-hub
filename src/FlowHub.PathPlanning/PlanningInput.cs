@@ -187,12 +187,15 @@ public sealed record PlanningRequest
     /// <param name="Agents">計画に入れる AGV。**並び順が、計画の順番**（先の AGV から経路を決める）。</param>
     /// <param name="Obstacles">計画で動かせない AGV が塞いでいるノード。</param>
     /// <param name="ImprovementBudget">止まらない計画ができたあと、改善にかけてよい時間の上限（0以上）。</param>
-    public PlanningRequest(PlanningMap Map, IReadOnlyList<PlanningAgent> Agents, IReadOnlyList<PlanningObstacle> Obstacles, TimeSpan ImprovementBudget)
+    /// <param name="Horizon">計画する時間の長さの上限（0より大きい）。これまでに行き先に着けなければ、塞がれていて行けないとする。</param>
+    public PlanningRequest(
+        PlanningMap Map, IReadOnlyList<PlanningAgent> Agents, IReadOnlyList<PlanningObstacle> Obstacles, TimeSpan ImprovementBudget, TimeSpan Horizon)
     {
         ArgumentNullException.ThrowIfNull(Map);
         ArgumentNullException.ThrowIfNull(Agents);
         ArgumentNullException.ThrowIfNull(Obstacles);
         ArgumentOutOfRangeException.ThrowIfLessThan(ImprovementBudget, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(Horizon, TimeSpan.Zero);
 
         var ids = new HashSet<string>();
         foreach (var agent in Agents)
@@ -218,6 +221,7 @@ public sealed record PlanningRequest
         this.Agents = Agents;
         this.Obstacles = Obstacles;
         this.ImprovementBudget = ImprovementBudget;
+        this.Horizon = Horizon;
     }
 
     public PlanningMap Map { get; }
@@ -227,6 +231,8 @@ public sealed record PlanningRequest
     public IReadOnlyList<PlanningObstacle> Obstacles { get; }
 
     public TimeSpan ImprovementBudget { get; }
+
+    public TimeSpan Horizon { get; }
 
     private static void EnsureNode(PlanningMap map, string nodeId, string parameterName)
     {
