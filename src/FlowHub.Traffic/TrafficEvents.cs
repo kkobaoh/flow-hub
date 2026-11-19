@@ -24,5 +24,8 @@ public sealed record AgvFaulted(EventMetadata Metadata, AgvId Agv) : IIntegratio
 /// <summary>AGV の位置リセットが完了した（AGV は待機中になった）。</summary>
 public sealed record AgvPositionResetCompleted(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
 
+/// <summary>マニュアルで並べた1つずつの動作を、渡すときに予約が取れなかったので、そこで止めて残りを捨てた（画面で知らせる）。</summary>
+public sealed record ManualStepsDropped(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
+
 /// <summary>AGV の充電残量が変わった。</summary>
 public sealed record AgvBatteryChanged(EventMetadata Metadata, AgvId Agv, int Percent) : IIntegrationEvent;

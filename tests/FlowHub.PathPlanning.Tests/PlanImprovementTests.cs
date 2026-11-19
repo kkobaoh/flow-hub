@@ -76,6 +76,17 @@ public class PlanImprovementTests
     }
 
     [Fact]
+    public void 順番を保つ印のあるAGVは入れ替えない()
+    {
+        // 入れ替えれば到着時刻の合計が縮むが、AGV-1 は順番を保つ（マニュアルで行き先を指定した AGV など）
+        var keep = Agent("AGV-1", "N2", 180, "S", dueSeconds: 100) with { KeepOrder = true };
+
+        var result = Plan(Enough, keep, Agent("AGV-2", "E", 270, "W", dueSeconds: 100));
+
+        Assert.Equal(["AGV-1", "AGV-2"], result.PassingOrder["M"]);
+    }
+
+    [Fact]
     public void 入れ替えても結果の並びは頼みの並び順のまま()
     {
         var result = Plan(Enough, Agent("AGV-1", "N2", 180, "S", dueSeconds: 100), Agent("AGV-2", "E", 270, "W", dueSeconds: 100));

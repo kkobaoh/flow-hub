@@ -30,10 +30,14 @@ public sealed class TrafficService(
     private readonly TrafficPlanningOptions _planning = planning ?? new TrafficPlanningOptions();
     private readonly PrioritizedPlanner _fleetPlanner = new(timeProvider);
     private PassingOrderGate? _passingGate;
+    private DelegateTurnGate? _turnGate;
     private long _requestOrder;
 
     /// <summary>塞がれて待っている AGV がいるかもしれない変化（着いた、再開した）があり、計画を立て直す必要がある。</summary>
     private bool _replanRequested;
+
+    /// <summary>マニュアルの1つずつの動作で、予約しているパネルが変わった（ほかの AGV の計画を立て直す）。</summary>
+    private bool _manualStepsChanged;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -55,7 +59,10 @@ public sealed class TrafficService(
         try
         {
             _passingGate ??= new PassingOrderGate(agv => _agvs.TryGetValue(agv, out var entry) ? entry.Travel.RemainingRoutePanels : null);
-            var entry = new AgvEntry(new AgvTravel(id, _reservations, _commandNumbers.NextNumberOf(id), _passingGate), motion)
+
+            // マニュアルの1つずつの動作は、全台の計画の通る順番には従わず、予約だけで守る
+            _turnGate ??= new DelegateTurnGate((agv, panels) => (_agvs.TryGetValue(agv, out var entry) && IsManualStepping(entry)) || _passingGate.IsMyTurn(agv, panels));
+            var entry = new AgvEntry(new AgvTravel(id, _reservations, _commandNumbers.NextNumberOf(id), _turnGate), motion)
             {
                 Control = _controlStatuses.StatusOf(id),
             };
@@ -250,12 +257,16 @@ public sealed class TrafficService(
         RunAsync(id, correlationId, entry =>
         {
             RefuseUnlessSystemControlled(entry);
-            var map = CurrentMap();
-            var panelId = new PanelId(entry.Travel.Position?.NodeId ?? throw new InvalidOperationException($"{id} は位置がわかりません。"));
-            var panel = map.Panels.Single(p => p.Id == panelId);
-            entry.Travel.LowerCarrier(panel, mapStore.CarrierHeightOf(panelId));
+            LowerCarrier(entry);
             return true;
         }, cancellationToken);
+
+    private void LowerCarrier(AgvEntry entry)
+    {
+        var panelId = new PanelId(entry.Travel.Position?.NodeId ?? throw new InvalidOperationException($"{entry.Travel.Id} は位置がわかりません。"));
+        var panel = CurrentMap().Panels.Single(p => p.Id == panelId);
+        entry.Travel.LowerCarrier(panel, mapStore.CarrierHeightOf(panelId));
+    }
 
     /// <summary>
     /// キャリアを上げる。
@@ -312,6 +323,119 @@ public sealed class TrafficService(
     }
 
     private static bool IsSystemControlled(AgvEntry entry) => entry.Control is ControlStatus.Auto or ControlStatus.AssignmentPaused;
+
+    // ---- マニュアルのコマンド（画面から） ----
+
+    /// <summary>
+    /// マニュアルで、行き先のパネルを指定して走らせる。経路はシステムが求め、全台の計画で一番先に計画する。
+    /// 今はほかの AGV に塞がれていて行けないときと、マップの上に経路がないときは、受け付けない。着いても、着いたことは知らせない。
+    /// </summary>
+    /// <exception cref="InvalidOperationException">マニュアルでないとき。待機中でない（走っている途中、緊急停止中など）とき。キャリアが上がっていないとき。</exception>
+    public Task<ManualMoveResult> ManualMoveAsync(AgvId id, PanelId destination, CancellationToken cancellationToken) =>
+        RunAsync(id, $"manual:{id}", entry =>
+        {
+            RequireManual(entry);
+            var travel = entry.Travel;
+            if (travel.Status != AgvTravelStatus.Idle || entry.Destination is not null)
+            {
+                throw new InvalidOperationException($"{id} は待機中でないため、行き先を受け付けません（今の状態：{travel.Status}）。");
+            }
+
+            if (travel.Position!.NodeId == destination.Value)
+            {
+                return ManualMoveResult.AlreadyThere;
+            }
+
+            if (travel.Carrier != CarrierState.Raised)
+            {
+                throw new InvalidOperationException($"{id} はキャリアが上がっていないため、走らせられません。");
+            }
+
+            entry.Destination = destination;
+            entry.NeededBy = null;
+            entry.RequestOrder = ++_requestOrder;
+            ReplanAll();
+
+            switch (entry.PlanStatus)
+            {
+                case PlanStatus.NoRoute:
+                    DropDestination(entry);
+                    return ManualMoveResult.NoRoute;
+                case PlanStatus.Blocked:
+                    DropDestination(entry);
+                    ReplanAll(); // 待たないので、行き先のない AGV として計画し直す
+                    return ManualMoveResult.Blocked;
+                default:
+                    return ManualMoveResult.Started;
+            }
+        }, cancellationToken);
+
+    /// <summary>
+    /// マニュアルで、1つずつの動作を送る。前の動作が終わる前なら、後ろに並べる（渡すときに予約が取れなければ、そこで止めて残りを捨て、
+    /// <see cref="ManualStepsDropped"/> で知らせる）。全台の計画の通る順番には従わず、予約だけで守る。
+    /// </summary>
+    /// <exception cref="InvalidOperationException">マニュアルでないとき。行き先へ走っている途中や、緊急停止中などのとき。キャリアが上がっていないとき。</exception>
+    public Task<ManualStepResult> ManualStepAsync(AgvId id, ManualStep step, CancellationToken cancellationToken) =>
+        RunAsync(id, $"manual:{id}", entry =>
+        {
+            ArgumentNullException.ThrowIfNull(step);
+            RequireManual(entry);
+            var travel = entry.Travel;
+            if (entry.Destination is not null || travel.Status is not (AgvTravelStatus.Idle or AgvTravelStatus.Moving))
+            {
+                throw new InvalidOperationException($"{id} は行き先へ走っている途中か、待機中でないため、1つずつの動作を受け付けません（今の状態：{travel.Status}）。");
+            }
+
+            if (ManualStepBuilder.Build(CurrentMap(), travel.RouteEnd, step) is not { } section)
+            {
+                return ManualStepResult.NotAllowed;
+            }
+
+            var queued = travel.HasRoute;
+            travel.AppendSection(section);
+            if (!queued && !travel.TryDispatchNext())
+            {
+                travel.SetRoute([], dispatchNow: false); // すぐに渡せるのに予約が取れない
+                return ManualStepResult.Blocked;
+            }
+
+            _manualStepsChanged = true;
+            return ManualStepResult.Accepted;
+        }, cancellationToken);
+
+    /// <summary>マニュアルで、キャリアを下げる。高さはマップの設定から読む（設定されていなければ、AGV に測定させる）。</summary>
+    /// <exception cref="InvalidOperationException">マニュアルでないとき。</exception>
+    public Task ManualLowerCarrierAsync(AgvId id, CancellationToken cancellationToken) =>
+        RunAsync(id, $"manual:{id}", entry =>
+        {
+            RequireManual(entry);
+            LowerCarrier(entry);
+            return true;
+        }, cancellationToken);
+
+    /// <summary>マニュアルで、キャリアを上げる。</summary>
+    /// <exception cref="InvalidOperationException">マニュアルでないとき。</exception>
+    public Task ManualRaiseCarrierAsync(AgvId id, CancellationToken cancellationToken) =>
+        RunAsync(id, $"manual:{id}", entry =>
+        {
+            RequireManual(entry);
+            entry.Travel.RaiseCarrier();
+            return true;
+        }, cancellationToken);
+
+    private static void RequireManual(AgvEntry entry)
+    {
+        if (entry.Control != ControlStatus.Manual)
+        {
+            throw new InvalidOperationException($"{entry.Travel.Id} はマニュアルでないため、マニュアルのコマンドを受け付けません（今のステータス：{entry.Control}）。");
+        }
+    }
+
+    /// <summary>マニュアルで、1つずつの動作で動かしている（行き先がない）。全台の計画では障害物にし、通る順番には従わせない。</summary>
+    private static bool IsManualStepping(AgvEntry entry) => entry.Control == ControlStatus.Manual && entry.Destination is null;
+
+    /// <summary>マニュアルで、行き先を指定して走らせている。全台の計画で一番先に計画する。</summary>
+    private static bool IsManualMoving(AgvEntry entry) => entry.Control == ControlStatus.Manual && entry.Destination is not null;
 
     // ---- AGV からのリクエストと通知（AGV との通信の部分から呼ぶ） ----
 
@@ -467,13 +591,16 @@ public sealed class TrafficService(
             entry.PendingEvents.Clear();
             if (wakesPollers)
             {
-                if (_replanRequested && _agvs.Values.Any(e => e.PlanStatus == PlanStatus.Blocked || e.WasObstacle))
+                // マニュアルの1つずつの動作で予約するパネルが変わったら、ほかの AGV はそれを避けて計画し直す
+                if ((_replanRequested && _agvs.Values.Any(e => e.PlanStatus == PlanStatus.Blocked || e.WasObstacle)) || _manualStepsChanged)
                 {
                     ReplanAll();
                 }
 
                 _replanRequested = false;
+                _manualStepsChanged = false;
                 DispatchAll();
+                await DropBlockedManualStepsAsync(cancellationToken).ConfigureAwait(false);
                 entry.NotifyChanged();
             }
 
@@ -498,7 +625,15 @@ public sealed class TrafficService(
         {
             entry.Destination = null;
             entry.PlanStatus = null;
-            entry.PendingEvents.Add(metadata => new AgvArrived(metadata, travel.Id, destination));
+            if (entry.Control != ControlStatus.Manual)
+            {
+                entry.PendingEvents.Add(metadata => new AgvArrived(metadata, travel.Id, destination)); // マニュアルの行き先は知らせない
+            }
+        }
+
+        if (outcome == NotificationOutcome.Accepted && IsManualStepping(entry))
+        {
+            _manualStepsChanged = true; // 1つずつの動作を終えた（パネルが空いたかもしれない）
         }
 
         if (outcome == NotificationOutcome.Accepted && entry.Destination is null)
@@ -537,9 +672,9 @@ public sealed class TrafficService(
         foreach (var entry in _agvs.Values.Where(e => e.Travel.Position is not null && !IsDetachedForGood(e)))
         {
             entry.WasObstacle = false;
-            if (!IsSystemControlled(entry))
+            if (!IsSystemControlled(entry) && !IsManualMoving(entry))
             {
-                // マニュアル、ロック、切り離しから戻る位置リセット待ちは、システムの判断では動かさない
+                // マニュアル（行き先のないもの）、ロック、切り離しから戻る位置リセット待ちは、システムの判断では動かさない
                 obstacles.Add(new PlanningObstacle(entry.Travel.Id.Value, OccupiedPanels(entry)));
             }
             else if (IsObstacle(entry))
@@ -554,7 +689,8 @@ public sealed class TrafficService(
         }
 
         var ordered = participants
-            .OrderBy(e => e.Destination is null || e.Travel.Carrier != CarrierState.Raised)
+            .OrderBy(e => !IsManualMoving(e))
+            .ThenBy(e => e.Destination is null || e.Travel.Carrier != CarrierState.Raised)
             .ThenBy(e => e.NeededBy is null)
             .ThenBy(e => e.NeededBy)
             .ThenBy(e => e.RequestOrder)
@@ -599,6 +735,25 @@ public sealed class TrafficService(
     /// <summary>切り離し中で、戻す操作（位置リセット）もまだ受けていない。コマンドを渡さず、全台の計画にも入れない。</summary>
     private static bool IsDetachedForGood(AgvEntry entry) => entry.Control == ControlStatus.Detached && entry.PendingControl is null;
 
+    /// <summary>
+    /// マニュアルで並べた1つずつの動作を、渡そうとしたのに予約が取れなかった AGV は、そこで止めて残りを捨て、知らせる。
+    /// </summary>
+    private async Task DropBlockedManualStepsAsync(CancellationToken cancellationToken)
+    {
+        foreach (var entry in _agvs.Values)
+        {
+            var travel = entry.Travel;
+            if (!IsManualStepping(entry) || travel.Status != AgvTravelStatus.Moving || travel.HasActiveSection || travel.RemainingSections.Count == 0)
+            {
+                continue;
+            }
+
+            travel.SetRoute([], dispatchNow: false);
+            var metadata = EventMetadata.Start(entry.CorrelationId ?? $"agv:{travel.Id}", timeProvider);
+            await publisher.PublishAsync(new ManualStepsDropped(metadata, travel.Id), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     /// <summary>区間を渡せる AGV に、次の区間を渡す。</summary>
     private void DispatchAll()
     {
@@ -626,6 +781,9 @@ public sealed class TrafficService(
                     committed.Add(new MoveAction(AgentDirection.Backward, node, backward.To.Value, backward.DistanceMm));
                     node = backward.To.Value;
                     break;
+                case FreeRotateCommand free:
+                    committed.Add(new RotateAction(node, free.Heading));
+                    break;
                 case RotateCommand rotate:
                     committed.Add(new RotateAction(node, rotate.Heading));
                     break;
@@ -643,6 +801,7 @@ public sealed class TrafficService(
             Movable: IsMovable(entry))
         {
             Due = goal is not null && entry.NeededBy is { } neededBy ? neededBy - timeProvider.GetUtcNow() : null,
+            KeepOrder = IsManualMoving(entry), // マニュアルの行き先は、改善でも一番先のまま
         };
     }
 

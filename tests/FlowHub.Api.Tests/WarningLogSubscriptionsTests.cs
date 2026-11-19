@@ -86,13 +86,22 @@ public class WarningLogSubscriptionsTests
     }
 
     [Fact]
-    public void 三つのイベントを購読する()
+    public async Task マニュアルで並べた動作を捨てたことを警告としてログに残す()
+    {
+        var entry = await PublishAsync(new ManualStepsDropped(EventMetadata.Start("manual:AGV-1", Time), new AgvId("AGV-1")));
+
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("AGV-1", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void 警告のイベントを購読する()
     {
         var subscriptions = new EventSubscriptions();
         using var factory = LoggerFactory.Create(_ => { });
 
         ApiSubscriptions.Register(subscriptions, factory);
 
-        Assert.Equal([typeof(TransportInterrupted), typeof(MoveBlocked), typeof(NoChargingPortAvailable)], subscriptions.SubscribedEventTypes);
+        Assert.Equal([typeof(TransportInterrupted), typeof(MoveBlocked), typeof(NoChargingPortAvailable), typeof(ManualStepsDropped)], subscriptions.SubscribedEventTypes);
     }
 }

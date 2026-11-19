@@ -97,6 +97,7 @@ internal static class AgvMessages
         ForwardCommand forward => new JsonObject { ["action"] = "forward", ["distanceMm"] = forward.DistanceMm, ["panel"] = forward.To.Value },
         BackwardCommand backward => new JsonObject { ["action"] = "backward", ["distanceMm"] = backward.DistanceMm, ["panel"] = backward.To.Value },
         RotateCommand rotate => new JsonObject { ["action"] = "rotate", ["heading"] = rotate.Heading },
+        FreeRotateCommand free => new JsonObject { ["action"] = "rotate_free", ["heading"] = free.Heading },
         _ => throw new InvalidOperationException($"未知の動作です：{step.GetType().Name}"),
     };
 

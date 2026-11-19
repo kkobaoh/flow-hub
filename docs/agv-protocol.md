@@ -72,6 +72,7 @@ GET /agv/{agvId}/commands?lastReceived={番号}
 | `forward` | `distanceMm`、`panel` | 前進。次の十字のラインまでの距離と、移動先のパネル |
 | `backward` | `distanceMm`、`panel` | 後退。項目は前進と同じ |
 | `rotate` | `heading` | その場での回転。回転後の絶対角度 |
+| `rotate_free` | `heading` | 角度を指定した、その場での回転（マニュアルで使う）。ラインを読まずに、回転後の絶対角度（0〜359度）まで回る。区間には、これ1つだけで入れる。終えたときの通知は `rotated` |
 
 ## 2. 位置を取りに来る（再起動したとき）
 

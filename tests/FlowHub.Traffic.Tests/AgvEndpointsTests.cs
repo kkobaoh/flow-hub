@@ -183,6 +183,19 @@ public sealed class AgvEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task 角度を指定した回転の動作を返す()
+    {
+        var client = await StartAsync();
+        await ReadyAtAsync("A", 90);
+        await _service.ChangeControlStatusAsync(Agv, ControlStatus.Manual, position: null, None);
+        await _service.ManualStepAsync(Agv, new ManualFreeRotate(45), None);
+
+        var commands = await CommandsAsync(client, 1);
+
+        AssertJson("""[{ "number": 2, "type": "motion", "steps": [{ "action": "rotate_free", "heading": 45 }] }]""", commands);
+    }
+
+    [Fact]
     public async Task キャリアと緊急停止とアラームクリアのコマンドを返す()
     {
         var client = await StartAsync();

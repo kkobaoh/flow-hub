@@ -21,3 +21,8 @@ internal sealed record BackwardCommand(int DistanceMm, PanelId To) : TravelComma
 /// その場での回転。回転後の絶対角度を送り、どちら回りかは AGV が判断する。
 /// </summary>
 internal sealed record RotateCommand(int Heading) : TravelCommand;
+
+/// <summary>
+/// 角度を指定した、その場での回転（マニュアルで使う）。ラインを読まずに、回転後の絶対角度まで回る。
+/// </summary>
+internal sealed record FreeRotateCommand(int Heading) : TravelCommand;

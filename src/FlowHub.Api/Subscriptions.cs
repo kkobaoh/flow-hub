@@ -1,5 +1,6 @@
 using FlowHub.BuildingBlocks;
 using FlowHub.Dispatching;
+using FlowHub.Traffic;
 using Microsoft.Extensions.Logging;
 
 namespace FlowHub.Api;
@@ -21,6 +22,9 @@ internal static class ApiSubscriptions
         subscriptions.Subscribe(() => new TransportInterruptedLogger(loggerFactory.CreateLogger<TransportInterruptedLogger>()));
         subscriptions.Subscribe(() => new MoveBlockedLogger(loggerFactory.CreateLogger<MoveBlockedLogger>()));
         subscriptions.Subscribe(() => new NoChargingPortAvailableLogger(loggerFactory.CreateLogger<NoChargingPortAvailableLogger>()));
+
+        // 交通整理から
+        subscriptions.Subscribe(() => new ManualStepsDroppedLogger(loggerFactory.CreateLogger<ManualStepsDroppedLogger>()));
     }
 }
 
@@ -66,5 +70,20 @@ internal sealed partial class NoChargingPortAvailableLogger(ILogger<NoChargingPo
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Agv} が行ける充電ポートがありません。空いたら向かわせます。EventId={EventId} CorrelationId={CorrelationId} CausationId={CausationId}")]
+    private static partial void Log(ILogger logger, string agv, Guid eventId, string correlationId, Guid? causationId);
+}
+
+/// <summary>マニュアルで並べた1つずつの動作を、予約が取れずに止めて捨てた。</summary>
+internal sealed partial class ManualStepsDroppedLogger(ILogger<ManualStepsDroppedLogger> logger) : IEventSubscriber<ManualStepsDropped>
+{
+    public Task HandleAsync(ManualStepsDropped integrationEvent, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(integrationEvent);
+        var m = integrationEvent.Metadata;
+        Log(logger, integrationEvent.Agv.ToString(), m.EventId, m.CorrelationId, m.CausationId);
+        return Task.CompletedTask;
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Agv} はマニュアルで並べた動作の予約が取れなかったので、そこで止めて残りを捨てました。EventId={EventId} CorrelationId={CorrelationId} CausationId={CausationId}")]
     private static partial void Log(ILogger logger, string agv, Guid eventId, string correlationId, Guid? causationId);
 }

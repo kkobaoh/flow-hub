@@ -162,6 +162,12 @@ public sealed record PlanningAgent(
     /// 計画の改善で、必要時刻に対する遅れを数えるのに使う。
     /// </summary>
     public TimeSpan? Due { get; init; }
+
+    /// <summary>
+    /// 計画の改善で、順番を入れ替えないか（頼みの並び順の位置のまま計画する）。
+    /// 通り道を塞いでいる AGV の繰り上げでは、前に入られることがある。
+    /// </summary>
+    public bool KeepOrder { get; init; }
 }
 
 /// <summary>

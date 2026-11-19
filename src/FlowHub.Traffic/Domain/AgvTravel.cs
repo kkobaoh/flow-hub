@@ -179,6 +179,37 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
     }
 
     /// <summary>
+    /// 区間を1つ、まだ渡していない区間の後ろに足す（マニュアルの1つずつの動作を並べる）。渡すのは <see cref="TryDispatchNext"/>。
+    /// 区間は、並べた区間を終えた姿勢（<see cref="RouteEnd"/>）から始める。
+    /// </summary>
+    public void AppendSection(TravelSection section)
+    {
+        ArgumentNullException.ThrowIfNull(section);
+        if (Position is null || _awaitingPositionReset is not null)
+        {
+            throw new InvalidOperationException($"{Id} は位置がわからないため、走らせられません。");
+        }
+
+        if (Carrier != CarrierState.Raised)
+        {
+            throw new InvalidOperationException($"{Id} はキャリアが上がっていないため、走らせられません。");
+        }
+
+        if (section.Panels[0].Value != RouteEnd.NodeId)
+        {
+            throw new ArgumentException($"区間が {Id} の並べた区間を終えたパネル（{RouteEnd.NodeId}）から始まっていません。", nameof(section));
+        }
+
+        _remainingSections.Add(section);
+    }
+
+    /// <summary>並べた区間をすべて終えたあとの姿勢（なければ <see cref="PlanningStart"/>）。</summary>
+    public Pose RouteEnd => _remainingSections.Count > 0 ? _remainingSections[^1].End : PlanningStart;
+
+    /// <summary>渡した区間を走っているか（まだ完了の通知を受けていない動作がある）。</summary>
+    public bool HasActiveSection => _active is not null;
+
+    /// <summary>
     /// これから使うパネルの並び（今いるパネル、渡した区間の残り、まだ渡していない区間の順）。続けて同じパネルは1つにまとめる。
     /// 位置がわからなければ null。全台の計画の通る順番で、そのパネルをまだ使うか（あと何回使うか）を数えるのに使う。
     /// </summary>
@@ -553,6 +584,7 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
         Position = step switch
         {
             RotateCommand rotate => new Pose(Position.NodeId, rotate.Heading),
+            FreeRotateCommand free => new Pose(Position.NodeId, free.Heading),
             _ => new Pose(completion.Arrived!.Value.Value, Position.Heading),
         };
 
@@ -796,7 +828,7 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
         {
             ForwardCommand forward => Direction == MoveDirection.Forward && Arrived == forward.To,
             BackwardCommand backward => Direction == MoveDirection.Backward && Arrived == backward.To,
-            RotateCommand => Direction is null,
+            RotateCommand or FreeRotateCommand => Direction is null,
             _ => false,
         };
     }
@@ -808,6 +840,12 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
 internal interface ITurnGate
 {
     bool IsMyTurn(AgvId agv, IReadOnlyList<PanelId> panels);
+}
+
+/// <summary>自分の番かの判断を、関数で決める。</summary>
+internal sealed class DelegateTurnGate(Func<AgvId, IReadOnlyList<PanelId>, bool> isMyTurn) : ITurnGate
+{
+    public bool IsMyTurn(AgvId agv, IReadOnlyList<PanelId> panels) => isMyTurn(agv, panels);
 }
 
 /// <summary>いつも自分の番とする（全台の計画を使わないとき）。</summary>

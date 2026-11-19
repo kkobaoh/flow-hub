@@ -52,6 +52,11 @@ public sealed class PrioritizedPlanner(TimeProvider? clock = null) : IPathPlanne
                     continue; // 行き先のない AGV どうしは、入れ替えても変わらない
                 }
 
+                if (order[index].KeepOrder || order[index + 1].KeepOrder)
+                {
+                    continue; // 順番を保つ AGV は、入れ替えない
+                }
+
                 var candidateOrder = order.ToList();
                 (candidateOrder[index], candidateOrder[index + 1]) = (candidateOrder[index + 1], candidateOrder[index]);
                 var candidate = new Run(new PlanningRequest(request.Map, candidateOrder, request.Obstacles, TimeSpan.Zero, request.Horizon)).Execute();
