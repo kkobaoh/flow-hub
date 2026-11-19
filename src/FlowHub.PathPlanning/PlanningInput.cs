@@ -6,7 +6,8 @@ namespace FlowHub.PathPlanning;
 /// <param name="CanRotate">その場で回転できるか（行き止まりのパネルでは回転できない）。</param>
 /// <param name="ForwardEntryOnly">前進でしか入れないか（行き止まりのパネル）。</param>
 /// <param name="BackwardExitOnly">後退でしか出られないか（行き止まりのパネル）。</param>
-public sealed record PlanningNode(string Id, bool CanRotate, bool ForwardEntryOnly, bool BackwardExitOnly);
+/// <param name="IsStandby">待機パネルか（通り道を塞いでいる、行き先のない AGV をどかす先の候補）。</param>
+public sealed record PlanningNode(string Id, bool CanRotate, bool ForwardEntryOnly, bool BackwardExitOnly, bool IsStandby = false);
 
 /// <summary>
 /// 計画のためのつながり（隣り合うパネルの間のライン）。

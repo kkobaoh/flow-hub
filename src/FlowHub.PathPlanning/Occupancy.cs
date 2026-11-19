@@ -64,6 +64,9 @@ internal sealed class Occupancy
         return free;
     }
 
+    /// <summary>そのノードを、どの AGV も（仮にも）使わないか。</summary>
+    public bool IsUnused(string node) => !_reservations.TryGetValue(node, out var list) || list.Count == 0;
+
     /// <summary>仮の予約を持っている AGV のうち、そのノードを塞いでいるもの。</summary>
     public IEnumerable<string> ProvisionalOwnersAt(string node) =>
         _reservations.TryGetValue(node, out var list) ? list.Where(r => r.Provisional).Select(r => r.Owner) : [];

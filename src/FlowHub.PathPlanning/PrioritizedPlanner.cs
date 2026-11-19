@@ -9,6 +9,8 @@ namespace FlowHub.PathPlanning;
 /// <item>まだ計画していない AGV の今いるノードは、先の AGV にとって「ずっと塞がれている」とみなす。そのせいで行けなければ、
 /// 塞いでいる AGV の順番を繰り上げて、先に計画してから、もう一度試す。</item>
 /// <item>行き先に着いた AGV と、行き先のない AGV は、そのノードに止まり続けるものとする。</item>
+/// <item>繰り上げる AGV が、行き先がなく動かせるなら、移動コストが一番近い、空いている待機パネルへどかす（同じ近さなら ID の順）。
+/// 空いている待機パネルがなければ、どかさない。</item>
 /// <item>計画できなければ、マップの上に経路がないなら「経路がない」、あるなら「塞がれていて行けない」とし、今いるノードに止まり続けるものとする。</item>
 /// </list>
 /// </remarks>
@@ -29,12 +31,14 @@ public sealed class PrioritizedPlanner : IPathPlanner
         private readonly long _horizon;
         private readonly Dictionary<string, AgentState> _agents = [];
         private readonly HashSet<string> _inProgress = [];
+        private readonly HashSet<string> _goals;
 
         public Run(PlanningRequest request)
         {
             _request = request;
             _graph = new MotionGraph(request.Map);
             _horizon = request.Horizon.Ticks;
+            _goals = request.Agents.Select(a => a.Goal?.NodeId).OfType<string>().ToHashSet();
         }
 
         public PlanningResult Execute()
@@ -76,13 +80,18 @@ public sealed class PrioritizedPlanner : IPathPlanner
             return new PlanningResult(plans, _occupancy.PassingOrder());
         }
 
-        private void PlanAgent(AgentState state)
+        /// <param name="evacuate">通り道を塞いでいるので繰り上げた。行き先がなく動かせるなら、待機パネルへどかす。</param>
+        private void PlanAgent(AgentState state, bool evacuate = false)
         {
             var agent = state.Agent;
             _occupancy.RemoveProvisional(agent.Id);
             if (agent.Goal is not { } goal)
             {
-                Settle(state, PlanStatus.Stays, []);
+                if (!(evacuate && agent.Movable && TryEvacuate(state)))
+                {
+                    Settle(state, PlanStatus.Stays, []);
+                }
+
                 return;
             }
 
@@ -131,12 +140,34 @@ public sealed class PrioritizedPlanner : IPathPlanner
             {
                 if (_agents[blocker].Status is null)
                 {
-                    PlanAgent(_agents[blocker]);
+                    PlanAgent(_agents[blocker], evacuate: true);
                 }
             }
 
             _occupancy.RemoveProvisional(state.Agent.Id);
             _inProgress.Remove(state.Agent.Id);
+            return true;
+        }
+
+        /// <summary>
+        /// 移動コストが一番近い、空いている待機パネルへどかす。空いているとは、どの AGV も使わず、誰の行き先でもないこと。
+        /// </summary>
+        /// <returns>どかす計画ができたら true。</returns>
+        private bool TryEvacuate(AgentState state)
+        {
+            var best = _request.Map.Nodes
+                .Where(node => node.IsStandby && node.Id != state.Pose.NodeId && !_goals.Contains(node.Id) && _occupancy.IsUnused(node.Id))
+                .Select(node => (Node: node.Id, Steps: Search(state, new AgentGoal(node.Id, Heading: null), ignoreProvisional: false)))
+                .Where(candidate => candidate.Steps is not null)
+                .OrderBy(candidate => candidate.Steps!.Count > 0 ? candidate.Steps[^1].End : state.EndTime)
+                .ThenBy(candidate => candidate.Node, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (best.Steps is null)
+            {
+                return false;
+            }
+
+            Settle(state, PlanStatus.Planned, best.Steps);
             return true;
         }
 

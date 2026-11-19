@@ -17,7 +17,8 @@ internal static class PlanningMapFactory
                 panel.Id.Value,
                 CanRotate: !panel.IsDeadEnd,
                 ForwardEntryOnly: panel.IsDeadEnd,
-                BackwardExitOnly: panel.IsDeadEnd)),
+                BackwardExitOnly: panel.IsDeadEnd,
+                IsStandby: panel.Type == PanelType.Standby)),
             map.Connections.Select(c => new PlanningEdge(c.From.Value, c.To.Value, c.DistanceMm, c.Heading.Degrees, c.OneWay)));
     }
 }

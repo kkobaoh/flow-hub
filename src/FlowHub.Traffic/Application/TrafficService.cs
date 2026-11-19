@@ -316,11 +316,29 @@ public sealed class TrafficService(
             if (after == AgvTravelStatus.EmergencyStopped && before != AgvTravelStatus.EmergencyStopped)
             {
                 entry.PendingEvents.Add(metadata => new AgvStopped(metadata, id));
+                StartStopTimer(entry);
+            }
+
+            if (after != AgvTravelStatus.EmergencyStopped)
+            {
+                entry.StopTimer?.Dispose();
+                entry.StopTimer = null;
+                entry.StoppedLong = false;
             }
 
             if (after == AgvTravelStatus.Error && before != AgvTravelStatus.Error)
             {
                 entry.PendingEvents.Add(metadata => new AgvFaulted(metadata, id));
+
+                // 異常になったら、行き先と残りの経路を捨て、障害物にして、すぐに計画を立て直す
+                entry.Destination = null;
+                entry.PlanStatus = null;
+                if (entry.Travel.RemainingSections.Count > 0)
+                {
+                    entry.Travel.SetRoute([], dispatchNow: false);
+                }
+
+                ReplanAll();
             }
 
             foreach (var create in entry.PendingEvents)
@@ -332,7 +350,7 @@ public sealed class TrafficService(
             entry.PendingEvents.Clear();
             if (wakesPollers)
             {
-                if (_replanRequested && _agvs.Values.Any(e => e.PlanStatus == PlanStatus.Blocked))
+                if (_replanRequested && _agvs.Values.Any(e => e.PlanStatus == PlanStatus.Blocked || e.WasObstacle))
                 {
                     ReplanAll();
                 }
@@ -401,8 +419,10 @@ public sealed class TrafficService(
         var participants = new List<AgvEntry>();
         foreach (var entry in _agvs.Values.Where(e => e.Travel.Position is not null))
         {
-            if (entry.Travel.Status == AgvTravelStatus.ResettingPosition)
+            entry.WasObstacle = false;
+            if (IsObstacle(entry))
             {
+                entry.WasObstacle = entry.Travel.Status != AgvTravelStatus.ResettingPosition;
                 var occupied = _reservations.ReservedBy(entry.Travel.Id).Select(p => p.Value).DefaultIfEmpty(entry.Travel.Position!.NodeId).ToArray();
                 obstacles.Add(new PlanningObstacle(entry.Travel.Id.Value, occupied));
             }
@@ -449,7 +469,7 @@ public sealed class TrafficService(
         }
     }
 
-    private static PlanningAgent ToPlanningAgent(AgvEntry entry)
+    private PlanningAgent ToPlanningAgent(AgvEntry entry)
     {
         var travel = entry.Travel;
         var pose = travel.Position!;
@@ -481,7 +501,59 @@ public sealed class TrafficService(
             new AgentMotion(motion.ForwardSpeedMmPerSecond, motion.BackwardSpeedMmPerSecond, motion.RotationSpeedDegreesPerSecond),
             goal,
             committed,
-            Movable: false);
+            Movable: IsMovable(entry));
+    }
+
+    /// <summary>
+    /// 計画で動かせない障害物にする AGV：位置リセット待ち、異常、緊急停止が長引いた（設定の時間を過ぎた）もの。
+    /// 障害物は、予約しているパネル（止まった区間）を塞ぐ。
+    /// </summary>
+    private static bool IsObstacle(AgvEntry entry) => entry.Travel.Status switch
+    {
+        AgvTravelStatus.ResettingPosition or AgvTravelStatus.Error => true,
+        AgvTravelStatus.EmergencyStopped => entry.StoppedLong,
+        _ => false,
+    };
+
+    /// <summary>
+    /// 行き先がなく、通り道を塞いでいたら待機パネルへ動かしてよいか（動かせる状況か）。
+    /// 待機中で、キャリアが上がっていて、充電ピンのあるパネル（充電中）にいないこと。
+    /// </summary>
+    private bool IsMovable(AgvEntry entry)
+    {
+        var travel = entry.Travel;
+        return entry.Destination is null
+            && travel.Status == AgvTravelStatus.Idle
+            && travel.Carrier == CarrierState.Raised
+            && !CurrentMap().Panels.Any(panel => panel.Id.Value == travel.Position!.NodeId && panel.HasChargingPin);
+    }
+
+    /// <summary>
+    /// 緊急停止になったら、設定の時間（既定1分）たっても再開しなければ、障害物にして計画を立て直す。
+    /// </summary>
+    private void StartStopTimer(AgvEntry entry)
+    {
+        entry.StopTimer?.Dispose();
+        entry.StopTimer = timeProvider.CreateTimer(_ => _ = OnStoppedLongAsync(entry), null, _planning.EmergencyStopReplanDelay, Timeout.InfiniteTimeSpan);
+    }
+
+    private async Task OnStoppedLongAsync(AgvEntry entry)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (entry.Travel.Status != AgvTravelStatus.EmergencyStopped || entry.StoppedLong)
+            {
+                return;
+            }
+
+            entry.StoppedLong = true;
+            ReplanAll();
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>計画の動作を、区間を組み立てるための経路の動作に変える。</summary>
@@ -562,6 +634,15 @@ public sealed class TrafficService(
 
         /// <summary>行き先への計画の結果。行き先がなければ null。</summary>
         public PlanStatus? PlanStatus { get; set; }
+
+        /// <summary>前の計画で、止まっているので障害物にした（再開したら、計画を立て直す）。</summary>
+        public bool WasObstacle { get; set; }
+
+        /// <summary>緊急停止が、設定の時間を過ぎて長引いている（障害物にする）。</summary>
+        public bool StoppedLong { get; set; }
+
+        /// <summary>緊急停止が長引いたかを測るタイマー。</summary>
+        public ITimer? StopTimer { get; set; }
 
         /// <summary>処理の中で起きたこと。処理の終わりにイベントとして公開する。</summary>
         public List<Func<EventMetadata, IIntegrationEvent>> PendingEvents { get; } = [];
