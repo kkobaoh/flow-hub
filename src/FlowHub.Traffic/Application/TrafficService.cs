@@ -25,7 +25,7 @@ public sealed class TrafficService(
 {
     private readonly ICommandNumberStore _commandNumbers = commandNumbers ?? new InMemoryCommandNumberStore();
     private readonly TrafficPlanningOptions _planning = planning ?? new TrafficPlanningOptions();
-    private readonly PrioritizedPlanner _fleetPlanner = new();
+    private readonly PrioritizedPlanner _fleetPlanner = new(timeProvider);
     private PassingOrderGate? _passingGate;
     private long _requestOrder;
 
@@ -501,7 +501,10 @@ public sealed class TrafficService(
             new AgentMotion(motion.ForwardSpeedMmPerSecond, motion.BackwardSpeedMmPerSecond, motion.RotationSpeedDegreesPerSecond),
             goal,
             committed,
-            Movable: IsMovable(entry));
+            Movable: IsMovable(entry))
+        {
+            Due = goal is not null && entry.NeededBy is { } neededBy ? neededBy - timeProvider.GetUtcNow() : null,
+        };
     }
 
     /// <summary>

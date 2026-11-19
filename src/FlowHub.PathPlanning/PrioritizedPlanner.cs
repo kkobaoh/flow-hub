@@ -14,12 +14,100 @@ namespace FlowHub.PathPlanning;
 /// <item>計画できなければ、マップの上に経路がないなら「経路がない」、あるなら「塞がれていて行けない」とし、今いるノードに止まり続けるものとする。</item>
 /// </list>
 /// </remarks>
-public sealed class PrioritizedPlanner : IPathPlanner
+/// <param name="clock">改善にかける時間を測る時計。省略したら、システムの時計。</param>
+public sealed class PrioritizedPlanner(TimeProvider? clock = null) : IPathPlanner
 {
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+
+    /// <summary>
+    /// 決めた順番で止まらない計画を立て、改善にかけてよい時間があれば、順番を入れ替えて改善する。
+    /// </summary>
+    /// <remarks>
+    /// 改善は、順番の隣り合う2台の入れ替えを、前から決まった順に試し、よくなれば採用して続ける。よくならなくなるか、
+    /// 時間の上限が来たら止める。よさは、計画できた AGV の数（多いほど）、必要時刻に対する遅れの合計（少ないほど）、
+    /// 到着時刻の合計（少ないほど）の順に比べる。結果の並びは、頼みの並び順のまま。
+    /// </remarks>
     public PlanningResult Plan(PlanningRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return new Run(request).Execute();
+        var best = new Run(request).Execute();
+        if (request.ImprovementBudget <= TimeSpan.Zero || request.Agents.Count < 2)
+        {
+            return best;
+        }
+
+        var started = _clock.GetTimestamp();
+        bool TimeIsUp() => _clock.GetElapsedTime(started) >= request.ImprovementBudget;
+
+        var order = request.Agents.ToList();
+        var bestScore = Score.Of(best, request.Agents);
+        var improved = true;
+        while (improved && !TimeIsUp())
+        {
+            improved = false;
+            for (var index = 0; index + 1 < order.Count && !TimeIsUp(); index++)
+            {
+                if (order[index].Goal is null && order[index + 1].Goal is null)
+                {
+                    continue; // 行き先のない AGV どうしは、入れ替えても変わらない
+                }
+
+                var candidateOrder = order.ToList();
+                (candidateOrder[index], candidateOrder[index + 1]) = (candidateOrder[index + 1], candidateOrder[index]);
+                var candidate = new Run(new PlanningRequest(request.Map, candidateOrder, request.Obstacles, TimeSpan.Zero, request.Horizon)).Execute();
+                var score = Score.Of(candidate, request.Agents);
+                if (score.CompareTo(bestScore) < 0)
+                {
+                    (best, bestScore, order, improved) = (candidate, score, candidateOrder, true);
+                }
+            }
+        }
+
+        // 結果の並びは、頼みの並び順にそろえる
+        var position = request.Agents.Select((agent, index) => (agent.Id, index)).ToDictionary(x => x.Id, x => x.index);
+        return best with { Plans = best.Plans.OrderBy(plan => position[plan.AgentId]).ToArray() };
+    }
+
+    /// <summary>
+    /// 計画のよさ。計画できなかった AGV の数、必要時刻に対する遅れの合計、到着時刻の合計（すべて小さいほどよい）。
+    /// </summary>
+    private readonly record struct Score(int NotPlanned, long LatenessTicks, long ArrivalTicks) : IComparable<Score>
+    {
+        public int CompareTo(Score other) =>
+            NotPlanned != other.NotPlanned ? NotPlanned.CompareTo(other.NotPlanned)
+            : LatenessTicks != other.LatenessTicks ? LatenessTicks.CompareTo(other.LatenessTicks)
+            : ArrivalTicks.CompareTo(other.ArrivalTicks);
+
+        public static Score Of(PlanningResult result, IReadOnlyList<PlanningAgent> agents)
+        {
+            var byId = agents.ToDictionary(agent => agent.Id);
+            var notPlanned = 0;
+            long lateness = 0;
+            long arrivals = 0;
+            foreach (var plan in result.Plans)
+            {
+                var agent = byId[plan.AgentId];
+                if (agent.Goal is not null && plan.Status != PlanStatus.Planned)
+                {
+                    notPlanned++;
+                    continue;
+                }
+
+                if (plan.Status != PlanStatus.Planned || plan.Actions.Count == 0)
+                {
+                    continue;
+                }
+
+                var arrival = plan.Actions[^1].End;
+                arrivals += arrival.Ticks;
+                if (agent.Due is { } due && arrival > due)
+                {
+                    lateness += (arrival - due).Ticks;
+                }
+            }
+
+            return new Score(notPlanned, lateness, arrivals);
+        }
     }
 
     /// <summary>1回の計画。</summary>

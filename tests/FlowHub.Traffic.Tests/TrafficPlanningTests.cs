@@ -18,6 +18,7 @@ public class TrafficPlanningTests
     private static readonly DateTimeOffset Late = Early.AddMinutes(10);
     private static readonly CancellationToken None = CancellationToken.None;
     private static readonly string[] CrossroadsPanels = ["N", "M", "S", "E", "W"];
+    private static readonly string[] LongCrossroadsPanels = ["N2", "N", "M", "S", "E", "W"];
 
     private sealed class FixedTimeProvider : TimeProvider
     {
@@ -140,6 +141,39 @@ public class TrafficPlanningTests
         Assert.Equal(MoveResult.Waiting, result);
         Assert.Null(whileBlocked);
         Assert.NotNull(afterReset);
+    }
+
+    [Fact]
+    public async Task 必要時刻までの残り時間を計画に渡し入れ替えると遅れるなら順番を入れ替えない()
+    {
+        // N2 →(180度) N →(180度) M →(180度) S と、E →(270度) M →(270度) W。AGV-1 は N2 から S へ、AGV-2 は E から W へ。
+        // AGV-1 が先なら、AGV-1 は 4.8秒で着く。入れ替えると 6.4秒になり、4.8秒の必要時刻に遅れるので、入れ替えない。
+        // （残り時間が渡っていなければ、到着時刻の合計が小さい「AGV-2 が先」に入れ替えてしまう）
+        var store = new InMemoryMapStore();
+        static PanelId P(string id) => new(id);
+        store.Publish(MapSnapshot.Create(
+            LongCrossroadsPanels.Select(id => new Panel(P(id), PanelType.Normal, false)),
+            [
+                new Connection(P("N2"), P("N"), 800, new Heading(180), OneWay: false),
+                new Connection(P("N"), P("M"), 800, new Heading(180), OneWay: false),
+                new Connection(P("M"), P("S"), 800, new Heading(180), OneWay: false),
+                new Connection(P("E"), P("M"), 800, new Heading(270), OneWay: false),
+                new Connection(P("M"), P("W"), 800, new Heading(270), OneWay: false),
+            ]).Snapshot!);
+        var service = new TrafficService(store, new RecordingPublisher(), new FixedTimeProvider());
+        foreach (var (agv, pose) in new[] { (Agv1, new Pose("N2", 180)), (Agv2, new Pose("E", 270)) })
+        {
+            service.RegisterAgv(agv, Motion);
+            await service.ResetPositionAsync(agv, pose, None);
+            await service.HandleCommandRequestAsync(agv, -1, None);
+            await service.HandlePositionResetCompletedAsync(agv, 1, None);
+        }
+
+        await service.EmergencyStopAsync(Agv1, None); // 区間をまだ渡さないように止めておく
+        await service.MoveAgvAsync(Agv1, new PanelId("S"), Early.AddSeconds(4.8), "transport-1", None);
+        await service.MoveAgvAsync(Agv2, new PanelId("W"), Early.AddSeconds(100), "transport-2", None);
+
+        Assert.Null(await MotionOf(service, Agv2)); // AGV-1 が先なので、AGV-2 は十字路の手前で待つ
     }
 
     [Fact]

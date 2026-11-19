@@ -155,7 +155,14 @@ public sealed record PlanningAgent(
     AgentMotion Motion,
     AgentGoal? Goal,
     IReadOnlyList<AgentAction> Committed,
-    bool Movable);
+    bool Movable)
+{
+    /// <summary>
+    /// 必要時刻までの残り時間（計画を立てる時点から。過ぎていれば負）。必要時刻のない移動なら null。
+    /// 計画の改善で、必要時刻に対する遅れを数えるのに使う。
+    /// </summary>
+    public TimeSpan? Due { get; init; }
+}
 
 /// <summary>
 /// 計画で動かせない AGV（止まっている、ロック中、マニュアル中など）が塞いでいるノード。
