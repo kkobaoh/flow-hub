@@ -1,6 +1,7 @@
 using FlowHub.BuildingBlocks;
 using FlowHub.Dispatching.Domain;
 using FlowHub.Map;
+using FlowHub.Routing;
 using FlowHub.Traffic;
 
 namespace FlowHub.Dispatching.Application;
@@ -102,6 +103,56 @@ public sealed class DispatchingService(
             await ExecuteAsync(transport, transport.OnTransferCompleted().Actions, cancellationToken).ConfigureAwait(false);
             return true;
         });
+
+    /// <summary>
+    /// AGV のコントロールステータスを切り替える（交通整理に頼む）。
+    /// 搬送を割り当てている AGV は、マニュアル、ロック、切り離しには切り替えない。
+    /// オートか割り当て停止に切り替えたら、待っていた充電に向かわせ、割り当てをやり直す。
+    /// </summary>
+    /// <param name="position">切り離しから切り替えるときに必須の位置。</param>
+    /// <returns>切り替えを受け付けたか。位置のパネルをほかの AGV が予約していたら false。</returns>
+    /// <exception cref="InvalidOperationException">搬送を割り当てている AGV を、マニュアル、ロック、切り離しに切り替えようとしたとき。交通整理が切り替えを受け付けないとき。</exception>
+    public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken) =>
+        RunAsync(async () =>
+        {
+            var agv = Agv(id);
+            if (target is (ControlStatus.Manual or ControlStatus.Locked or ControlStatus.Detached) && agv.Active is not null)
+            {
+                throw new InvalidOperationException($"{id} は搬送を割り当てているため、{target} に切り替えられません。");
+            }
+
+            if (!await traffic.ChangeControlStatusAsync(id, target, position, cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            if (target is ControlStatus.Manual or ControlStatus.Locked)
+            {
+                agv.Charging.OnRouteDiscarded(); // 交通整理が行き先を捨てたので、充電ポートへ向かっていても着かない
+            }
+
+            await AfterControlChangedAsync(id, cancellationToken).ConfigureAwait(false);
+            return true;
+        });
+
+    /// <summary>コントロールステータスが変わった。システムで動かせるようになったなら、待っていた充電に向かわせ、割り当てをやり直す。</summary>
+    private async Task AfterControlChangedAsync(AgvId id, CancellationToken cancellationToken)
+    {
+        if (!IsSystemControlled(id))
+        {
+            return;
+        }
+
+        if (Agv(id).Charging.State is ChargingState.SeekingPort or ChargingState.WaitingForPort)
+        {
+            await SeekChargingPortAsync(id, cancellationToken).ConfigureAwait(false);
+        }
+
+        await AssignWaitingAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>システムの判断で動かせる（オートか割り当て停止）か。</summary>
+    private bool IsSystemControlled(AgvId id) => traffic.GetAgv(id).Control is ControlStatus.Auto or ControlStatus.AssignmentPaused;
 
     // ---- 交通整理からのイベント（購読者から呼ぶ） ----
 
@@ -277,8 +328,14 @@ public sealed class DispatchingService(
     /// <summary>
     /// 一番近い、空いている充電ポートへ向かわせる。なければ待たせて知らせる。
     /// </summary>
+    /// <remarks>マニュアル、ロック、切り離しの AGV は動かさず、探している状態のまま待つ（オートか割り当て停止に戻したら探す）。</remarks>
     private async Task SeekChargingPortAsync(AgvId id, CancellationToken cancellationToken)
     {
+        if (!IsSystemControlled(id))
+        {
+            return;
+        }
+
         var charging = Agv(id).Charging;
         var ports = CurrentMap().Panels.Where(p => p.HasChargingPin).Select(p => p.Id);
         var correlationId = $"charge:{id}";
@@ -314,7 +371,7 @@ public sealed class DispatchingService(
     }
 
     /// <summary>
-    /// 割り当ての候補。位置がわからない AGV は候補にしない。充電残量の通知がまだなければ、足りているものとみなす。
+    /// 割り当ての候補。オートの AGV だけを、空いているものとする。位置がわからない AGV は候補にしない。充電残量の通知がまだなければ、足りているものとみなす。
     /// </summary>
     private AgvCandidate? CandidateOf(AgvId id, AgvDispatch agv)
     {
@@ -325,6 +382,7 @@ public sealed class DispatchingService(
         }
 
         var isIdle = view.State == AgvState.Idle
+            && view.Control == ControlStatus.Auto
             && view.CarrierRaised
             && agv.Active is null
             && agv.Charging.State == ChargingState.Normal;

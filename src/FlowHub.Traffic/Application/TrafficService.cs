@@ -70,8 +70,9 @@ public sealed class TrafficService(
         _gate.Wait();
         try
         {
-            var travel = Entry(id).Travel;
-            return new AgvView(id, travel.Position, ToState(travel.Status), travel.Carrier == CarrierState.Raised, travel.CumulativeDistanceMm);
+            var entry = Entry(id);
+            var travel = entry.Travel;
+            return new AgvView(id, travel.Position, ToState(travel.Status), travel.Carrier == CarrierState.Raised, travel.CumulativeDistanceMm, entry.Control);
         }
         finally
         {
@@ -123,8 +124,76 @@ public sealed class TrafficService(
     /// <summary>
     /// 位置を上書きする（最初の登録も同じ）。指定のパネルをほかの AGV が予約していたら false。
     /// </summary>
+    /// <exception cref="InvalidOperationException">切り離し中のとき（切り離しから切り替える操作で、位置を指定する）。</exception>
     public Task<bool> ResetPositionAsync(AgvId id, Pose position, CancellationToken cancellationToken) =>
-        RunAsync(id, null, entry => entry.Travel.ResetPosition(position).Succeeded, cancellationToken);
+        RunAsync(id, null, entry =>
+        {
+            RefuseWhenDetached(entry);
+            return entry.Travel.ResetPosition(position).Succeeded;
+        }, cancellationToken);
+
+    /// <summary>
+    /// コントロールステータスを切り替える。切り替えたら、全台の経路を計画し直す。
+    /// </summary>
+    /// <remarks>
+    /// オートと割り当て停止へは、いつでも切り替えられる。マニュアルとロックへは、待機中か緊急停止中のときだけで、行き先と残りの経路を捨てる。
+    /// 切り離しへは、ロック中のときだけで、予約を外す。切り離しからは、位置を指定してもらい、位置リセットの完了の通知を受けたら切り替わる。
+    /// </remarks>
+    public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken) =>
+        RunAsync(id, null, entry =>
+        {
+            if (entry.Control == ControlStatus.Detached)
+            {
+                return LeaveDetached(entry, target, position);
+            }
+
+            switch (target)
+            {
+                case ControlStatus.Manual or ControlStatus.Locked:
+                    if (entry.Travel.Status is not (AgvTravelStatus.Idle or AgvTravelStatus.EmergencyStopped))
+                    {
+                        throw new InvalidOperationException($"{id} は走っていないとき（待機中か緊急停止中）でないため、{target} に切り替えられません（今の状態：{entry.Travel.Status}）。");
+                    }
+
+                    // 緊急停止中で行き先が残っていたら、行き先と残りの経路を捨てる（システムの判断では、もう動かさないため）
+                    DropDestination(entry);
+                    break;
+                case ControlStatus.Detached:
+                    if (entry.Control != ControlStatus.Locked)
+                    {
+                        throw new InvalidOperationException($"{id} はロック中でないため、切り離しに切り替えられません。");
+                    }
+
+                    _reservations.ReleaseAll(id);
+                    break;
+            }
+
+            entry.Control = target;
+            ReplanAll();
+            return true;
+        }, cancellationToken);
+
+    /// <summary>切り離しから切り替える。位置リセットを送り、完了の通知を受けたら切り替わる。</summary>
+    private static bool LeaveDetached(AgvEntry entry, ControlStatus target, Pose? position)
+    {
+        if (target == ControlStatus.Detached)
+        {
+            return true;
+        }
+
+        if (position is null)
+        {
+            throw new ArgumentException($"{entry.Travel.Id} を切り離しから切り替えるには、位置（パネルと絶対角度）を指定してください。", nameof(position));
+        }
+
+        if (!entry.Travel.ResetPosition(position).Succeeded)
+        {
+            return false;
+        }
+
+        entry.PendingControl = target;
+        return true;
+    }
 
     /// <summary>
     /// AGV をパネルへ動かす。全台の経路を計画し直し、パネルごとの通る順番を守らせて走らせる。着いたら <see cref="AgvArrived"/> で知らせる。
@@ -134,6 +203,7 @@ public sealed class TrafficService(
     public Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, DateTimeOffset? neededBy, string correlationId, CancellationToken cancellationToken) =>
         RunAsync(id, correlationId, entry =>
         {
+            RefuseUnlessSystemControlled(entry);
             var travel = entry.Travel;
             if (travel.Position?.NodeId == destination.Value && travel.RemainingSections.Count == 0 && travel.CommittedCommands.Count == 0)
             {
@@ -164,6 +234,7 @@ public sealed class TrafficService(
     public Task LowerCarrierAsync(AgvId id, string correlationId, CancellationToken cancellationToken) =>
         RunAsync(id, correlationId, entry =>
         {
+            RefuseUnlessSystemControlled(entry);
             var map = CurrentMap();
             var panelId = new PanelId(entry.Travel.Position?.NodeId ?? throw new InvalidOperationException($"{id} は位置がわかりません。"));
             var panel = map.Panels.Single(p => p.Id == panelId);
@@ -177,29 +248,55 @@ public sealed class TrafficService(
     public Task RaiseCarrierAsync(AgvId id, string correlationId, CancellationToken cancellationToken) =>
         RunAsync(id, correlationId, entry =>
         {
+            RefuseUnlessSystemControlled(entry);
             entry.Travel.RaiseCarrier();
             return true;
         }, cancellationToken);
 
     /// <summary>
-    /// 緊急停止する。
+    /// 緊急停止する。切り離し中のほかは、どのステータスでも受け付ける。
     /// </summary>
     public Task EmergencyStopAsync(AgvId id, CancellationToken cancellationToken) =>
         RunAsync(id, null, entry =>
         {
+            RefuseWhenDetached(entry);
             entry.Travel.EmergencyStop();
             return true;
         }, cancellationToken);
 
     /// <summary>
-    /// アラームクリアする。完了の通知を受けたら <see cref="AgvResumed"/> で知らせる。
+    /// アラームクリアする。完了の通知を受けたら <see cref="AgvResumed"/> で知らせる。ロック中と切り離し中は受け付けない。
     /// </summary>
     public Task ClearAlarmAsync(AgvId id, CancellationToken cancellationToken) =>
         RunAsync(id, null, entry =>
         {
+            if (entry.Control is ControlStatus.Locked or ControlStatus.Detached)
+            {
+                throw new InvalidOperationException($"{id} は {entry.Control} のため、アラームクリアを受け付けません。");
+            }
+
             entry.Travel.ClearAlarm();
             return true;
         }, cancellationToken);
+
+    /// <summary>システムの判断で動かすコマンド（移動、キャリアの上げ下げ）は、オートか割り当て停止のときだけ受け付ける。</summary>
+    private static void RefuseUnlessSystemControlled(AgvEntry entry)
+    {
+        if (!IsSystemControlled(entry))
+        {
+            throw new InvalidOperationException($"{entry.Travel.Id} は {entry.Control} のため、システムの判断では動かせません。");
+        }
+    }
+
+    private static void RefuseWhenDetached(AgvEntry entry)
+    {
+        if (entry.Control == ControlStatus.Detached)
+        {
+            throw new InvalidOperationException($"{entry.Travel.Id} は切り離し中のため、コマンドを受け付けません。");
+        }
+    }
+
+    private static bool IsSystemControlled(AgvEntry entry) => entry.Control is ControlStatus.Auto or ControlStatus.AssignmentPaused;
 
     // ---- AGV からのリクエストと通知（AGV との通信の部分から呼ぶ） ----
 
@@ -236,7 +333,7 @@ public sealed class TrafficService(
 
     // コマンドや位置を取り出すだけの処理では、待っている GET を起こさない（起こすと、取りに来るたびに起き続けるため）
     internal Task<IReadOnlyList<AgvCommand>> HandleCommandRequestAsync(AgvId id, long lastReceived, CancellationToken cancellationToken) =>
-        RunAsync(id, null, entry => entry.Travel.OnCommandRequest(lastReceived), cancellationToken, wakesPollers: false);
+        RunAsync(id, null, entry => IsDetachedForGood(entry) ? Array.Empty<AgvCommand>() : entry.Travel.OnCommandRequest(lastReceived), cancellationToken, wakesPollers: false);
 
     internal Task<Pose?> HandlePositionRequestAsync(AgvId id, CancellationToken cancellationToken) =>
         RunAsync(id, null, entry => entry.Travel.OnPositionRequest(), cancellationToken, wakesPollers: false);
@@ -273,7 +370,18 @@ public sealed class TrafficService(
         RunAsync(id, null, entry => RequestReplan(Announce(entry, entry.Travel.OnAlarmCleared(number), metadata => new AgvResumed(metadata, id))), cancellationToken);
 
     internal Task<NotificationOutcome> HandlePositionResetCompletedAsync(AgvId id, long number, CancellationToken cancellationToken) =>
-        RunAsync(id, null, entry => RequestReplan(Announce(entry, entry.Travel.OnPositionResetCompleted(number), metadata => new AgvPositionResetCompleted(metadata, id))), cancellationToken);
+        RunAsync(id, null, entry =>
+        {
+            var outcome = entry.Travel.OnPositionResetCompleted(number);
+            if (outcome == NotificationOutcome.Accepted && entry.PendingControl is { } pending)
+            {
+                // 切り離しから切り替える位置リセットが済んだので、切り替える
+                entry.Control = pending;
+                entry.PendingControl = null;
+            }
+
+            return RequestReplan(Announce(entry, outcome, metadata => new AgvPositionResetCompleted(metadata, id)));
+        }, cancellationToken);
 
     internal Task<NotificationOutcome> HandleAgvErrorAsync(AgvId id, AgvErrorKind kind, CancellationToken cancellationToken) =>
         RunAsync(id, null, entry => entry.Travel.OnAgvError(kind), cancellationToken);
@@ -331,13 +439,7 @@ public sealed class TrafficService(
                 entry.PendingEvents.Add(metadata => new AgvFaulted(metadata, id));
 
                 // 異常になったら、行き先と残りの経路を捨て、障害物にして、すぐに計画を立て直す
-                entry.Destination = null;
-                entry.PlanStatus = null;
-                if (entry.Travel.RemainingSections.Count > 0)
-                {
-                    entry.Travel.SetRoute([], dispatchNow: false);
-                }
-
+                DropDestination(entry);
                 ReplanAll();
             }
 
@@ -417,14 +519,18 @@ public sealed class TrafficService(
         var map = PlanningMapFactory.FromMap(CurrentMap());
         var obstacles = new List<PlanningObstacle>();
         var participants = new List<AgvEntry>();
-        foreach (var entry in _agvs.Values.Where(e => e.Travel.Position is not null))
+        foreach (var entry in _agvs.Values.Where(e => e.Travel.Position is not null && !IsDetachedForGood(e)))
         {
             entry.WasObstacle = false;
-            if (IsObstacle(entry))
+            if (!IsSystemControlled(entry))
+            {
+                // マニュアル、ロック、切り離しから戻る位置リセット待ちは、システムの判断では動かさない
+                obstacles.Add(new PlanningObstacle(entry.Travel.Id.Value, OccupiedPanels(entry)));
+            }
+            else if (IsObstacle(entry))
             {
                 entry.WasObstacle = entry.Travel.Status != AgvTravelStatus.ResettingPosition;
-                var occupied = _reservations.ReservedBy(entry.Travel.Id).Select(p => p.Value).DefaultIfEmpty(entry.Travel.Position!.NodeId).ToArray();
-                obstacles.Add(new PlanningObstacle(entry.Travel.Id.Value, occupied));
+                obstacles.Add(new PlanningObstacle(entry.Travel.Id.Value, OccupiedPanels(entry)));
             }
             else
             {
@@ -459,6 +565,24 @@ public sealed class TrafficService(
 
         DispatchAll();
     }
+
+    /// <summary>行き先と、まだ渡していない残りの経路を捨てる。</summary>
+    private static void DropDestination(AgvEntry entry)
+    {
+        entry.Destination = null;
+        entry.PlanStatus = null;
+        if (entry.Travel.RemainingSections.Count > 0)
+        {
+            entry.Travel.SetRoute([], dispatchNow: false);
+        }
+    }
+
+    /// <summary>障害物が塞ぐパネル：予約しているパネル（なければ、今いるパネル）。</summary>
+    private string[] OccupiedPanels(AgvEntry entry) =>
+        _reservations.ReservedBy(entry.Travel.Id).Select(p => p.Value).DefaultIfEmpty(entry.Travel.Position!.NodeId).ToArray();
+
+    /// <summary>切り離し中で、戻す操作（位置リセット）もまだ受けていない。コマンドを渡さず、全台の計画にも入れない。</summary>
+    private static bool IsDetachedForGood(AgvEntry entry) => entry.Control == ControlStatus.Detached && entry.PendingControl is null;
 
     /// <summary>区間を渡せる AGV に、次の区間を渡す。</summary>
     private void DispatchAll()
@@ -622,6 +746,12 @@ public sealed class TrafficService(
         public AgvTravel Travel { get; } = travel;
 
         public MotionProfile Motion { get; } = motion;
+
+        /// <summary>コントロールステータス。</summary>
+        public ControlStatus Control { get; set; } = ControlStatus.Auto;
+
+        /// <summary>切り離しから切り替える先。位置リセットの完了の通知を受けたら、これに切り替える。</summary>
+        public ControlStatus? PendingControl { get; set; }
 
         /// <summary>今の一連の流れの ID（配車からの頼みに付いてきたもの）。</summary>
         public string? CorrelationId { get; set; }

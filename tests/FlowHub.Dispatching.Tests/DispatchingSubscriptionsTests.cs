@@ -45,6 +45,9 @@ public class DispatchingSubscriptionsTests
             Calls.Add("raise");
             return Task.CompletedTask;
         }
+
+        public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
     }
 
     private static EventMetadata Meta() => EventMetadata.Start("test", new FixedTimeProvider());

@@ -79,6 +79,15 @@ public class DispatchingServiceTests
             return Task.CompletedTask;
         }
 
+        public List<(AgvId Agv, ControlStatus Target)> ControlChanges { get; } = [];
+
+        public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken)
+        {
+            ControlChanges.Add((id, target));
+            Agvs[id] = Agvs[id] with { Control = target };
+            return Task.FromResult(true);
+        }
+
         public void SetAgv(PanelId at, AgvState state = AgvState.Idle, bool carrierRaised = true) =>
             Agvs[Agv] = new AgvView(Agv, new Pose(at.Value, 0), state, carrierRaised, CumulativeDistanceMm: 0);
     }
@@ -427,5 +436,93 @@ public class DispatchingServiceTests
         await service.RequestTransportAsync(Order(), None);
 
         Assert.Single(traffic.Moves);
+    }
+
+    // ---- コントロールステータス ----
+
+    [Theory]
+    [InlineData(ControlStatus.AssignmentPaused)]
+    [InlineData(ControlStatus.Manual)]
+    [InlineData(ControlStatus.Locked)]
+    public async Task オートでないAGVには搬送を割り当てない(ControlStatus status)
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.ChangeControlStatusAsync(Agv, status, position: null, None);
+
+        await service.RequestTransportAsync(Order(), None);
+
+        Assert.Empty(traffic.Moves);
+    }
+
+    [Fact]
+    public async Task オートに戻したら待っている搬送を割り当てる()
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.AssignmentPaused, position: null, None);
+        await service.RequestTransportAsync(Order(), None);
+
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.Auto, position: null, None);
+
+        Assert.Equal(S, Assert.Single(traffic.Moves).To);
+    }
+
+    [Theory]
+    [InlineData(ControlStatus.Manual)]
+    [InlineData(ControlStatus.Locked)]
+    [InlineData(ControlStatus.Detached)]
+    public async Task 搬送を割り当てているAGVはマニュアルとロックと切り離しに切り替えない(ControlStatus status)
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.RequestTransportAsync(Order(), None);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ChangeControlStatusAsync(Agv, status, position: null, None));
+        Assert.Empty(traffic.ControlChanges);
+    }
+
+    [Fact]
+    public async Task 搬送を割り当てているAGVでも割り当て停止には切り替えられる()
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.RequestTransportAsync(Order(), None);
+
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.AssignmentPaused, position: null, None);
+
+        Assert.Equal([(Agv, ControlStatus.AssignmentPaused)], traffic.ControlChanges);
+    }
+
+    [Fact]
+    public async Task 割り当て停止のAGVも充電ポートへ向かわせる()
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.AssignmentPaused, position: null, None);
+
+        await service.OnAgvBatteryChangedAsync(new AgvBatteryChanged(Meta(), Agv, 19), None);
+
+        Assert.Equal(CP, Assert.Single(traffic.Moves).To);
+    }
+
+    [Fact]
+    public async Task 充電ポートへ向かう途中でマニュアルにしたらオートに戻したときにもう一度探して向かわせる()
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.OnAgvBatteryChangedAsync(new AgvBatteryChanged(Meta(), Agv, 19), None);
+
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.Manual, position: null, None); // 交通整理が行き先を捨てる
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.Auto, position: null, None);
+
+        Assert.Equal(2, traffic.Moves.Count(m => m.To == CP));
+    }
+
+    [Fact]
+    public async Task マニュアルの間は充電ポートへ向かわせずオートに戻したら向かわせる()
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.Manual, position: null, None);
+
+        await service.OnAgvBatteryChangedAsync(new AgvBatteryChanged(Meta(), Agv, 19), None);
+        Assert.Empty(traffic.Moves);
+
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.Auto, position: null, None);
+        Assert.Equal(CP, Assert.Single(traffic.Moves).To);
     }
 }

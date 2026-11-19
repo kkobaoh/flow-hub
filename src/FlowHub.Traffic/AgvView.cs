@@ -34,7 +34,8 @@ public enum AgvState
 /// <param name="State">状態。</param>
 /// <param name="CarrierRaised">キャリアが上がっているか（下がっている間は走れない）。</param>
 /// <param name="CumulativeDistanceMm">累計の走行距離。</param>
-public sealed record AgvView(AgvId Id, Pose? Position, AgvState State, bool CarrierRaised, long CumulativeDistanceMm);
+/// <param name="Control">コントロールステータス。</param>
+public sealed record AgvView(AgvId Id, Pose? Position, AgvState State, bool CarrierRaised, long CumulativeDistanceMm, ControlStatus Control = ControlStatus.Auto);
 
 /// <summary>
 /// AGV を動かす頼みの結果。

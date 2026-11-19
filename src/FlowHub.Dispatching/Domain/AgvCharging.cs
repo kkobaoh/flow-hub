@@ -160,7 +160,13 @@ internal sealed class AgvCharging(AgvId agv, ChargingPolicy policy)
     /// AGV が「異常」になった。充電ポートへ向かっていたなら、位置リセットで経路が捨てられて着かないので、
     /// 「充電ポートを探す」に戻す（位置リセットが完了して待機中になったら、もう一度探す）。
     /// </summary>
-    public void OnFaulted()
+    public void OnFaulted() => OnRouteDiscarded();
+
+    /// <summary>
+    /// 交通整理が行き先を捨てた（異常になった、マニュアルやロックに切り替えた）。充電ポートへ向かっていたなら、
+    /// 着かないので「充電ポートを探す」に戻す（また動かせるようになったら、もう一度探す）。
+    /// </summary>
+    public void OnRouteDiscarded()
     {
         if (State != ChargingState.GoingToPort)
         {

@@ -1,4 +1,5 @@
 using FlowHub.Map;
+using FlowHub.Routing;
 
 namespace FlowHub.Traffic;
 
@@ -28,4 +29,14 @@ public interface ITrafficService
 
     /// <summary>キャリアを上げる。上がったら <see cref="CarrierRaised"/> で知らせる。</summary>
     Task RaiseCarrierAsync(AgvId id, string correlationId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// コントロールステータスを切り替える。切り替えたら、全台の経路を計画し直す。
+    /// マニュアルとロックに切り替えるときは、行き先と残りの経路を捨てる（着いたことは知らせない）。
+    /// </summary>
+    /// <param name="position">切り離しから切り替えるときに必須の位置。位置リセットを送り、完了の通知を受けたら切り替わる。</param>
+    /// <returns>切り替えを受け付けたか。位置のパネルをほかの AGV が予約していたら false。</returns>
+    /// <exception cref="InvalidOperationException">切り替えの条件を満たさないとき。</exception>
+    /// <exception cref="ArgumentException">切り離しから切り替えるのに、位置を指定していないとき。</exception>
+    Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken);
 }
