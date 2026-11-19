@@ -33,12 +33,6 @@ internal sealed record PositionResetResult(ReservationResult Reservation)
     public bool Succeeded => Reservation.Succeeded;
 }
 
-/// <summary>出発の結果。</summary>
-internal sealed record StartRouteResult(ReservationResult Reservation)
-{
-    public bool Succeeded => Reservation.Succeeded;
-}
-
 /// <summary>
 /// 1台の AGV の走行。コマンドの番号付けと受け渡し、位置の追跡、パネルの予約と解放、通知の照合を受け持つ。
 /// </summary>
@@ -47,8 +41,11 @@ internal sealed record StartRouteResult(ReservationResult Reservation)
 /// GET に載っている「前回受信したコマンドの番号」で、AGV がどこまで受け取ったかを判断する。
 /// </remarks>
 /// <param name="firstNumber">最初に付けるコマンドの番号（再起動したら、保存しておいた続きの番号）。</param>
-internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long firstNumber = 1)
+/// <param name="turnGate">区間を渡す前に、その区間のパネルが自分の番かを確かめる（全台の計画の通る順番）。省略したら、いつも自分の番とする。</param>
+internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long firstNumber = 1, ITurnGate? turnGate = null)
 {
+    private readonly ITurnGate _turnGate = turnGate ?? AlwaysMyTurn.Instance;
+
     private const long NoneReceived = -1;
 
     private readonly List<Outgoing> _outbox = [];
@@ -150,35 +147,109 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
     }
 
     /// <summary>
-    /// 経路を走り始める。経路全体のパネルをまとめて予約できたときだけ、最初の区間の動作コマンドを用意する。
+    /// 走る経路（まだ渡していない区間）を決める。走っている間でも、まだ渡していない区間は入れ替えられる。
+    /// 経路は、渡した区間を終えた姿勢（<see cref="PlanningStart"/>）から始める。空なら、これ以上は走らない。
+    /// 区間は、自分の番で、その区間のパネルを予約できたときに、1つずつ渡す。
     /// </summary>
-    public StartRouteResult StartRoute(IReadOnlyList<TravelSection> sections)
+    /// <param name="dispatchNow">入れ替えたあと、すぐに次の区間を渡せるか試すか（全台の経路を入れ替えるときは、全台を入れ替えてから試すので false）。</param>
+    public void SetRoute(IReadOnlyList<TravelSection> sections, bool dispatchNow = true)
     {
         ArgumentNullException.ThrowIfNull(sections);
-        if (Status != AgvTravelStatus.Idle)
+        if (Position is null || _awaitingPositionReset is not null)
         {
-            throw new InvalidOperationException($"{Id} は待機中でないため出発できません（今の状態：{Status}）。");
+            throw new InvalidOperationException($"{Id} は位置がわからないため、経路を決められません。");
         }
 
-        if (Carrier != CarrierState.Raised)
+        if (sections.Count > 0 && Carrier != CarrierState.Raised)
         {
             throw new InvalidOperationException($"{Id} はキャリアが上がっていないため、走らせられません。");
         }
 
-        if (sections.Count == 0 || sections[0].Panels[0].Value != Position!.NodeId)
+        if (sections.Count > 0 && sections[0].Panels[0].Value != PlanningStart.NodeId)
         {
-            throw new ArgumentException($"経路が {Id} の今いるパネル（{Position!.NodeId}）から始まっていません。", nameof(sections));
+            throw new ArgumentException($"経路が {Id} の渡した区間を終えたパネル（{PlanningStart.NodeId}）から始まっていません。", nameof(sections));
         }
 
-        var reservation = reservations.TryReserve(Id, sections.SelectMany(s => s.Panels));
-        if (!reservation.Succeeded)
-        {
-            return new StartRouteResult(reservation);
-        }
-
+        _remainingSections.Clear();
         _remainingSections.AddRange(sections);
+        if (dispatchNow)
+        {
+            TryDispatchNext();
+        }
+    }
+
+    /// <summary>
+    /// これから使うパネルの並び（今いるパネル、渡した区間の残り、まだ渡していない区間の順）。続けて同じパネルは1つにまとめる。
+    /// 位置がわからなければ null。全台の計画の通る順番で、そのパネルをまだ使うか（あと何回使うか）を数えるのに使う。
+    /// </summary>
+    public IReadOnlyList<PanelId>? RemainingRoutePanels
+    {
+        get
+        {
+            if (Position is null)
+            {
+                return null;
+            }
+
+            var panels = new List<PanelId> { new(Position.NodeId) };
+            void Add(PanelId panel)
+            {
+                if (panels[^1] != panel)
+                {
+                    panels.Add(panel);
+                }
+            }
+
+            foreach (var step in CommittedCommands)
+            {
+                if (step is ForwardCommand forward)
+                {
+                    Add(forward.To);
+                }
+                else if (step is BackwardCommand backward)
+                {
+                    Add(backward.To);
+                }
+            }
+
+            foreach (var panel in _remainingSections.SelectMany(section => section.Panels))
+            {
+                Add(panel);
+            }
+
+            return panels;
+        }
+    }
+
+    /// <summary>計画を始める姿勢（渡した区間を終えたあと。走っていなければ今の位置）。</summary>
+    public Pose PlanningStart => _active?.Section.End ?? Position ?? throw new InvalidOperationException($"{Id} は位置がわかりません。");
+
+    /// <summary>渡した区間のうち、まだ終えていない動作（取り消せない）。</summary>
+    public IReadOnlyList<TravelCommand> CommittedCommands => _active?.Remaining ?? [];
+
+    /// <summary>まだ渡していない区間。</summary>
+    public IReadOnlyList<TravelSection> RemainingSections => _remainingSections;
+
+    /// <summary>
+    /// 次の区間を渡せるなら渡す。区間を走っておらず、止まっておらず、キャリアが上がっていて、
+    /// その区間のパネルが自分の番で、予約できたときだけ渡す。
+    /// </summary>
+    /// <returns>渡したら true。</returns>
+    public bool TryDispatchNext()
+    {
+        if (_active is not null || _remainingSections.Count == 0 || _stopped || _error || Carrier != CarrierState.Raised || _awaitingPositionReset is not null)
+        {
+            return false;
+        }
+
+        var panels = _remainingSections[0].Panels;
+        if (!_turnGate.IsMyTurn(Id, panels) || !reservations.TryReserve(Id, panels).Succeeded)
+        {
+            return false;
+        }
+
         DispatchNextSection();
-        return new StartRouteResult(reservation);
+        return true;
     }
 
     /// <summary>
@@ -377,7 +448,7 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
         }
         else if (_active is null && _remainingSections.Count > 0 && !_error)
         {
-            DispatchNextSection();
+            TryDispatchNext();
         }
 
         return NotificationOutcome.Accepted;
@@ -506,11 +577,7 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
         _active = null;
         if (_remainingSections.Count > 0)
         {
-            if (!_stopped && !_error)
-            {
-                DispatchNextSection();
-            }
-
+            TryDispatchNext();
             return;
         }
 
@@ -733,4 +800,20 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
             _ => false,
         };
     }
+}
+
+/// <summary>
+/// 区間を渡す前に、その区間のパネルが自分の番か（全台の計画の通る順番で、自分より先に通る予定の AGV が通り終えているか）を確かめる。
+/// </summary>
+internal interface ITurnGate
+{
+    bool IsMyTurn(AgvId agv, IReadOnlyList<PanelId> panels);
+}
+
+/// <summary>いつも自分の番とする（全台の計画を使わないとき）。</summary>
+internal sealed class AlwaysMyTurn : ITurnGate
+{
+    public static readonly AlwaysMyTurn Instance = new();
+
+    public bool IsMyTurn(AgvId agv, IReadOnlyList<PanelId> panels) => true;
 }

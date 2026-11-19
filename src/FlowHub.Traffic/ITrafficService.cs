@@ -16,9 +16,12 @@ public interface ITrafficService
     /// <summary>ほかの AGV がそのパネルを予約しているか。</summary>
     bool IsReservedByOther(PanelId panel, AgvId self);
 
-    /// <summary>AGV をパネルへ動かす。着いたら <see cref="AgvArrived"/> で知らせる。</summary>
+    /// <summary>
+    /// AGV をパネルへ動かす。全台の経路を計画し直し、パネルごとの通る順番を守らせて走らせる。着いたら <see cref="AgvArrived"/> で知らせる。
+    /// </summary>
+    /// <param name="neededBy">搬送の必要時刻（計画の順番に使う。早いほど先）。搬送のない移動（充電に向かうなど）は null で、搬送のあとにする。</param>
     /// <param name="correlationId">一連の流れの ID（例：搬送 ID）。このあとのイベントに付ける。</param>
-    Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, string correlationId, CancellationToken cancellationToken);
+    Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, DateTimeOffset? neededBy, string correlationId, CancellationToken cancellationToken);
 
     /// <summary>キャリアを下げる。下がったら <see cref="CarrierLowered"/> で知らせる。</summary>
     Task LowerCarrierAsync(AgvId id, string correlationId, CancellationToken cancellationToken);

@@ -28,7 +28,7 @@ public class DispatchingSubscriptionsTests
 
         public bool IsReservedByOther(PanelId panel, AgvId self) => false;
 
-        public Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, string correlationId, CancellationToken cancellationToken)
+        public Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, DateTimeOffset? neededBy, string correlationId, CancellationToken cancellationToken)
         {
             Calls.Add($"move {destination}");
             return Task.FromResult(MoveResult.Started);

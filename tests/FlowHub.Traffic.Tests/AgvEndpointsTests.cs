@@ -149,7 +149,7 @@ public sealed class AgvEndpointsTests : IAsyncDisposable
 
         var polling = CommandsAsync(client, 1);
         await Task.Delay(200, None);
-        await _service.MoveAgvAsync(Agv, B, "test", None);
+        await _service.MoveAgvAsync(Agv, B, null, "test", None);
         var commands = await polling;
 
         AssertJson("""[{ "number": 2, "type": "motion", "steps": [{ "action": "forward", "distanceMm": 800, "panel": "B" }] }]""", commands);
@@ -162,7 +162,7 @@ public sealed class AgvEndpointsTests : IAsyncDisposable
         // B（0度）から A へは、向きを変えずに後退するのが一番安い
         var client = await StartAsync();
         await ReadyAtAsync("B", 0);
-        await _service.MoveAgvAsync(Agv, new PanelId("A"), "test", None);
+        await _service.MoveAgvAsync(Agv, new PanelId("A"), null, "test", None);
 
         var commands = await CommandsAsync(client, 1);
 
@@ -175,7 +175,7 @@ public sealed class AgvEndpointsTests : IAsyncDisposable
         // A（90度）から B へは、まず 0度へ回転する。区間は回転で区切るので、最初の動作コマンドは回転だけ
         var client = await StartAsync();
         await ReadyAtAsync("A", 90);
-        await _service.MoveAgvAsync(Agv, B, "test", None);
+        await _service.MoveAgvAsync(Agv, B, null, "test", None);
 
         var commands = await CommandsAsync(client, 1);
 
@@ -271,7 +271,7 @@ public sealed class AgvEndpointsTests : IAsyncDisposable
     {
         var client = await StartAsync();
         await ReadyAtAsync("A", 0);
-        await _service.MoveAgvAsync(Agv, B, "test", None);
+        await _service.MoveAgvAsync(Agv, B, null, "test", None);
         await CommandsAsync(client, 1);
 
         using var received = await NotifyAsync(client, """{ "type": "motionReceived", "number": 2 }""");

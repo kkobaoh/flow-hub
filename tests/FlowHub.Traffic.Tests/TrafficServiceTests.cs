@@ -73,7 +73,7 @@ public class TrafficServiceTests
     {
         var (service, _, _) = await ReadyAt(new Pose("A", 0));
 
-        var result = await service.MoveAgvAsync(Agv, T, "transport-1", CancellationToken.None);
+        var result = await service.MoveAgvAsync(Agv, T, null, "transport-1", CancellationToken.None);
 
         Assert.Equal(MoveResult.Started, result);
         var command = Assert.IsType<MotionCommand>(Assert.Single(await service.HandleCommandRequestAsync(Agv, 1, CancellationToken.None)));
@@ -84,7 +84,7 @@ public class TrafficServiceTests
     public async Task 着いたら着いたことを流れのIDを付けて知らせる()
     {
         var (service, events, _) = await ReadyAt(new Pose("A", 0));
-        await service.MoveAgvAsync(Agv, T, "transport-1", CancellationToken.None);
+        await service.MoveAgvAsync(Agv, T, null, "transport-1", CancellationToken.None);
         await service.HandleCommandRequestAsync(Agv, 1, CancellationToken.None);
 
         await service.HandleMoveCompletedAsync(Agv, 2, MoveDirection.Forward, B, CancellationToken.None);
@@ -102,7 +102,7 @@ public class TrafficServiceTests
     {
         var (service, events, _) = await ReadyAt(new Pose("T", 0));
 
-        var result = await service.MoveAgvAsync(Agv, T, "transport-1", CancellationToken.None);
+        var result = await service.MoveAgvAsync(Agv, T, null, "transport-1", CancellationToken.None);
 
         Assert.Equal(MoveResult.AlreadyThere, result);
         Assert.IsType<AgvArrived>(Assert.Single(events.Published));
@@ -114,7 +114,7 @@ public class TrafficServiceTests
     {
         var (service, _, _) = await ReadyAt(new Pose("A", 0));
 
-        var result = await service.MoveAgvAsync(Agv, X, "transport-1", CancellationToken.None);
+        var result = await service.MoveAgvAsync(Agv, X, null, "transport-1", CancellationToken.None);
 
         Assert.Equal(MoveResult.NoRoute, result);
         Assert.Empty(await service.HandleCommandRequestAsync(Agv, 1, CancellationToken.None));
@@ -239,7 +239,7 @@ public class TrafficServiceTests
         service.RegisterAgv(other, Motion);
         await service.ResetPositionAsync(other, new Pose("B", 0), CancellationToken.None); // B を予約している
 
-        var result = await service.MoveAgvAsync(Agv, T, "transport-1", CancellationToken.None);
+        var result = await service.MoveAgvAsync(Agv, T, null, "transport-1", CancellationToken.None);
 
         Assert.Equal(MoveResult.Waiting, result);
     }
@@ -259,7 +259,7 @@ public class TrafficServiceTests
     {
         // A で 90度を向いている。0度の方向の B へは、まず 0度へ回転してから前進する
         var (service, events, _) = await ReadyAt(new Pose("A", 90));
-        await service.MoveAgvAsync(Agv, B, "transport-1", CancellationToken.None);
+        await service.MoveAgvAsync(Agv, B, null, "transport-1", CancellationToken.None);
         Assert.Equal(
             [new MotionCommand(2, [new RotateCommand(0)])],
             await service.HandleCommandRequestAsync(Agv, 1, CancellationToken.None));

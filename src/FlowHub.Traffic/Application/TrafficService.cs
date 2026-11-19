@@ -1,5 +1,6 @@
 using FlowHub.BuildingBlocks;
 using FlowHub.Map;
+using FlowHub.PathPlanning;
 using FlowHub.Routing;
 using FlowHub.Traffic.Domain;
 
@@ -14,10 +15,22 @@ namespace FlowHub.Traffic.Application;
 /// 処理は1つずつ順に行う（同時に呼ばれても状態が崩れないようにする）。
 /// </remarks>
 /// <param name="commandNumbers">次に付けるコマンドの番号の保存場所。省略したら、メモリーの中にだけ持つ（再起動すると 1 に戻る）。</param>
+/// <param name="planning">全台の経路の計画の設定。省略したら既定値。</param>
 public sealed class TrafficService(
-    IMapStore mapStore, IEventPublisher publisher, TimeProvider timeProvider, ICommandNumberStore? commandNumbers = null) : ITrafficService, IDisposable
+    IMapStore mapStore,
+    IEventPublisher publisher,
+    TimeProvider timeProvider,
+    ICommandNumberStore? commandNumbers = null,
+    TrafficPlanningOptions? planning = null) : ITrafficService, IDisposable
 {
     private readonly ICommandNumberStore _commandNumbers = commandNumbers ?? new InMemoryCommandNumberStore();
+    private readonly TrafficPlanningOptions _planning = planning ?? new TrafficPlanningOptions();
+    private readonly PrioritizedPlanner _fleetPlanner = new();
+    private PassingOrderGate? _passingGate;
+    private long _requestOrder;
+
+    /// <summary>塞がれて待っている AGV がいるかもしれない変化（着いた、再開した）があり、計画を立て直す必要がある。</summary>
+    private bool _replanRequested;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -37,7 +50,8 @@ public sealed class TrafficService(
         _gate.Wait();
         try
         {
-            if (!_agvs.TryAdd(id, new AgvEntry(new AgvTravel(id, _reservations, _commandNumbers.NextNumberOf(id)), motion)))
+            _passingGate ??= new PassingOrderGate(agv => _agvs.TryGetValue(agv, out var entry) ? entry.Travel.RemainingRoutePanels : null);
+            if (!_agvs.TryAdd(id, new AgvEntry(new AgvTravel(id, _reservations, _commandNumbers.NextNumberOf(id), _passingGate), motion)))
             {
                 throw new InvalidOperationException($"{id} はすでに登録されています。");
             }
@@ -113,33 +127,35 @@ public sealed class TrafficService(
         RunAsync(id, null, entry => entry.Travel.ResetPosition(position).Succeeded, cancellationToken);
 
     /// <summary>
-    /// AGV をパネルへ動かす。着いたら <see cref="AgvArrived"/> で知らせる。
+    /// AGV をパネルへ動かす。全台の経路を計画し直し、パネルごとの通る順番を守らせて走らせる。着いたら <see cref="AgvArrived"/> で知らせる。
     /// </summary>
+    /// <param name="neededBy">搬送の必要時刻（計画の順番に使う）。搬送のない移動は null。</param>
     /// <param name="correlationId">一連の流れの ID（例：搬送 ID）。このあとのイベントに付ける。</param>
-    public Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, string correlationId, CancellationToken cancellationToken) =>
+    public Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, DateTimeOffset? neededBy, string correlationId, CancellationToken cancellationToken) =>
         RunAsync(id, correlationId, entry =>
         {
             var travel = entry.Travel;
-            if (travel.Position?.NodeId == destination.Value)
+            if (travel.Position?.NodeId == destination.Value && travel.RemainingSections.Count == 0 && travel.CommittedCommands.Count == 0)
             {
                 entry.PendingEvents.Add(metadata => new AgvArrived(metadata, id, destination));
                 return MoveResult.AlreadyThere;
             }
 
-            var route = Plan(entry, destination);
-            if (!route.Found)
-            {
-                return MoveResult.NoRoute;
-            }
-
-            var result = travel.StartRoute(TravelSectionBuilder.Build(travel.Position!, route.Steps));
-            if (!result.Succeeded)
-            {
-                return MoveResult.Waiting;
-            }
-
             entry.Destination = destination;
-            return MoveResult.Started;
+            entry.NeededBy = neededBy;
+            entry.RequestOrder = ++_requestOrder;
+            ReplanAll();
+
+            switch (entry.PlanStatus)
+            {
+                case PlanStatus.NoRoute:
+                    entry.Destination = null;
+                    return MoveResult.NoRoute;
+                case PlanStatus.Blocked:
+                    return MoveResult.Waiting;
+                default:
+                    return MoveResult.Started;
+            }
         }, cancellationToken);
 
     /// <summary>
@@ -254,10 +270,10 @@ public sealed class TrafficService(
         }, cancellationToken);
 
     internal Task<NotificationOutcome> HandleAlarmClearedAsync(AgvId id, long number, CancellationToken cancellationToken) =>
-        RunAsync(id, null, entry => Announce(entry, entry.Travel.OnAlarmCleared(number), metadata => new AgvResumed(metadata, id)), cancellationToken);
+        RunAsync(id, null, entry => RequestReplan(Announce(entry, entry.Travel.OnAlarmCleared(number), metadata => new AgvResumed(metadata, id))), cancellationToken);
 
     internal Task<NotificationOutcome> HandlePositionResetCompletedAsync(AgvId id, long number, CancellationToken cancellationToken) =>
-        RunAsync(id, null, entry => Announce(entry, entry.Travel.OnPositionResetCompleted(number), metadata => new AgvPositionResetCompleted(metadata, id)), cancellationToken);
+        RunAsync(id, null, entry => RequestReplan(Announce(entry, entry.Travel.OnPositionResetCompleted(number), metadata => new AgvPositionResetCompleted(metadata, id))), cancellationToken);
 
     internal Task<NotificationOutcome> HandleAgvErrorAsync(AgvId id, AgvErrorKind kind, CancellationToken cancellationToken) =>
         RunAsync(id, null, entry => entry.Travel.OnAgvError(kind), cancellationToken);
@@ -316,6 +332,13 @@ public sealed class TrafficService(
             entry.PendingEvents.Clear();
             if (wakesPollers)
             {
+                if (_replanRequested && _agvs.Values.Any(e => e.PlanStatus == PlanStatus.Blocked))
+                {
+                    ReplanAll();
+                }
+
+                _replanRequested = false;
+                DispatchAll();
                 entry.NotifyChanged();
             }
 
@@ -330,7 +353,7 @@ public sealed class TrafficService(
     /// <summary>
     /// 前進・後退・回転の完了を受け付けたあと、頼まれたパネルに着いて経路を走り終えていたら、着いたことを知らせる。
     /// </summary>
-    private static NotificationOutcome AfterStep(AgvEntry entry, NotificationOutcome outcome)
+    private NotificationOutcome AfterStep(AgvEntry entry, NotificationOutcome outcome)
     {
         var travel = entry.Travel;
         if (outcome == NotificationOutcome.Accepted
@@ -339,10 +362,149 @@ public sealed class TrafficService(
             && travel.Position?.NodeId == destination.Value)
         {
             entry.Destination = null;
+            entry.PlanStatus = null;
             entry.PendingEvents.Add(metadata => new AgvArrived(metadata, travel.Id, destination));
         }
 
+        if (outcome == NotificationOutcome.Accepted && entry.Destination is null)
+        {
+            _replanRequested = true; // 着いた（道が空いたかもしれない）
+        }
+
         return outcome;
+    }
+
+    /// <summary>止まっていた AGV が再開した（道が空いたかもしれない）ので、塞がれて待っている AGV がいれば計画を立て直す。</summary>
+    private NotificationOutcome RequestReplan(NotificationOutcome outcome)
+    {
+        if (outcome == NotificationOutcome.Accepted)
+        {
+            _replanRequested = true;
+        }
+
+        return outcome;
+    }
+
+    // ---- 全台の経路の計画 ----
+
+    /// <summary>
+    /// 全台の経路を計画し直し、各 AGV のまだ渡していない区間と、パネルごとの通る順番を入れ替える。
+    /// </summary>
+    /// <remarks>
+    /// 計画の順番は、搬送の必要時刻が早い AGV から（同じなら頼まれた順）。搬送のない移動はそのあと、行き先のない AGV は最後。
+    /// 位置リセットを待っている AGV は、動かせない障害物にする。キャリアが下がっている AGV は、行き先がない（止まり続ける）ものとする。
+    /// </remarks>
+    private void ReplanAll()
+    {
+        var map = PlanningMapFactory.FromMap(CurrentMap());
+        var obstacles = new List<PlanningObstacle>();
+        var participants = new List<AgvEntry>();
+        foreach (var entry in _agvs.Values.Where(e => e.Travel.Position is not null))
+        {
+            if (entry.Travel.Status == AgvTravelStatus.ResettingPosition)
+            {
+                var occupied = _reservations.ReservedBy(entry.Travel.Id).Select(p => p.Value).DefaultIfEmpty(entry.Travel.Position!.NodeId).ToArray();
+                obstacles.Add(new PlanningObstacle(entry.Travel.Id.Value, occupied));
+            }
+            else
+            {
+                participants.Add(entry);
+            }
+        }
+
+        var ordered = participants
+            .OrderBy(e => e.Destination is null || e.Travel.Carrier != CarrierState.Raised)
+            .ThenBy(e => e.NeededBy is null)
+            .ThenBy(e => e.NeededBy)
+            .ThenBy(e => e.RequestOrder)
+            .ThenBy(e => e.Travel.Id.Value, StringComparer.Ordinal)
+            .ToArray();
+        var request = new PlanningRequest(map, ordered.Select(ToPlanningAgent).ToArray(), obstacles, _planning.ImprovementBudget, _planning.Horizon);
+        var result = _fleetPlanner.Plan(request);
+
+        // 全台の経路を入れ替えてから、まとめて区間を渡す（途中で渡すと、ほかの AGV の古い経路で順番を判断してしまうため）
+        _passingGate!.Update(result.PassingOrder);
+        foreach (var (entry, plan) in ordered.Zip(result.Plans))
+        {
+            entry.PlanStatus = entry.Destination is null ? null : plan.Status;
+            var travel = entry.Travel;
+            IReadOnlyList<TravelSection> sections = plan.Status == PlanStatus.Planned
+                ? TravelSectionBuilder.Build(travel.PlanningStart, ToRouteSteps(travel.PlanningStart, plan.Actions.Skip(travel.CommittedCommands.Count)))
+                : [];
+            if (sections.Count > 0 || travel.RemainingSections.Count > 0)
+            {
+                travel.SetRoute(sections, dispatchNow: false);
+            }
+        }
+
+        DispatchAll();
+    }
+
+    /// <summary>区間を渡せる AGV に、次の区間を渡す。</summary>
+    private void DispatchAll()
+    {
+        foreach (var entry in _agvs.Values)
+        {
+            entry.Travel.TryDispatchNext();
+        }
+    }
+
+    private static PlanningAgent ToPlanningAgent(AgvEntry entry)
+    {
+        var travel = entry.Travel;
+        var pose = travel.Position!;
+        var committed = new List<AgentAction>();
+        var node = pose.NodeId;
+        foreach (var step in travel.CommittedCommands)
+        {
+            switch (step)
+            {
+                case ForwardCommand forward:
+                    committed.Add(new MoveAction(AgentDirection.Forward, node, forward.To.Value, forward.DistanceMm));
+                    node = forward.To.Value;
+                    break;
+                case BackwardCommand backward:
+                    committed.Add(new MoveAction(AgentDirection.Backward, node, backward.To.Value, backward.DistanceMm));
+                    node = backward.To.Value;
+                    break;
+                case RotateCommand rotate:
+                    committed.Add(new RotateAction(node, rotate.Heading));
+                    break;
+            }
+        }
+
+        var goal = entry.Destination is { } destination && travel.Carrier == CarrierState.Raised ? new AgentGoal(destination.Value, Heading: null) : null;
+        var motion = entry.Motion;
+        return new PlanningAgent(
+            travel.Id.Value,
+            new AgentPose(pose.NodeId, pose.Heading),
+            new AgentMotion(motion.ForwardSpeedMmPerSecond, motion.BackwardSpeedMmPerSecond, motion.RotationSpeedDegreesPerSecond),
+            goal,
+            committed,
+            Movable: false);
+    }
+
+    /// <summary>計画の動作を、区間を組み立てるための経路の動作に変える。</summary>
+    private static List<RouteStep> ToRouteSteps(Pose start, IEnumerable<TimedAction> actions)
+    {
+        var steps = new List<RouteStep>();
+        var pose = start;
+        foreach (var action in actions.Select(a => a.Action))
+        {
+            switch (action)
+            {
+                case MoveAction move:
+                    pose = new Pose(move.To, pose.Heading);
+                    steps.Add(new MoveStep(move.Direction == AgentDirection.Forward ? MoveDirection.Forward : MoveDirection.Backward, move.From, move.To, move.DistanceMm, pose));
+                    break;
+                case RotateAction rotate:
+                    pose = new Pose(rotate.NodeId, rotate.ToHeading);
+                    steps.Add(new RotateStep(rotate.NodeId, rotate.ToHeading, pose));
+                    break;
+            }
+        }
+
+        return steps;
     }
 
     private static NotificationOutcome Announce(AgvEntry entry, NotificationOutcome outcome, Func<EventMetadata, IIntegrationEvent> create)
@@ -391,6 +553,15 @@ public sealed class TrafficService(
 
         /// <summary>頼まれた行き先。着いたら null。</summary>
         public PanelId? Destination { get; set; }
+
+        /// <summary>頼まれた搬送の必要時刻（計画の順番に使う）。搬送のない移動なら null。</summary>
+        public DateTimeOffset? NeededBy { get; set; }
+
+        /// <summary>頼まれた順（同じ必要時刻のときの順番に使う）。</summary>
+        public long RequestOrder { get; set; }
+
+        /// <summary>行き先への計画の結果。行き先がなければ null。</summary>
+        public PlanStatus? PlanStatus { get; set; }
 
         /// <summary>処理の中で起きたこと。処理の終わりにイベントとして公開する。</summary>
         public List<Func<EventMetadata, IIntegrationEvent>> PendingEvents { get; } = [];

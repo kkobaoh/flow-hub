@@ -47,6 +47,9 @@ public class DispatchingServiceTests
 
         public List<(AgvId Agv, PanelId To, string CorrelationId)> Moves { get; } = [];
 
+        /// <summary>動かすときに渡された、搬送の必要時刻（Moves と同じ順）。</summary>
+        public List<DateTimeOffset?> NeededBys { get; } = [];
+
         public List<AgvId> Lowers { get; } = [];
 
         public List<AgvId> Raises { get; } = [];
@@ -57,9 +60,10 @@ public class DispatchingServiceTests
 
         public bool IsReservedByOther(PanelId panel, AgvId self) => ReservedByOthers.Contains(panel);
 
-        public Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, string correlationId, CancellationToken cancellationToken)
+        public Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, DateTimeOffset? neededBy, string correlationId, CancellationToken cancellationToken)
         {
             Moves.Add((id, destination, correlationId));
+            NeededBys.Add(neededBy);
             return Task.FromResult(NextMoveResult);
         }
 
@@ -157,6 +161,16 @@ public class DispatchingServiceTests
         var id = await service.RequestTransportAsync(Order(), None);
 
         Assert.Equal([(Agv, S, $"transport:{id}")], traffic.Moves);
+    }
+
+    [Fact]
+    public async Task 搬送でAGVを動かすときは搬送の必要時刻を交通整理に渡す()
+    {
+        var (service, traffic, _) = Setup(A);
+
+        await service.RequestTransportAsync(Order(neededInMinutes: 15), None);
+
+        Assert.Equal([Now.AddMinutes(15)], traffic.NeededBys);
     }
 
     [Fact]
@@ -330,6 +344,7 @@ public class DispatchingServiceTests
         await service.OnAgvBatteryChangedAsync(new AgvBatteryChanged(Meta(), Agv, 19), None);
 
         Assert.Equal([(Agv, CP, $"charge:{Agv}")], traffic.Moves);
+        Assert.Equal([null], traffic.NeededBys); // 搬送のない移動なので、必要時刻はない
     }
 
     [Fact]

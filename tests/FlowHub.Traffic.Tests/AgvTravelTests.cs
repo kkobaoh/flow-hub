@@ -45,12 +45,26 @@ public class AgvTravelTests
     private static (AgvTravel Travel, PanelReservations Reservations) MovingAlongRouteAtoD()
     {
         var (travel, reservations) = IdleAt(new Pose("A", 0));
-        travel.StartRoute(RouteAtoD());
+        travel.SetRoute(RouteAtoD());
         travel.OnCommandRequest(1);
         return (travel, reservations);
     }
 
     private static MotionCommand Motion(long number, TravelSection section) => new(number, section.Commands);
+
+    /// <summary>自分の番かどうかを、テストで切り替える。聞かれたパネルを覚えておく。</summary>
+    private sealed class SwitchableTurnGate : ITurnGate
+    {
+        public bool IsOpen { get; set; } = true;
+
+        public List<IReadOnlyList<PanelId>> Asked { get; } = [];
+
+        public bool IsMyTurn(AgvId agv, IReadOnlyList<PanelId> panels)
+        {
+            Asked.Add(panels);
+            return IsOpen;
+        }
+    }
 
     // ---- 位置リセット ----
 
@@ -111,7 +125,7 @@ public class AgvTravelTests
         var travel = new AgvTravel(Agv1, new PanelReservations());
         travel.ResetPosition(new Pose("A", 0));
 
-        Assert.Throws<InvalidOperationException>(() => travel.StartRoute(RouteAtoD()));
+        Assert.Throws<InvalidOperationException>(() => travel.SetRoute(RouteAtoD()));
     }
 
     [Fact]
@@ -141,7 +155,7 @@ public class AgvTravelTests
     public void 位置リセットするとまだ渡していない動作コマンドを取り下げる()
     {
         var (travel, _) = IdleAt(new Pose("A", 0));
-        travel.StartRoute(RouteAtoD()); // 動作コマンド 2 を用意したが、まだ渡していない
+        travel.SetRoute(RouteAtoD()); // 動作コマンド 2 を用意したが、まだ渡していない
 
         travel.ResetPosition(new Pose("A", 0));
 
@@ -156,7 +170,7 @@ public class AgvTravelTests
         var (travel, _) = IdleAt(new Pose("A", 0));
         var route = RouteAtoD();
 
-        travel.StartRoute(route);
+        travel.SetRoute(route);
 
         Assert.Equal([Motion(2, route[0])], travel.OnCommandRequest(1));
     }
@@ -166,7 +180,7 @@ public class AgvTravelTests
     {
         var (travel, _) = IdleAt(new Pose("A", 0));
         var route = RouteAtoD();
-        travel.StartRoute(route);
+        travel.SetRoute(route);
         travel.OnCommandRequest(1); // 渡したが、レスポンスが失われた
 
         var commands = travel.OnCommandRequest(1);
@@ -205,7 +219,7 @@ public class AgvTravelTests
 
         Assert.Empty(commands);
         Assert.Equal(AgvTravelStatus.Error, travel.Status);
-        Assert.Equal(4, reservations.ReservedBy(Agv1).Count); // 予約は保つ
+        Assert.Equal(3, reservations.ReservedBy(Agv1).Count); // 渡した区間（A、B、C）の予約は保つ
     }
 
     [Fact]
@@ -233,39 +247,120 @@ public class AgvTravelTests
     // ---- 出発と走行 ----
 
     [Fact]
-    public void 出発するときは経路全体のパネルをまとめて予約し最初の区間の動作コマンドを用意する()
+    public void 出発するときは最初の区間のパネルだけを予約し最初の区間の動作コマンドを用意する()
     {
         var (travel, reservations) = IdleAt(new Pose("A", 0));
         var route = RouteAtoD();
 
-        var result = travel.StartRoute(route);
+        travel.SetRoute(route);
 
-        Assert.True(result.Succeeded);
         Assert.Equal(AgvTravelStatus.Moving, travel.Status);
-        Assert.Equal(["A", "B", "C", "D"], reservations.ReservedBy(Agv1).Select(p => p.Value).Order(StringComparer.Ordinal));
+        Assert.Equal(["A", "B", "C"], reservations.ReservedBy(Agv1).Select(p => p.Value).Order(StringComparer.Ordinal));
         Assert.Equal([Motion(2, route[0])], travel.OnCommandRequest(1));
     }
 
     [Fact]
-    public void 経路の一部でもほかのAGVが予約していたら出発しない()
+    public void 先の区間のパネルをほかのAGVが予約していても最初の区間は渡す()
     {
         var (travel, reservations) = IdleAt(new Pose("A", 0));
         reservations.TryReserve(Agv2, [P("D")]);
+        var route = RouteAtoD();
 
-        var result = travel.StartRoute(RouteAtoD());
+        travel.SetRoute(route);
 
-        Assert.False(result.Succeeded);
-        Assert.Equal([P("D")], result.Reservation.Conflicts);
-        Assert.Equal(AgvTravelStatus.Idle, travel.Status);
-        Assert.Empty(travel.OnCommandRequest(1));
+        Assert.Equal([Motion(2, route[0])], travel.OnCommandRequest(1));
     }
 
     [Fact]
-    public void 待機中でなければ出発できない()
+    public void 区間のパネルをほかのAGVが予約していたら空くまでその区間を渡さない()
+    {
+        var (travel, reservations) = IdleAt(new Pose("A", 0));
+        reservations.TryReserve(Agv2, [P("B")]);
+        var route = RouteAtoD();
+
+        travel.SetRoute(route);
+        var whileReserved = travel.OnCommandRequest(1);
+        reservations.Release(Agv2, P("B"));
+        var dispatched = travel.TryDispatchNext();
+
+        Assert.Empty(whileReserved);
+        Assert.Equal(AgvTravelStatus.Moving, travel.Status); // 走る経路はある（順番待ち）
+        Assert.True(dispatched);
+        Assert.Equal([Motion(2, route[0])], travel.OnCommandRequest(1));
+    }
+
+    [Fact]
+    public void 次の区間はその区間のパネルを予約できたときに渡す()
+    {
+        var (travel, reservations) = MovingAlongRouteAtoD();
+        var route = RouteAtoD();
+        reservations.TryReserve(Agv2, [P("D")]);
+        travel.OnMoveCompleted(2, MoveDirection.Forward, P("B"));
+        travel.OnMoveCompleted(2, MoveDirection.Forward, P("C"));
+        travel.OnRotationCompleted(2, 90);
+
+        var whileReserved = travel.OnCommandRequest(2);
+        reservations.Release(Agv2, P("D"));
+        travel.TryDispatchNext();
+
+        Assert.Empty(whileReserved);
+        Assert.Equal([Motion(3, route[1])], travel.OnCommandRequest(2));
+    }
+
+    [Fact]
+    public void 自分の番でなければ区間を渡さず番が来たら渡す()
+    {
+        var gate = new SwitchableTurnGate { IsOpen = false };
+        var reservations = new PanelReservations();
+        var travel = new AgvTravel(Agv1, reservations, turnGate: gate);
+        travel.ResetPosition(new Pose("A", 0));
+        travel.OnCommandRequest(NoneReceived);
+        travel.OnPositionResetCompleted(1);
+        var route = RouteAtoD();
+
+        travel.SetRoute(route);
+        var notMyTurn = travel.OnCommandRequest(1);
+        gate.IsOpen = true;
+        travel.TryDispatchNext();
+
+        Assert.Empty(notMyTurn);
+        Assert.Equal([Motion(2, route[0])], travel.OnCommandRequest(1));
+        Assert.Equal([P("A"), P("B"), P("C")], gate.Asked[0]);
+    }
+
+    [Fact]
+    public void 走っている間でもまだ渡していない区間は入れ替えられる()
+    {
+        // A→B→C で 90度へ回転する区間を走っている。残りを C→D から、C で 180度へ回転して B へ戻る経路に入れ替える
+        var (travel, _) = MovingAlongRouteAtoD();
+        var replaced = TravelSectionBuilder.Build(new Pose("C", 90), [Rotate("C", 180), Forward("C", "B", 180)]);
+
+        travel.SetRoute(replaced);
+        travel.OnMoveCompleted(2, MoveDirection.Forward, P("B"));
+        travel.OnMoveCompleted(2, MoveDirection.Forward, P("C"));
+        travel.OnRotationCompleted(2, 90);
+
+        Assert.Equal([Motion(3, replaced[0])], travel.OnCommandRequest(2));
+    }
+
+    [Fact]
+    public void 入れ替える経路は渡した区間を終えた姿勢から始まる()
     {
         var (travel, _) = MovingAlongRouteAtoD();
 
-        Assert.Throws<InvalidOperationException>(() => travel.StartRoute(RouteAtoD()));
+        Assert.Throws<ArgumentException>(() =>
+            travel.SetRoute(TravelSectionBuilder.Build(new Pose("A", 0), [Forward("A", "B", 0)])));
+        Assert.Equal(new Pose("C", 90), travel.PlanningStart);
+        Assert.Equal(3, travel.CommittedCommands.Count);
+    }
+
+    [Fact]
+    public void 位置リセットを待っている間は経路を決められない()
+    {
+        var travel = new AgvTravel(Agv1, new PanelReservations());
+        travel.ResetPosition(new Pose("A", 0));
+
+        Assert.Throws<InvalidOperationException>(() => travel.SetRoute(RouteAtoD()));
     }
 
     [Fact]
@@ -273,7 +368,7 @@ public class AgvTravelTests
     {
         var (travel, _) = IdleAt(new Pose("B", 0));
 
-        Assert.Throws<ArgumentException>(() => travel.StartRoute(RouteAtoD()));
+        Assert.Throws<ArgumentException>(() => travel.SetRoute(RouteAtoD()));
     }
 
     [Fact]
@@ -293,7 +388,7 @@ public class AgvTravelTests
     {
         // A → B → A → C（A をあとでまた通る）
         var (travel, reservations) = IdleAt(new Pose("A", 0));
-        travel.StartRoute(TravelSectionBuilder.Build(
+        travel.SetRoute(TravelSectionBuilder.Build(
             new Pose("A", 0),
             [
                 Forward("A", "B", 0),
@@ -438,7 +533,7 @@ public class AgvTravelTests
         Assert.Equal(NotificationOutcome.Fault, outcome);
         Assert.Equal(AgvTravelStatus.Error, travel.Status);
         Assert.Equal(new Pose("A", 0), travel.Position);
-        Assert.Equal(4, reservations.ReservedBy(Agv1).Count);
+        Assert.Equal(3, reservations.ReservedBy(Agv1).Count); // 渡した区間（A、B、C）の予約は保つ
         Assert.Equal([new EmergencyStopCommand(3)], travel.OnCommandRequest(2));
     }
 
@@ -527,7 +622,7 @@ public class AgvTravelTests
         travel.EmergencyStop();
 
         Assert.Equal(AgvTravelStatus.EmergencyStopped, travel.Status);
-        Assert.Equal(4, reservations.ReservedBy(Agv1).Count);
+        Assert.Equal(3, reservations.ReservedBy(Agv1).Count); // 渡した区間（A、B、C）の予約は保つ
         Assert.Equal([new EmergencyStopCommand(3)], travel.OnCommandRequest(2));
     }
 
@@ -554,7 +649,7 @@ public class AgvTravelTests
     public void 渡したばかりの動作コマンドはAGVが受け取っていなかったとわかれば取り下げる()
     {
         var (travel, _) = IdleAt(new Pose("A", 0));
-        travel.StartRoute(RouteAtoD());
+        travel.SetRoute(RouteAtoD());
         travel.OnCommandRequest(1); // 動作コマンド 2 を渡したが、受け取ったかはまだわからない
 
         travel.EmergencyStop(); // 番号 3
@@ -567,7 +662,7 @@ public class AgvTravelTests
     {
         var (travel, _) = IdleAt(new Pose("A", 0));
         var route = RouteAtoD();
-        travel.StartRoute(route);
+        travel.SetRoute(route);
         travel.OnCommandRequest(1);
         travel.EmergencyStop(); // 番号 3
 
@@ -693,7 +788,7 @@ public class AgvTravelTests
 
         Assert.Equal(NotificationOutcome.Accepted, outcome);
         Assert.Equal(AgvTravelStatus.Error, travel.Status);
-        Assert.Equal(4, reservations.ReservedBy(Agv1).Count);
+        Assert.Equal(3, reservations.ReservedBy(Agv1).Count); // 渡した区間（A、B、C）の予約は保つ
         Assert.Empty(travel.OnCommandRequest(2)); // AGV は止まっているので、緊急停止は送らない
     }
 

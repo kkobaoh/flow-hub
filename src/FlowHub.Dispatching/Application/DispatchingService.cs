@@ -208,7 +208,7 @@ public sealed class DispatchingService(
             switch (action)
             {
                 case MoveAgv move:
-                    var result = await traffic.MoveAgvAsync(move.Agv, move.To, correlationId, cancellationToken).ConfigureAwait(false);
+                    var result = await traffic.MoveAgvAsync(move.Agv, move.To, request.NeededBy, correlationId, cancellationToken).ConfigureAwait(false);
                     if (result == MoveResult.NoRoute)
                     {
                         await ExecuteAsync(transport, transport.Interrupt(), cancellationToken).ConfigureAwait(false);
@@ -291,7 +291,7 @@ public sealed class DispatchingService(
         }
 
         charging.GoTo(chosen);
-        var result = await traffic.MoveAgvAsync(id, chosen, correlationId, cancellationToken).ConfigureAwait(false);
+        var result = await traffic.MoveAgvAsync(id, chosen, neededBy: null, correlationId, cancellationToken).ConfigureAwait(false); // 搬送のない移動
         if (result == MoveResult.Waiting)
         {
             await PublishAsync(correlationId, m => new MoveBlocked(m, id, chosen), cancellationToken).ConfigureAwait(false);

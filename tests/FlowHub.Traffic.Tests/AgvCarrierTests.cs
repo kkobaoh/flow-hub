@@ -209,7 +209,7 @@ public class AgvCarrierTests
             new Pose("T", 0),
             [new MoveStep(MoveDirection.Backward, "T", "A", 800, new Pose("A", 0))]);
 
-        Assert.Throws<InvalidOperationException>(() => travel.StartRoute(route));
+        Assert.Throws<InvalidOperationException>(() => travel.SetRoute(route));
     }
 
     // ---- 緊急停止とエラー ----
@@ -275,7 +275,7 @@ public class AgvCarrierTests
         travel.ResetPosition(new Pose("A", 0));
         travel.OnCommandRequest(NoneReceived);
         travel.OnPositionResetCompleted(1);
-        travel.StartRoute(TravelSectionBuilder.Build(
+        travel.SetRoute(TravelSectionBuilder.Build(
             new Pose("A", 0),
             [new MoveStep(MoveDirection.Forward, "A", "B", 800, new Pose("B", 0))]));
         travel.OnCommandRequest(1); // AGV に渡した
@@ -290,7 +290,7 @@ public class AgvCarrierTests
         travel.ResetPosition(new Pose("A", 0));
         travel.OnCommandRequest(NoneReceived);
         travel.OnPositionResetCompleted(1);
-        travel.StartRoute(TravelSectionBuilder.Build(
+        travel.SetRoute(TravelSectionBuilder.Build(
             new Pose("A", 0),
             [new MoveStep(MoveDirection.Forward, "A", "B", 800, new Pose("B", 0))]));
 
