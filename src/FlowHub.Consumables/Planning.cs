@@ -48,3 +48,11 @@ public sealed record StationStock(ConsumableId Consumable, StationId Station);
 /// 配車に渡す受け渡しの場所（受け渡しパネルと、受け渡しの相手の参照）。
 /// </summary>
 public sealed record TransferEndpoint(PanelId Panel, string Endpoint);
+
+/// <summary>
+/// 搬送を取りやめて、AGV が積んだまま止まっている消耗品。
+/// </summary>
+/// <param name="Variety">品種。わからなければ null。</param>
+/// <param name="Deliverable">装置へ届けられるか（新品で、品種がわかり、要確認でない）。届けられなければ、ステーションへ返す。</param>
+/// <param name="ReservedFor">届ける予約をした装置。予約していなければ null。</param>
+public sealed record CarriedConsumable(ConsumableId Id, VarietyId? Variety, bool Deliverable, DeviceId? ReservedFor);

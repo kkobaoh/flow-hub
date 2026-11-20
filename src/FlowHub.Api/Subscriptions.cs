@@ -23,7 +23,6 @@ internal static class ApiSubscriptions
         subscriptions.Subscribe(() => new MoveBlockedLogger(loggerFactory.CreateLogger<MoveBlockedLogger>()));
         subscriptions.Subscribe(() => new NoChargingPortAvailableLogger(loggerFactory.CreateLogger<NoChargingPortAvailableLogger>()));
         subscriptions.Subscribe(() => new NoParkingSpaceLogger(loggerFactory.CreateLogger<NoParkingSpaceLogger>()));
-        subscriptions.Subscribe(() => new TransportCanceledLogger(loggerFactory.CreateLogger<TransportCanceledLogger>()));
 
         // 交通整理から
         subscriptions.Subscribe(() => new ManualStepsDroppedLogger(loggerFactory.CreateLogger<ManualStepsDroppedLogger>()));
@@ -103,19 +102,4 @@ internal sealed partial class NoParkingSpaceLogger(ILogger<NoParkingSpaceLogger>
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Agv} を止める待機パネルも受け渡しパネルも空いていないので、その場で止めました。EventId={EventId} CorrelationId={CorrelationId} CausationId={CausationId}")]
     private static partial void Log(ILogger logger, string agv, Guid eventId, string correlationId, Guid? causationId);
-}
-
-/// <summary>割り当てたあとの搬送を取りやめた（消耗品の管理が受けるようになるまでは、ログに残すだけ）。</summary>
-internal sealed partial class TransportCanceledLogger(ILogger<TransportCanceledLogger> logger) : IEventSubscriber<TransportCanceled>
-{
-    public Task HandleAsync(TransportCanceled integrationEvent, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(integrationEvent);
-        var m = integrationEvent.Metadata;
-        Log(logger, integrationEvent.Transport, integrationEvent.Requester, integrationEvent.Agv, integrationEvent.Loaded, m.EventId, m.CorrelationId, m.CausationId);
-        return Task.CompletedTask;
-    }
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "搬送 {Transport}（要求元 {Requester}）を取りやめました。{Agv} は、ものを積んだまま止まっているか：{Loaded}。EventId={EventId} CorrelationId={CorrelationId} CausationId={CausationId}")]
-    private static partial void Log(ILogger logger, TransportId transport, string requester, AgvId agv, bool loaded, Guid eventId, string correlationId, Guid? causationId);
 }

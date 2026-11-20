@@ -317,6 +317,20 @@ public sealed partial class ConsumablesService(
     });
 
     /// <summary>
+    /// 搬送を取りやめて、AGV が積んだまま止まっている消耗品（その搬送で積み込んだもの。ID の順）。
+    /// </summary>
+    public IReadOnlyList<CarriedConsumable> GetCarried(TransportId transport) => Locked(() =>
+        _consumables.Values
+            .Where(c => c.Location is OnAgv onAgv && onAgv.Transport == transport)
+            .OrderBy(c => c.Id.Value, StringComparer.Ordinal)
+            .Select(c => new CarriedConsumable(
+                c.Id,
+                c.Variety,
+                Deliverable: c is { Condition: ConsumableCondition.New, NeedsCheck: false, Variety: not null },
+                ReservedFor: _deliveries.TryGetValue(c.Id, out var device) ? device : null))
+            .ToArray());
+
+    /// <summary>
     /// 消耗品を、装置へ届けるものとして予約する。届ける途中の数に入り、ステーションの在庫から外れる。
     /// </summary>
     public void ReserveForDelivery(DeviceId device, IReadOnlyList<ConsumableId> ids)

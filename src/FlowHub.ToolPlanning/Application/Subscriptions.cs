@@ -20,6 +20,7 @@ public static class ToolPlanningSubscriptions
         // 配車から
         subscriptions.Subscribe(() => new TransportCompletedSubscriber(service));
         subscriptions.Subscribe(() => new OperationStartedSubscriber(service));
+        subscriptions.Subscribe(() => new TransportCanceledSubscriber(service));
     }
 }
 
@@ -39,4 +40,10 @@ internal sealed class OperationStartedSubscriber(ToolPlanningService service) : 
 {
     public Task HandleAsync(OperationStarted integrationEvent, CancellationToken cancellationToken) =>
         service.ReplanAsync(cancellationToken);
+}
+
+internal sealed class TransportCanceledSubscriber(ToolPlanningService service) : IEventSubscriber<TransportCanceled>
+{
+    public Task HandleAsync(TransportCanceled integrationEvent, CancellationToken cancellationToken) =>
+        service.OnTransportCanceledAsync(integrationEvent, cancellationToken);
 }

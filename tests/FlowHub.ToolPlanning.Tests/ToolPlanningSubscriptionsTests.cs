@@ -46,7 +46,7 @@ public class ToolPlanningSubscriptionsTests
         var callsBefore = dispatching.CancelCalls;
         await planning.ReplanAsync(None);
 
-        Assert.Equal([typeof(StockChanged), typeof(TransportCompleted), typeof(OperationStarted)], subscriptions.SubscribedEventTypes);
+        Assert.Equal([typeof(StockChanged), typeof(TransportCompleted), typeof(OperationStarted), typeof(TransportCanceled)], subscriptions.SubscribedEventTypes);
         Assert.Equal(callsBefore, dispatching.CancelCalls); // 完了した搬送は、もう取りやめようとしない
     }
 

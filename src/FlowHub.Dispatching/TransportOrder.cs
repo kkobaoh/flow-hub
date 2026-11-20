@@ -42,14 +42,18 @@ public sealed record TransportOrder(
 /// </summary>
 /// <param name="Requester">頼んだ側。</param>
 /// <param name="CargoRefs">運ぶもの（AGV が積んでいるもの）の参照。</param>
-/// <param name="Agv">ものを積んだまま止まっている AGV。</param>
+/// <param name="LoadedBy">そのものを積んだ、取りやめた搬送（その AGV を指す。頼む側は AGV を知らなくてよい）。</param>
 /// <param name="DestinationPanel">搬送先の受け渡しパネル。</param>
 /// <param name="DestinationEndpoint">搬送先の受け渡しの相手の参照。</param>
 /// <param name="NeededBy">必要時刻。</param>
 public sealed record AgvTransportOrder(
     string Requester,
     IReadOnlyList<string> CargoRefs,
-    AgvId Agv,
+    TransportId LoadedBy,
     PanelId DestinationPanel,
     string DestinationEndpoint,
-    DateTimeOffset NeededBy);
+    DateTimeOffset NeededBy)
+{
+    /// <summary>降ろしたあとも、まだ積んだままか（一部だけ届けるとき）。積んだままなら、続けて AGV 自身を搬送元にした搬送を頼める。</summary>
+    public bool CargoRemains { get; init; }
+}

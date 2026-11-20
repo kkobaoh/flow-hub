@@ -30,6 +30,9 @@ internal sealed class FakeDispatching : IDispatchingService
 
     public int CancelCalls { get; private set; }
 
+    /// <summary>取りやめずに残っている、AGV 自身を搬送元にした頼み（頼んだ順）。</summary>
+    public IEnumerable<AgvTransportOrder> ActiveFromAgvOrders => FromAgvOrders.Where(o => !Cancelled.Contains(o.Id)).Select(o => o.Order);
+
     /// <summary>取りやめずに残っている要求（頼んだ順）。</summary>
     public IEnumerable<TransportOrder> ActiveOrders => Orders.Where(o => !Cancelled.Contains(o.Id)).Select(o => o.Order);
 
@@ -43,7 +46,7 @@ internal sealed class FakeDispatching : IDispatchingService
     public Task<bool> CancelTransportAsync(TransportId id, CancellationToken cancellationToken)
     {
         CancelCalls++;
-        if (!Orders.Any(o => o.Id == id) || Cancelled.Contains(id))
+        if ((!Orders.Any(o => o.Id == id) && !FromAgvOrders.Any(o => o.Id == id)) || Cancelled.Contains(id))
         {
             throw new InvalidOperationException($"搬送 {id} はありません。");
         }
@@ -82,7 +85,7 @@ internal sealed class FakeDispatching : IDispatchingService
     /// <summary>今残っている要求を、すべて割り当て済みにする。</summary>
     public void AssignAll()
     {
-        foreach (var (id, _) in Orders.Where(o => !Cancelled.Contains(o.Id)))
+        foreach (var id in Orders.Select(o => o.Id).Concat(FromAgvOrders.Select(o => o.Id)).Where(id => !Cancelled.Contains(id)))
         {
             Assigned.Add(id);
         }

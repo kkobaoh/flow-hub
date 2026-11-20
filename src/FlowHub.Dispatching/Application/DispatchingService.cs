@@ -24,6 +24,9 @@ public sealed class DispatchingService(
     private readonly Dictionary<TransportId, Transport> _transports = [];
     private readonly Dictionary<AgvId, AgvDispatch> _agvs = [];
 
+    /// <summary>積み込んだあとに取りやめた搬送と、そのものを積んだまま止まっている AGV。</summary>
+    private readonly Dictionary<TransportId, AgvId> _cargoHolders = [];
+
     /// <summary>システムの運転状態がスタートか。組み立ては、起動したらまず停止にする。</summary>
     private volatile bool _running = true;
 
@@ -80,32 +83,33 @@ public sealed class DispatchingService(
     /// AGV 自身を搬送元にした搬送を頼む（ものを積んだまま止まっている AGV に、届けるか返すかさせる）。
     /// 待ち行列に入れ、その AGV が割り当てられる状態なら割り当てる。積み込みを飛ばして、搬送先へ向かう。
     /// </summary>
-    /// <exception cref="InvalidOperationException">その AGV が、ものを積んだまま止まっていないとき。その AGV を搬送元にした搬送が、すでにあるとき。</exception>
+    /// <exception cref="InvalidOperationException">そのものを積んだまま止まっている AGV がいないとき。その AGV を搬送元にした搬送が、すでにあるとき。</exception>
     public Task<TransportId> RequestTransportFromAgvAsync(AgvTransportOrder order, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(order);
         return RunAsync(async () =>
         {
-            var agv = Agv(order.Agv);
-            if (!agv.Loaded)
+            if (!_cargoHolders.TryGetValue(order.LoadedBy, out var holder) || !Agv(holder).Loaded)
             {
-                throw new InvalidOperationException($"{order.Agv} は、ものを積んだまま止まっていないため、搬送元にできません。");
+                throw new InvalidOperationException($"搬送 {order.LoadedBy} で積んだものを、積んだまま止まっている AGV はいません。");
             }
 
-            if (_transports.Values.Any(t => t.Request.FromAgv == order.Agv && t.Stage is not (TransportStage.Completed or TransportStage.Canceled or TransportStage.Interrupted)))
+            if (_transports.Values.Any(t => t.Request.FromAgv == holder && t.Stage is not (TransportStage.Completed or TransportStage.Canceled or TransportStage.Interrupted)))
             {
-                throw new InvalidOperationException($"{order.Agv} を搬送元にした搬送が、すでにあります。");
+                throw new InvalidOperationException($"{holder} を搬送元にした搬送が、すでにあります。");
             }
 
-            var here = traffic.GetAgv(order.Agv).StopsAt is { } stopsAt ? new PanelId(stopsAt.NodeId) : order.DestinationPanel;
+            var here = traffic.GetAgv(holder).StopsAt is { } stopsAt ? new PanelId(stopsAt.NodeId) : order.DestinationPanel;
             var transport = _queue.Add(new TransportRequest(
                 order.Requester,
                 order.CargoRefs,
-                new TransferPoint(here, $"agv:{order.Agv}"),
+                new TransferPoint(here, $"agv:{holder}"),
                 new TransferPoint(order.DestinationPanel, order.DestinationEndpoint),
-                agv.Carrier,
+                Agv(holder).Carrier,
                 order.NeededBy,
-                FromAgv: order.Agv));
+                FromAgv: holder,
+                CargoRemains: order.CargoRemains,
+                LoadedBy: order.LoadedBy));
             _transports.Add(transport.Id, transport);
 
             await AssignWaitingAsync(cancellationToken).ConfigureAwait(false);
@@ -538,7 +542,12 @@ public sealed class DispatchingService(
                     break;
 
                 case NotifyCompleted completed:
-                    Agv(transport.AssignedAgv!.Value).Loaded = false; // 降ろした
+                    Agv(transport.AssignedAgv!.Value).Loaded = request.CargoRemains; // 降ろした（一部だけなら、まだ積んだまま）
+                    if (request.LoadedBy is { } loadedBy && !request.CargoRemains)
+                    {
+                        _cargoHolders.Remove(loadedBy);
+                    }
+
                     await PublishAsync(correlationId, m => new TransportCompleted(m, completed.Transport, request.Requester), cancellationToken).ConfigureAwait(false);
                     await OnTransportFinishedAsync(transport.AssignedAgv!.Value, cancellationToken).ConfigureAwait(false);
                     break;
@@ -550,6 +559,11 @@ public sealed class DispatchingService(
                 case NotifyCanceled canceled:
                     await PublishAsync(correlationId, m => new TransportCanceled(m, canceled.Transport, request.Requester, canceled.Agv, canceled.Loaded), cancellationToken).ConfigureAwait(false);
                     Agv(canceled.Agv).Loaded = canceled.Loaded;
+                    if (canceled.Loaded && request.LoadedBy is null)
+                    {
+                        _cargoHolders[canceled.Transport] = canceled.Agv; // AGV 自身が搬送元の搬送なら、最初に積んだ搬送のまま
+                    }
+
                     await OnTransportFinishedAsync(canceled.Agv, cancellationToken).ConfigureAwait(false);
                     break;
 

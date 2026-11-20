@@ -104,16 +104,6 @@ public class WarningLogSubscriptionsTests
     }
 
     [Fact]
-    public async Task 搬送の取りやめをログに残す()
-    {
-        var entry = await PublishAsync(new TransportCanceled(EventMetadata.Start("transport:7", Time), new TransportId(7), "consumables", new AgvId("AGV-1"), Loaded: true));
-
-        Assert.Equal(LogLevel.Information, entry.Level);
-        Assert.Contains("7", entry.Message, StringComparison.Ordinal);
-        Assert.Contains("AGV-1", entry.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void 警告のイベントを購読する()
     {
         var subscriptions = new EventSubscriptions();
@@ -121,6 +111,6 @@ public class WarningLogSubscriptionsTests
 
         ApiSubscriptions.Register(subscriptions, factory);
 
-        Assert.Equal([typeof(TransportInterrupted), typeof(MoveBlocked), typeof(NoChargingPortAvailable), typeof(NoParkingSpace), typeof(TransportCanceled), typeof(ManualStepsDropped)], subscriptions.SubscribedEventTypes);
+        Assert.Equal([typeof(TransportInterrupted), typeof(MoveBlocked), typeof(NoChargingPortAvailable), typeof(NoParkingSpace), typeof(ManualStepsDropped)], subscriptions.SubscribedEventTypes);
     }
 }

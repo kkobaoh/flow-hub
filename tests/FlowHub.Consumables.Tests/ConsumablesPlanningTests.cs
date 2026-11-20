@@ -117,6 +117,30 @@ public class ConsumablesPlanningTests
     private static TransferPermissionRequested Permission(TransportId transport, string endpoint, TransferSide side, params ConsumableId[] cargo) =>
         new(EventMetadata.Start("test", new FixedTimeProvider()), transport, ConsumablesService.Requester, cargo.Select(c => c.Value).ToArray(), endpoint, side);
 
+    // ---- AGV が積んだまま止まっているもの ----
+
+    [Fact]
+    public void 取りやめた搬送で積んだままのものを届けられるかと予約と一緒に返す()
+    {
+        var f = Setup();
+        f.Service.RegisterConsumable(new ConsumableId("A-1"), VarietyA, Process, ConsumableCondition.New, new OnAgv(Transport1));
+        f.Service.RegisterConsumable(new ConsumableId("A-2"), VarietyA, Process, ConsumableCondition.Used, new OnAgv(Transport1));
+        f.Service.RegisterConsumable(new ConsumableId("B-1"), VarietyB, Process, ConsumableCondition.New, new OnAgv(Transport1));
+        f.Service.RegisterConsumable(new ConsumableId("B-2"), VarietyB, Process, ConsumableCondition.New, new OnAgv(new TransportId(2)));
+        AtStation(f, "B-3", VarietyB);
+        f.Service.ReserveForDelivery(Device, [new ConsumableId("B-1")]);
+
+        var carried = f.Service.GetCarried(Transport1);
+
+        Assert.Equal(
+            [
+                new CarriedConsumable(new ConsumableId("A-1"), VarietyA, Deliverable: true, ReservedFor: null),
+                new CarriedConsumable(new ConsumableId("A-2"), VarietyA, Deliverable: false, ReservedFor: null), // 中古品は届けない
+                new CarriedConsumable(new ConsumableId("B-1"), VarietyB, Deliverable: true, ReservedFor: Device),
+            ],
+            carried);
+    }
+
     // ---- 判断 ----
 
     [Fact]

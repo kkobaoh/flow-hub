@@ -913,14 +913,16 @@ public class DispatchingServiceTests
 
     // ---- AGV 自身が搬送元の搬送 ----
 
-    /// <summary>積み込んだあとに取りやめて、ものを積んだまま止まっている AGV にする。</summary>
+    /// <summary>積み込んだあとに取りやめて、ものを積んだまま止まっている AGV にする（取りやめた搬送の ID は 1）。</summary>
     private static async Task CanceledWhileLoaded(DispatchingService service, FakeTraffic traffic)
     {
         var id = await LoadedTransport(service, traffic);
         await service.CancelAsync(id, None);
     }
 
-    private static AgvTransportOrder FromAgvOrder() => new("ToolPlanning", ["C-1"], Agv, D, "device-1", Now.AddMinutes(10));
+    private static readonly TransportId LoadedBy = new(1);
+
+    private static AgvTransportOrder FromAgvOrder() => new("ToolPlanning", ["C-1"], LoadedBy, D, "device-1", Now.AddMinutes(10));
 
     [Fact]
     public async Task AGV自身が搬送元の搬送は積み込みを飛ばして搬送先へ向かい降ろしたら完了する()
@@ -1004,5 +1006,37 @@ public class DispatchingServiceTests
 
         Assert.True(events.Of<TransportCanceled>().Last().Loaded);
         Assert.Equal(moves, traffic.Moves.Count);
+    }
+
+    [Fact]
+    public async Task 降ろしたあとも積んだままと頼まれたら完了しても積んだままとして扱う()
+    {
+        var (service, traffic, _) = Setup(A);
+        await CanceledWhileLoaded(service, traffic);
+        var id = await service.RequestTransportFromAgvAsync(FromAgvOrder() with { CargoRemains = true }, None);
+        await CompleteTransport(service, traffic, id);
+        var moves = traffic.Moves.Count;
+
+        await service.RequestTransportAsync(Order(), None); // ほかの搬送は割り当てない
+        var assignedOther = traffic.Moves.Count > moves;
+        var back = await service.RequestTransportFromAgvAsync(FromAgvOrder() with { DestinationPanel = S, DestinationEndpoint = "station-1" }, None);
+
+        Assert.False(assignedOther);
+        Assert.Equal((Agv, S, $"transport:{back}"), traffic.Moves[^1]); // 残りを返す
+    }
+
+    [Fact]
+    public async Task 届け終えた搬送で積んだものを指した頼みは同じAGVがまた積んでも受け付けない()
+    {
+        var (service, traffic, _) = Setup(A);
+        await CanceledWhileLoaded(service, traffic); // 搬送 1 で積んだ
+        var delivered = await service.RequestTransportFromAgvAsync(FromAgvOrder(), None); // 搬送 2
+        await CompleteTransport(service, traffic, delivered);
+        traffic.SetAgv(A);
+        var again = await LoadedTransport(service, traffic); // 搬送 3 で、また積んだ
+        await service.CancelAsync(again, None);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RequestTransportFromAgvAsync(FromAgvOrder(), None));
+        Assert.NotEqual(default, await service.RequestTransportFromAgvAsync(FromAgvOrder() with { LoadedBy = again }, None));
     }
 }
