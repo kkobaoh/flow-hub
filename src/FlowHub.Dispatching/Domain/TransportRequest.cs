@@ -19,13 +19,15 @@ internal sealed record TransferPoint(PanelId Panel, string Endpoint);
 /// <param name="Destination">搬送先（降ろす場所）。</param>
 /// <param name="Carrier">求めるキャリアの種類。</param>
 /// <param name="NeededBy">必要時刻。待ち行列の並べ方に使う。</param>
+/// <param name="FromAgv">AGV 自身が搬送元なら、その AGV（積み込みを飛ばして、搬送先へ向かう。その AGV にだけ割り当てる）。</param>
 internal sealed record TransportRequest(
     string Requester,
     IReadOnlyList<string> CargoRefs,
     TransferPoint Source,
     TransferPoint Destination,
     CarrierTypeId Carrier,
-    DateTimeOffset NeededBy);
+    DateTimeOffset NeededBy,
+    AgvId? FromAgv = null);
 
 /// <summary>
 /// 搬送を進めるために、配車がほかのコンテキストに頼むことや知らせること。

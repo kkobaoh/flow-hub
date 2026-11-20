@@ -50,6 +50,7 @@ internal sealed record ChargingPolicy
 /// <param name="Policy">その AGV の充電の設定値（AGV の種類ごと）。</param>
 /// <param name="Carrier">AGV のキャリアの種類。</param>
 /// <param name="CumulativeDistanceMm">これまでの累計の走行距離。</param>
+/// <param name="Loaded">搬送を取りやめて、ものを積んだまま止まっているか（その AGV 自身が搬送元の搬送にだけ割り当てる）。</param>
 internal sealed record AgvCandidate(
     AgvId Id,
     Pose Position,
@@ -58,7 +59,12 @@ internal sealed record AgvCandidate(
     bool RecoveringCharge,
     ChargingPolicy Policy,
     CarrierTypeId Carrier,
-    long CumulativeDistanceMm);
+    long CumulativeDistanceMm,
+    bool Loaded = false)
+{
+    /// <summary>今、搬送を割り当ててよいか（待機中で、充電残量が足りている）。</summary>
+    public bool CanTakeTransport => IsIdle && Policy.AllowsAssignment(BatteryPercent, RecoveringCharge);
+}
 
 /// <summary>
 /// 割り当ての依頼。
@@ -89,9 +95,9 @@ internal static class AgvAssigner
 
         // 移動コストの計算（経路探索）は重いので、割り当てられる AGV だけで求める
         var reachable = candidates
-            .Where(agv => agv.IsIdle
-                && agv.Carrier == request.Carrier
-                && agv.Policy.AllowsAssignment(agv.BatteryPercent, agv.RecoveringCharge))
+            .Where(agv => agv.CanTakeTransport
+                && !agv.Loaded
+                && agv.Carrier == request.Carrier)
             .Select(agv => (Agv: agv, Cost: costOf(agv)))
             .Where(pair => pair.Cost is not null);
 

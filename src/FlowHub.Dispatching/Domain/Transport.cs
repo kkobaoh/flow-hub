@@ -91,6 +91,12 @@ internal sealed class Transport(TransportId id, TransportRequest request)
         }
 
         AssignedAgv = agv;
+        if (Request.FromAgv is not null)
+        {
+            _loaded = true; // AGV 自身が搬送元：積み込みを飛ばして、搬送先へ向かう
+            return MoveTo(TransportStage.MovingToDestination).Actions;
+        }
+
         return MoveTo(TransportStage.MovingToSource).Actions;
     }
 

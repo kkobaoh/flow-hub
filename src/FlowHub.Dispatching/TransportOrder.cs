@@ -1,4 +1,5 @@
 using FlowHub.Map;
+using FlowHub.Traffic;
 
 namespace FlowHub.Dispatching;
 
@@ -33,4 +34,22 @@ public sealed record TransportOrder(
     PanelId DestinationPanel,
     string DestinationEndpoint,
     CarrierTypeId Carrier,
+    DateTimeOffset NeededBy);
+
+/// <summary>
+/// AGV 自身を搬送元にした搬送の頼み（搬送を取りやめて、ものを積んだまま止まっている AGV に、届けるか返すかさせる）。
+/// 積み込みを飛ばして、搬送先へ向かう。
+/// </summary>
+/// <param name="Requester">頼んだ側。</param>
+/// <param name="CargoRefs">運ぶもの（AGV が積んでいるもの）の参照。</param>
+/// <param name="Agv">ものを積んだまま止まっている AGV。</param>
+/// <param name="DestinationPanel">搬送先の受け渡しパネル。</param>
+/// <param name="DestinationEndpoint">搬送先の受け渡しの相手の参照。</param>
+/// <param name="NeededBy">必要時刻。</param>
+public sealed record AgvTransportOrder(
+    string Requester,
+    IReadOnlyList<string> CargoRefs,
+    AgvId Agv,
+    PanelId DestinationPanel,
+    string DestinationEndpoint,
     DateTimeOffset NeededBy);

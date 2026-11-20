@@ -51,6 +51,19 @@ internal sealed class TransportQueue
 
         foreach (var transport in Waiting)
         {
+            // AGV 自身が搬送元なら、その AGV にだけ割り当てる
+            if (transport.Request.FromAgv is { } fromAgv)
+            {
+                if (available.SingleOrDefault(candidate => candidate.Id == fromAgv) is { CanTakeTransport: true })
+                {
+                    assignments.Add(new Assignment(transport, transport.Assign(fromAgv)));
+                    _waiting.Remove(transport);
+                    available.RemoveAll(candidate => candidate.Id == fromAgv);
+                }
+
+                continue;
+            }
+
             var source = transport.Request.Source.Panel;
             var request = new AssignmentRequest(source, transport.Request.Carrier);
             if (AgvAssigner.Choose(request, available, candidate => costOf(candidate, source)) is not { } agv)

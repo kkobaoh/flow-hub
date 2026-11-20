@@ -77,6 +77,43 @@ public sealed class DispatchingService(
     }
 
     /// <summary>
+    /// AGV 自身を搬送元にした搬送を頼む（ものを積んだまま止まっている AGV に、届けるか返すかさせる）。
+    /// 待ち行列に入れ、その AGV が割り当てられる状態なら割り当てる。積み込みを飛ばして、搬送先へ向かう。
+    /// </summary>
+    /// <exception cref="InvalidOperationException">その AGV が、ものを積んだまま止まっていないとき。その AGV を搬送元にした搬送が、すでにあるとき。</exception>
+    public Task<TransportId> RequestTransportFromAgvAsync(AgvTransportOrder order, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+        return RunAsync(async () =>
+        {
+            var agv = Agv(order.Agv);
+            if (!agv.Loaded)
+            {
+                throw new InvalidOperationException($"{order.Agv} は、ものを積んだまま止まっていないため、搬送元にできません。");
+            }
+
+            if (_transports.Values.Any(t => t.Request.FromAgv == order.Agv && t.Stage is not (TransportStage.Completed or TransportStage.Canceled or TransportStage.Interrupted)))
+            {
+                throw new InvalidOperationException($"{order.Agv} を搬送元にした搬送が、すでにあります。");
+            }
+
+            var here = traffic.GetAgv(order.Agv).StopsAt is { } stopsAt ? new PanelId(stopsAt.NodeId) : order.DestinationPanel;
+            var transport = _queue.Add(new TransportRequest(
+                order.Requester,
+                order.CargoRefs,
+                new TransferPoint(here, $"agv:{order.Agv}"),
+                new TransferPoint(order.DestinationPanel, order.DestinationEndpoint),
+                agv.Carrier,
+                order.NeededBy,
+                FromAgv: order.Agv));
+            _transports.Add(transport.Id, transport);
+
+            await AssignWaitingAsync(cancellationToken).ConfigureAwait(false);
+            return transport.Id;
+        });
+    }
+
+    /// <summary>
     /// 割り当て前の搬送を取りやめる。割り当てたあとなら取りやめずに false を返す（そのまま運ぶ）。
     /// </summary>
     public Task<bool> CancelTransportAsync(TransportId id, CancellationToken cancellationToken) =>
@@ -501,6 +538,7 @@ public sealed class DispatchingService(
                     break;
 
                 case NotifyCompleted completed:
+                    Agv(transport.AssignedAgv!.Value).Loaded = false; // 降ろした
                     await PublishAsync(correlationId, m => new TransportCompleted(m, completed.Transport, request.Requester), cancellationToken).ConfigureAwait(false);
                     await OnTransportFinishedAsync(transport.AssignedAgv!.Value, cancellationToken).ConfigureAwait(false);
                     break;
@@ -618,7 +656,6 @@ public sealed class DispatchingService(
 
         var isIdle = view.State == AgvState.Idle
             && view.Control == ControlStatus.Auto
-            && !agv.Loaded
             && view.CarrierRaised
             && agv.Active is null
             && agv.Charging.State == ChargingState.Normal;
@@ -631,7 +668,8 @@ public sealed class DispatchingService(
             agv.Charging.RecoveringCharge,
             agv.Policy,
             agv.Carrier,
-            view.CumulativeDistanceMm);
+            view.CumulativeDistanceMm,
+            agv.Loaded);
     }
 
     /// <summary>

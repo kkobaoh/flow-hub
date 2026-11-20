@@ -910,4 +910,99 @@ public class DispatchingServiceTests
         Assert.Equal([Agv], traffic.Raises);
         Assert.True(CanceledEvent(events).Loaded);
     }
+
+    // ---- AGV 自身が搬送元の搬送 ----
+
+    /// <summary>積み込んだあとに取りやめて、ものを積んだまま止まっている AGV にする。</summary>
+    private static async Task CanceledWhileLoaded(DispatchingService service, FakeTraffic traffic)
+    {
+        var id = await LoadedTransport(service, traffic);
+        await service.CancelAsync(id, None);
+    }
+
+    private static AgvTransportOrder FromAgvOrder() => new("ToolPlanning", ["C-1"], Agv, D, "device-1", Now.AddMinutes(10));
+
+    [Fact]
+    public async Task AGV自身が搬送元の搬送は積み込みを飛ばして搬送先へ向かい降ろしたら完了する()
+    {
+        var (service, traffic, events) = Setup(A);
+        await CanceledWhileLoaded(service, traffic);
+        var lowersBefore = traffic.Lowers.Count;
+
+        var id = await service.RequestTransportFromAgvAsync(FromAgvOrder(), None);
+        var moved = traffic.Moves[^1];
+        traffic.SetAgv(D);
+        await service.OnAgvArrivedAsync(new AgvArrived(Meta(), Agv, D), None);
+        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None);
+        await service.ReportTransferCompletedAsync(id, None);
+        await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
+
+        Assert.Equal((Agv, D, $"transport:{id}"), moved);
+        Assert.Equal(lowersBefore + 1, traffic.Lowers.Count); // 搬送先でだけ下げる
+        var permission = events.Of<TransferPermissionRequested>().Last();
+        Assert.Equal((id, "device-1", TransferSide.Unload), (permission.Transport, permission.Endpoint, permission.Side));
+        Assert.Equal(id, events.Of<TransportCompleted>().Last().Transport);
+    }
+
+    [Fact]
+    public async Task 届けたらほかの搬送を割り当てられるようになる()
+    {
+        var (service, traffic, _) = Setup(A);
+        await CanceledWhileLoaded(service, traffic);
+        var id = await service.RequestTransportFromAgvAsync(FromAgvOrder(), None);
+        await CompleteTransport(service, traffic, id);
+
+        var next = await service.RequestTransportAsync(Order(), None);
+
+        Assert.Equal((Agv, S, $"transport:{next}"), traffic.Moves[^1]);
+    }
+
+    [Fact]
+    public async Task 割り当て停止のあいだは積んだまま待ちオートに戻したら向かう()
+    {
+        var (service, traffic, _) = Setup(A);
+        await CanceledWhileLoaded(service, traffic);
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.AssignmentPaused, position: null, None);
+
+        var id = await service.RequestTransportFromAgvAsync(FromAgvOrder(), None);
+        var whilePaused = traffic.Moves.Count(m => m.CorrelationId == $"transport:{id}");
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.Auto, position: null, None);
+
+        Assert.Equal(0, whilePaused);
+        Assert.Equal((Agv, D, $"transport:{id}"), traffic.Moves[^1]);
+    }
+
+    [Fact]
+    public async Task 積んだまま止まっていないAGVを搬送元にした頼みは受け付けない()
+    {
+        var (service, _, _) = Setup(A);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RequestTransportFromAgvAsync(FromAgvOrder(), None));
+    }
+
+    [Fact]
+    public async Task 同じAGVを搬送元にした頼みは1つだけ受け付ける()
+    {
+        var (service, traffic, _) = Setup(A);
+        await CanceledWhileLoaded(service, traffic);
+        await service.ChangeControlStatusAsync(Agv, ControlStatus.AssignmentPaused, position: null, None);
+        await service.RequestTransportFromAgvAsync(FromAgvOrder(), None);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RequestTransportFromAgvAsync(FromAgvOrder(), None));
+    }
+
+    [Fact]
+    public async Task AGV自身が搬送元の搬送をまた積んだまま取りやめたらほかの搬送は割り当てない()
+    {
+        var (service, traffic, events) = Setup(A);
+        await CanceledWhileLoaded(service, traffic);
+        var id = await service.RequestTransportFromAgvAsync(FromAgvOrder(), None);
+
+        await service.CancelAsync(id, None);
+        var moves = traffic.Moves.Count;
+        await service.RequestTransportAsync(Order(), None);
+
+        Assert.True(events.Of<TransportCanceled>().Last().Loaded);
+        Assert.Equal(moves, traffic.Moves.Count);
+    }
 }

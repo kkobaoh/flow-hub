@@ -59,6 +59,16 @@ internal sealed class FakeDispatching : IDispatchingService
 
     public Task ReportTransferCompletedAsync(TransportId id, CancellationToken cancellationToken) => Task.CompletedTask;
 
+    /// <summary>AGV 自身を搬送元にした頼み（頼んだ順）。</summary>
+    public List<(TransportId Id, AgvTransportOrder Order)> FromAgvOrders { get; } = [];
+
+    public Task<TransportId> RequestTransportFromAgvAsync(AgvTransportOrder order, CancellationToken cancellationToken)
+    {
+        var id = new TransportId(_nextId++);
+        FromAgvOrders.Add((id, order));
+        return Task.FromResult(id);
+    }
+
     /// <summary>割り当てたあとでも取りやめるよう頼まれた搬送（頼まれた順）。</summary>
     public List<TransportId> CancelRequests { get; } = [];
 
