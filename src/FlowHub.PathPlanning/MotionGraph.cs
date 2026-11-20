@@ -56,6 +56,9 @@ internal sealed class MotionGraph
         return targets.Distinct().Where(h => h != current);
     }
 
+    /// <summary>グラフにそのノードがあるか。</summary>
+    public bool Contains(string nodeId) => _nodes.ContainsKey(nodeId);
+
     /// <summary>今の姿勢から、隣のノードへ進める動作。</summary>
     public IEnumerable<MoveAction> MovesFrom(string nodeId, int heading)
     {

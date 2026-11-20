@@ -55,7 +55,8 @@ public sealed class TrafficService(
     /// AGV を登録する。速さは移動コストの計算に使う（AGV の種類ごとの設定から渡す）。
     /// コントロールステータスは、保存場所から読む（再起動しても残す）。
     /// </summary>
-    public void RegisterAgv(AgvId id, MotionProfile motion)
+    /// <param name="canTravelSpecialTransfer">特殊消耗品受け渡しパネルを走れるか（AGV の種類ごとの設定。既定は走れない）。</param>
+    public void RegisterAgv(AgvId id, MotionProfile motion, bool canTravelSpecialTransfer = false)
     {
         ArgumentNullException.ThrowIfNull(motion);
         _gate.Wait();
@@ -68,6 +69,7 @@ public sealed class TrafficService(
             var entry = new AgvEntry(new AgvTravel(id, _reservations, _commandNumbers.NextNumberOf(id), _turnGate), motion)
             {
                 Control = _controlStatuses.StatusOf(id),
+                CanTravelSpecialTransfer = canTravelSpecialTransfer,
             };
             if (!_agvs.TryAdd(id, entry))
             {
@@ -93,6 +95,7 @@ public sealed class TrafficService(
             return new AgvView(id, travel.Position, ToState(travel.Status), travel.Carrier == CarrierState.Raised, travel.CumulativeDistanceMm, entry.Control)
             {
                 StopsAt = travel.Position is null ? null : travel.PlanningStart,
+                CanTravelSpecialTransfer = entry.CanTravelSpecialTransfer,
             };
         }
         finally
@@ -438,7 +441,7 @@ public sealed class TrafficService(
                 throw new InvalidOperationException($"{id} は行き先へ走っている途中か、待機中でないため、1つずつの動作を受け付けません（今の状態：{travel.Status}）。");
             }
 
-            if (ManualStepBuilder.Build(CurrentMap(), travel.RouteEnd, step) is not { } section)
+            if (ManualStepBuilder.Build(CurrentMap(), travel.RouteEnd, step, entry.CanTravelSpecialTransfer) is not { } section)
             {
                 return ManualStepResult.NotAllowed;
             }
@@ -788,6 +791,10 @@ public sealed class TrafficService(
         }
     }
 
+    /// <summary>特殊消耗品受け渡しパネル（走れない AGV が入れないノード）。</summary>
+    private HashSet<string> SpecialTransferPanels() =>
+        CurrentMap().Panels.Where(panel => panel.Type == PanelType.SpecialTransfer).Select(panel => panel.Id.Value).ToHashSet();
+
     /// <summary>予約されている充電ポート（充電ピンのあるパネル）。</summary>
     private HashSet<PanelId> ReservedChargingPorts() =>
         (mapStore.Current?.Panels ?? [])
@@ -869,6 +876,7 @@ public sealed class TrafficService(
         {
             Due = goal is not null && entry.NeededBy is { } neededBy ? neededBy - timeProvider.GetUtcNow() : null,
             KeepOrder = IsManualMoving(entry), // マニュアルの行き先は、改善でも一番先のまま
+            ForbiddenNodes = entry.CanTravelSpecialTransfer ? new HashSet<string>() : SpecialTransferPanels(),
         };
     }
 
@@ -960,7 +968,7 @@ public sealed class TrafficService(
 
     private RouteResult Plan(AgvEntry entry, PanelId destination)
     {
-        var graph = RouteGraphFactory.FromMap(CurrentMap());
+        var graph = RouteGraphFactory.FromMap(CurrentMap(), entry.CanTravelSpecialTransfer);
         return _planner.Plan(new RouteRequest(graph, entry.Travel.Position!, destination.Value, GoalHeading: null, entry.Motion));
     }
 
@@ -991,6 +999,9 @@ public sealed class TrafficService(
 
         /// <summary>コントロールステータス。</summary>
         public ControlStatus Control { get; set; }
+
+        /// <summary>特殊消耗品受け渡しパネルを走れるか。</summary>
+        public bool CanTravelSpecialTransfer { get; init; }
 
         /// <summary>切り離しから切り替える先。位置リセットの完了の通知を受けたら、これに切り替える。</summary>
         public ControlStatus? PendingControl { get; set; }

@@ -14,7 +14,8 @@ internal static class ManualStepBuilder
 {
     /// <summary>区間にする。マップの決まりを守れなければ null。</summary>
     /// <param name="start">動作を始める姿勢（並べた動作があれば、それを終えたあと）。</param>
-    public static TravelSection? Build(MapSnapshot map, Pose start, ManualStep step)
+    /// <param name="canTravelSpecialTransfer">特殊消耗品受け渡しパネルを走れるか。走れなければ、そのパネルへは進めない。</param>
+    public static TravelSection? Build(MapSnapshot map, Pose start, ManualStep step, bool canTravelSpecialTransfer = true)
     {
         ArgumentNullException.ThrowIfNull(map);
         ArgumentNullException.ThrowIfNull(start);
@@ -31,12 +32,13 @@ internal static class ManualStepBuilder
                 return new TravelSection([new FreeRotateCommand(free.Heading)], [here], new Pose(start.NodeId, free.Heading));
 
             case ManualForward when IsLineHeading(start.Heading) && !panel.IsDeadEnd:
-                return Traverse(map, here, start.Heading) is { } ahead
+                return Traverse(map, here, start.Heading) is { } ahead && CanEnter(map, ahead.To, canTravelSpecialTransfer)
                     ? new TravelSection([new ForwardCommand(ahead.DistanceMm, ahead.To)], [here, ahead.To], new Pose(ahead.To.Value, start.Heading))
                     : null;
 
             case ManualBackward when IsLineHeading(start.Heading):
                 return Traverse(map, here, (start.Heading + 180) % 360) is { } behind && !map.Panels.Single(p => p.Id == behind.To).IsDeadEnd
+                    && CanEnter(map, behind.To, canTravelSpecialTransfer)
                     ? new TravelSection([new BackwardCommand(behind.DistanceMm, behind.To)], [here, behind.To], new Pose(behind.To.Value, start.Heading))
                     : null;
 
@@ -46,6 +48,9 @@ internal static class ManualStepBuilder
     }
 
     private static bool IsLineHeading(int heading) => heading is 0 or 90 or 180 or 270;
+
+    private static bool CanEnter(MapSnapshot map, PanelId panel, bool canTravelSpecialTransfer) =>
+        canTravelSpecialTransfer || map.Panels.Single(p => p.Id == panel).Type != PanelType.SpecialTransfer;
 
     /// <summary>パネルから、その方向（進む方向の絶対角度）へ進める隣のパネル。一方通行の逆には進めない。</summary>
     private static (PanelId To, int DistanceMm)? Traverse(MapSnapshot map, PanelId from, int direction)

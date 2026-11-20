@@ -41,6 +41,9 @@ public sealed record AgvView(AgvId Id, Pose? Position, AgvState State, bool Carr
     /// AGV が止まれる最初の位置（渡した区間は取り消せないので、走っていれば、その区間を走り終えたところ）。止まっていれば、今の位置。
     /// </summary>
     public Pose? StopsAt { get; init; } = Position;
+
+    /// <summary>特殊消耗品受け渡しパネルを走れるか（AGV の種類ごとの設定）。</summary>
+    public bool CanTravelSpecialTransfer { get; init; }
 }
 
 /// <summary>

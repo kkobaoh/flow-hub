@@ -119,6 +119,29 @@ public sealed class InitialDataTests : IDisposable
     }
 
     [Fact]
+    public async Task AGVの種類に特殊消耗品受け渡しパネルを走れるかを書け省略したら走れない()
+    {
+        var path = WriteModified(json =>
+        {
+            var types = json["agvTypes"]!.AsArray();
+            types.Add(new JsonObject
+            {
+                ["id"] = "special",
+                ["forwardSpeedMmPerSecond"] = 500,
+                ["backwardSpeedMmPerSecond"] = 250,
+                ["rotationSpeedDegreesPerSecond"] = 90,
+                ["canTravelSpecialTransfer"] = true,
+            });
+            json["agvs"]![1]!["type"] = "special";
+        });
+
+        var system = await StartAsync(path);
+
+        Assert.False(system.Traffic.GetAgv(new AgvId("AGV-1")).CanTravelSpecialTransfer);
+        Assert.True(system.Traffic.GetAgv(new AgvId("AGV-2")).CanTravelSpecialTransfer);
+    }
+
+    [Fact]
     public async Task 再起動したときはDBが空でないので入れ直さない()
     {
         using (await StartAsync(BundledFile))

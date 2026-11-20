@@ -6,7 +6,8 @@ namespace FlowHub.Traffic.Infrastructure;
 /// <summary>
 /// 起動するときに交通整理へ登録する AGV（AGV と、その種類の動きの速さ）。
 /// </summary>
-public sealed record AgvConfiguration(AgvId Id, MotionProfile Motion);
+/// <param name="CanTravelSpecialTransfer">その種類が、特殊消耗品受け渡しパネルを走れるか。</param>
+public sealed record AgvConfiguration(AgvId Id, MotionProfile Motion, bool CanTravelSpecialTransfer = false);
 
 /// <summary>
 /// 交通整理のコンテキストの DB の入り口。DbContext は外に出さず、DB の設定を受け取って保存場所を開く。
@@ -61,8 +62,13 @@ public sealed class TrafficStore : ICommandNumberStore, IControlStatusStore
             && !await context.Agvs.AnyAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>AGV の種類を登録する。特殊消耗品受け渡しパネルは、走れないとする。</summary>
+    public Task AddAgvTypeAsync(string id, MotionProfile motion, CancellationToken cancellationToken) =>
+        AddAgvTypeAsync(id, motion, canTravelSpecialTransfer: false, cancellationToken);
+
     /// <summary>AGV の種類を登録する。</summary>
-    public async Task AddAgvTypeAsync(string id, MotionProfile motion, CancellationToken cancellationToken)
+    /// <param name="canTravelSpecialTransfer">特殊消耗品受け渡しパネルを走れるか。</param>
+    public async Task AddAgvTypeAsync(string id, MotionProfile motion, bool canTravelSpecialTransfer, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(motion);
@@ -74,6 +80,7 @@ public sealed class TrafficStore : ICommandNumberStore, IControlStatusStore
             ForwardSpeedMmPerSecond = motion.ForwardSpeedMmPerSecond,
             BackwardSpeedMmPerSecond = motion.BackwardSpeedMmPerSecond,
             RotationSpeedDegreesPerSecond = motion.RotationSpeedDegreesPerSecond,
+            CanTravelSpecialTransfer = canTravelSpecialTransfer,
         });
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -98,13 +105,13 @@ public sealed class TrafficStore : ICommandNumberStore, IControlStatusStore
     {
         await using var context = _createContext();
         var rows = await context.Agvs
-            .Join(context.AgvTypes, agv => agv.TypeId, type => type.Id, (agv, type) => new { agv.Id, type.ForwardSpeedMmPerSecond, type.BackwardSpeedMmPerSecond, type.RotationSpeedDegreesPerSecond })
+            .Join(context.AgvTypes, agv => agv.TypeId, type => type.Id, (agv, type) => new { agv.Id, type.ForwardSpeedMmPerSecond, type.BackwardSpeedMmPerSecond, type.RotationSpeedDegreesPerSecond, type.CanTravelSpecialTransfer })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
         return rows
             .OrderBy(r => r.Id, StringComparer.Ordinal)
-            .Select(r => new AgvConfiguration(new AgvId(r.Id), new MotionProfile(r.ForwardSpeedMmPerSecond, r.BackwardSpeedMmPerSecond, r.RotationSpeedDegreesPerSecond)))
+            .Select(r => new AgvConfiguration(new AgvId(r.Id), new MotionProfile(r.ForwardSpeedMmPerSecond, r.BackwardSpeedMmPerSecond, r.RotationSpeedDegreesPerSecond), r.CanTravelSpecialTransfer))
             .ToArray();
     }
 

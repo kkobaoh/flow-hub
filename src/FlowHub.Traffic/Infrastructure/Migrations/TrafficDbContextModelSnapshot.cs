@@ -54,6 +54,9 @@ namespace FlowHub.Traffic.Infrastructure.Migrations
                     b.Property<double>("BackwardSpeedMmPerSecond")
                         .HasColumnType("double precision");
 
+                    b.Property<bool>("CanTravelSpecialTransfer")
+                        .HasColumnType("boolean");
+
                     b.Property<double>("ForwardSpeedMmPerSecond")
                         .HasColumnType("double precision");
 

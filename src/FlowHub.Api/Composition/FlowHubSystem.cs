@@ -163,7 +163,7 @@ internal sealed partial class FlowHubSystem : IDisposable
                 continue;
             }
 
-            traffic.RegisterAgv(agv.Id, agv.Motion);
+            traffic.RegisterAgv(agv.Id, agv.Motion, agv.CanTravelSpecialTransfer);
             dispatching.RegisterAgv(agv.Id, dispatchingAgv.Carrier, dispatchingAgv.GoChargeBelowPercent, dispatchingAgv.ResumeAtPercent);
         }
 

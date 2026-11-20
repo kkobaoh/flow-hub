@@ -47,6 +47,15 @@ public sealed class PlanningMap
 {
     private readonly HashSet<string> _ids;
 
+    /// <summary>ノードを取り除いたマップ（そのノードにつながる辺も取り除く）。</summary>
+    internal PlanningMap Without(IEnumerable<string> removed)
+    {
+        var remove = removed.ToHashSet();
+        return new PlanningMap(
+            Nodes.Where(node => !remove.Contains(node.Id)),
+            Edges.Where(edge => !remove.Contains(edge.From) && !remove.Contains(edge.To)));
+    }
+
     public PlanningMap(IEnumerable<PlanningNode> nodes, IEnumerable<PlanningEdge> edges)
     {
         ArgumentNullException.ThrowIfNull(nodes);
@@ -168,6 +177,11 @@ public sealed record PlanningAgent(
     /// 通り道を塞いでいる AGV の繰り上げでは、前に入られることがある。
     /// </summary>
     public bool KeepOrder { get; init; }
+
+    /// <summary>
+    /// その AGV が入れないノード（走れないパネル）。経路にも、待機パネルへどかす先にも使わない。今いるノードからは出られる。
+    /// </summary>
+    public IReadOnlySet<string> ForbiddenNodes { get; init; } = new HashSet<string>();
 }
 
 /// <summary>

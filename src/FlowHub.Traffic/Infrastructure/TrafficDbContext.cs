@@ -13,6 +13,9 @@ internal sealed class AgvTypeRow
     public double BackwardSpeedMmPerSecond { get; set; }
 
     public double RotationSpeedDegreesPerSecond { get; set; }
+
+    /// <summary>特殊消耗品受け渡しパネルを走れるか（既定は走れない）。</summary>
+    public bool CanTravelSpecialTransfer { get; set; }
 }
 
 /// <summary>AGV。</summary>

@@ -120,6 +120,9 @@ public sealed class PrioritizedPlanner(TimeProvider? clock = null) : IPathPlanne
     {
         private readonly PlanningRequest _request;
         private readonly MotionGraph _graph;
+
+        /// <summary>入れないノードを取り除いたグラフ（取り除くノードの組ごと）。</summary>
+        private readonly Dictionary<string, MotionGraph> _restrictedGraphs = [];
         private readonly Occupancy _occupancy = new();
         private readonly long _horizon;
         private readonly Dictionary<string, AgentState> _agents = [];
@@ -200,7 +203,8 @@ public sealed class PrioritizedPlanner(TimeProvider? clock = null) : IPathPlanne
                 return;
             }
 
-            Settle(state, _graph.CanReach(state.Pose, goal) ? PlanStatus.Blocked : PlanStatus.NoRoute, []);
+            var graph = GraphFor(state);
+            Settle(state, graph.Contains(goal.NodeId) && graph.CanReach(state.Pose, goal) ? PlanStatus.Blocked : PlanStatus.NoRoute, []);
         }
 
         /// <summary>
@@ -264,8 +268,32 @@ public sealed class PrioritizedPlanner(TimeProvider? clock = null) : IPathPlanne
             return true;
         }
 
-        private IReadOnlyList<TimedStep>? Search(AgentState state, AgentGoal goal, bool ignoreProvisional) =>
-            SafeIntervalSearch.Search(_graph, _occupancy, ignoreProvisional, state.Agent.Motion, state.Pose, state.EndTime, goal, _horizon);
+        private IReadOnlyList<TimedStep>? Search(AgentState state, AgentGoal goal, bool ignoreProvisional)
+        {
+            var graph = GraphFor(state);
+            return graph.Contains(goal.NodeId)
+                ? SafeIntervalSearch.Search(graph, _occupancy, ignoreProvisional, state.Agent.Motion, state.Pose, state.EndTime, goal, _horizon)
+                : null;
+        }
+
+        /// <summary>その AGV が使えるグラフ。入れないノードを取り除く（今いるノードは残すので、そこからは出られる）。</summary>
+        private MotionGraph GraphFor(AgentState state)
+        {
+            var removed = state.Agent.ForbiddenNodes.Where(node => node != state.Pose.NodeId).Order(StringComparer.Ordinal).ToArray();
+            if (removed.Length == 0)
+            {
+                return _graph;
+            }
+
+            var key = string.Join('\n', removed);
+            if (!_restrictedGraphs.TryGetValue(key, out var graph))
+            {
+                graph = new MotionGraph(_request.Map.Without(removed));
+                _restrictedGraphs[key] = graph;
+            }
+
+            return graph;
+        }
 
         /// <summary>計画を決めて、使うノードの時間帯を予約する。最後のノードには止まり続ける。</summary>
         private void Settle(AgentState state, PlanStatus status, IReadOnlyList<TimedStep> steps)

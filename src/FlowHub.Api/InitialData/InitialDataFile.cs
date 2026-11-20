@@ -62,6 +62,9 @@ internal sealed class AgvTypeData
 
     /// <summary>割り当てに戻す値。省略したら既定値。</summary>
     public int? ResumeAtPercent { get; set; }
+
+    /// <summary>特殊消耗品受け渡しパネルを走れるか。省略したら走れない。</summary>
+    public bool CanTravelSpecialTransfer { get; set; }
 }
 
 internal sealed class AgvData

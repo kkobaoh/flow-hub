@@ -108,6 +108,22 @@ public sealed class TrafficStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task AGVの種類ごとに特殊消耗品受け渡しパネルを走れるかを読み省略したら走れない()
+    {
+        var store = await OpenAsync();
+        await store.AddAgvTypeAsync("special", Motion, canTravelSpecialTransfer: true, Token);
+        await store.AddAgvTypeAsync("small", Motion, Token);
+        await store.AddAgvAsync(new AgvId("AGV-S"), "special", Token);
+        await store.AddAgvAsync(Agv, "small", Token);
+
+        var agvs = await (await OpenAsync()).LoadAgvsAsync(Token);
+
+        Assert.Equal(
+            [new AgvConfiguration(Agv, Motion), new AgvConfiguration(new AgvId("AGV-S"), Motion, CanTravelSpecialTransfer: true)],
+            agvs);
+    }
+
+    [Fact]
     public async Task 何も登録していなければ空()
     {
         var store = await OpenAsync();

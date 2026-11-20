@@ -9,12 +9,19 @@ namespace FlowHub.Traffic.Domain;
 /// </summary>
 internal static class RouteGraphFactory
 {
-    public static RouteGraph FromMap(MapSnapshot map)
+    /// <param name="canTravelSpecialTransfer">特殊消耗品受け渡しパネルを走れるか。走れなければ、そのパネルと、そこへのつながりを取り除く
+    /// （ルーティングの入力に「避けるパネル」は含めず、呼び出す側がグラフから取り除く）。</param>
+    public static RouteGraph FromMap(MapSnapshot map, bool canTravelSpecialTransfer = true)
     {
         ArgumentNullException.ThrowIfNull(map);
 
-        var nodes = map.Panels.Select(ToNode);
-        var edges = map.Connections.Select(c => new RouteEdge(c.From.Value, c.To.Value, c.DistanceMm, c.Heading.Degrees, c.OneWay));
+        var removed = canTravelSpecialTransfer
+            ? []
+            : map.Panels.Where(p => p.Type == PanelType.SpecialTransfer).Select(p => p.Id).ToHashSet();
+        var nodes = map.Panels.Where(p => !removed.Contains(p.Id)).Select(ToNode);
+        var edges = map.Connections
+            .Where(c => !removed.Contains(c.From) && !removed.Contains(c.To))
+            .Select(c => new RouteEdge(c.From.Value, c.To.Value, c.DistanceMm, c.Heading.Degrees, c.OneWay));
 
         return new RouteGraph(nodes, edges);
     }
