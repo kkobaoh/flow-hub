@@ -585,6 +585,7 @@ public sealed class TrafficService(
                 entry.CorrelationId = correlationId;
             }
 
+            var chargingPortsBefore = ReservedChargingPorts();
             var before = entry.Travel.Status;
             var numberBefore = entry.Travel.NextNumber;
             var result = action(entry);
@@ -638,6 +639,13 @@ public sealed class TrafficService(
                 DispatchAll();
                 await DropBlockedManualStepsAsync(cancellationToken).ConfigureAwait(false);
                 entry.NotifyChanged();
+            }
+
+            // 充電ポートの予約を外したら、空いたことを知らせる（充電ポートが空くのを待っている AGV がいるかもしれない）
+            foreach (var port in chargingPortsBefore.Except(ReservedChargingPorts()))
+            {
+                var metadata = EventMetadata.Start($"charging-port:{port}", timeProvider);
+                await publisher.PublishAsync(new ChargingPortReleased(metadata, port), cancellationToken).ConfigureAwait(false);
             }
 
             return result;
@@ -763,6 +771,13 @@ public sealed class TrafficService(
             entry.Travel.SetRoute([], dispatchNow: false);
         }
     }
+
+    /// <summary>予約されている充電ポート（充電ピンのあるパネル）。</summary>
+    private HashSet<PanelId> ReservedChargingPorts() =>
+        (mapStore.Current?.Panels ?? [])
+            .Where(panel => panel.HasChargingPin && _reservations.OwnerOf(panel.Id) is not null)
+            .Select(panel => panel.Id)
+            .ToHashSet();
 
     /// <summary>障害物が塞ぐパネル：予約しているパネル（なければ、今いるパネル）。</summary>
     private string[] OccupiedPanels(AgvEntry entry) =>

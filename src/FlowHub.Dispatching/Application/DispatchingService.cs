@@ -393,6 +393,30 @@ public sealed class DispatchingService(
             return true;
         });
 
+    /// <summary>
+    /// 充電ポートが空いた。行ける充電ポートがなくて待っている AGV に、もう一度探させる。
+    /// 充電残量が少ない AGV から、同じなら空いた充電ポートに近い AGV から探させる。停止中は何もしない（スタートしたときに探させる）。
+    /// </summary>
+    internal Task OnChargingPortReleasedAsync(ChargingPortReleased released, CancellationToken cancellationToken) =>
+        RunAsync(async () =>
+        {
+            // 停止中は、充電ポートを探す処理が向かわせない（スタートしたときに探させる）
+            var waiting = _agvs
+                .Where(pair => pair.Value.Charging.State == ChargingState.WaitingForPort)
+                .Select(pair => pair.Key)
+                .OrderBy(id => _agvs[id].Charging.BatteryPercent is null)
+                .ThenBy(id => _agvs[id].Charging.BatteryPercent)
+                .ThenBy(id => traffic.EstimateMoveCost(id, released.Panel) ?? TimeSpan.MaxValue)
+                .ThenBy(id => id.Value, StringComparer.Ordinal)
+                .ToArray();
+            foreach (var id in waiting)
+            {
+                await SeekChargingPortAsync(id, cancellationToken).ConfigureAwait(false);
+            }
+
+            return true;
+        });
+
     internal Task OnAgvBatteryChangedAsync(AgvBatteryChanged changed, CancellationToken cancellationToken) =>
         RunAsync(async () =>
         {
@@ -508,7 +532,12 @@ public sealed class DispatchingService(
         var ports = CurrentMap().Panels.Where(p => p.HasChargingPin).Select(p => p.Id);
         var correlationId = $"charge:{id}";
 
-        if (ChargingPortSelector.Choose(ports, port => traffic.IsReservedByOther(port, id), port => traffic.EstimateMoveCost(id, port)) is not { } chosen)
+        // ほかの AGV が予約している、または向かっている充電ポートは、使っているものとみなす
+        bool IsTaken(PanelId port) =>
+            traffic.IsReservedByOther(port, id)
+            || _agvs.Any(other => other.Key != id && other.Value.Charging.State == ChargingState.GoingToPort && other.Value.Charging.Port == port);
+
+        if (ChargingPortSelector.Choose(ports, IsTaken, port => traffic.EstimateMoveCost(id, port)) is not { } chosen)
         {
             charging.WaitForPort();
             await PublishAsync(correlationId, m => new NoChargingPortAvailable(m, id), cancellationToken).ConfigureAwait(false);

@@ -91,6 +91,7 @@ public class DispatchingSubscriptionsTests
             [
                 typeof(AgvArrived), typeof(CarrierLowered), typeof(CarrierRaised), typeof(AgvStopped),
                 typeof(AgvResumed), typeof(AgvFaulted), typeof(AgvPositionResetCompleted), typeof(AgvBatteryChanged),
+                typeof(ChargingPortReleased),
             ],
             subscriptions.SubscribedEventTypes);
     }

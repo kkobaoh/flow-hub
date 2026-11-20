@@ -22,6 +22,7 @@ public static class DispatchingSubscriptions
         subscriptions.Subscribe(() => new AgvFaultedSubscriber(service));
         subscriptions.Subscribe(() => new AgvPositionResetCompletedSubscriber(service));
         subscriptions.Subscribe(() => new AgvBatteryChangedSubscriber(service));
+        subscriptions.Subscribe(() => new ChargingPortReleasedSubscriber(service));
     }
 }
 
@@ -71,4 +72,10 @@ internal sealed class AgvBatteryChangedSubscriber(DispatchingService service) : 
 {
     public Task HandleAsync(AgvBatteryChanged integrationEvent, CancellationToken cancellationToken) =>
         service.OnAgvBatteryChangedAsync(integrationEvent, cancellationToken);
+}
+
+internal sealed class ChargingPortReleasedSubscriber(DispatchingService service) : IEventSubscriber<ChargingPortReleased>
+{
+    public Task HandleAsync(ChargingPortReleased integrationEvent, CancellationToken cancellationToken) =>
+        service.OnChargingPortReleasedAsync(integrationEvent, cancellationToken);
 }

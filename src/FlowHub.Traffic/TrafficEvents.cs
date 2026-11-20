@@ -27,5 +27,8 @@ public sealed record AgvPositionResetCompleted(EventMetadata Metadata, AgvId Agv
 /// <summary>マニュアルで並べた1つずつの動作を、渡すときに予約が取れなかったので、そこで止めて残りを捨てた（画面で知らせる）。</summary>
 public sealed record ManualStepsDropped(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
 
+/// <summary>充電ポート（充電ピンのあるパネル）にいた AGV が離れて、予約を外した（ほかの AGV が向かえるようになった）。</summary>
+public sealed record ChargingPortReleased(EventMetadata Metadata, PanelId Panel) : IIntegrationEvent;
+
 /// <summary>AGV の充電残量が変わった。</summary>
 public sealed record AgvBatteryChanged(EventMetadata Metadata, AgvId Agv, int Percent) : IIntegrationEvent;
