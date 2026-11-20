@@ -8,6 +8,15 @@ public enum MapValidationErrorCode
     /// <summary>パネルの ID が重複している。</summary>
     DuplicatePanelId,
 
+    /// <summary>特殊消耗品受け渡しパネルに、キャリアを下ろす角度が設定されていない。</summary>
+    MissingCarrierLoweringHeading,
+
+    /// <summary>特殊消耗品受け渡しパネルに、充電ピンが設置されている。</summary>
+    ChargingPinOnSpecialTransferPanel,
+
+    /// <summary>特殊消耗品受け渡しパネルでないパネルに、キャリアを下ろす角度が設定されている。</summary>
+    CarrierLoweringHeadingOnOtherPanel,
+
     /// <summary>通常パネルに充電ピンが設置されている。</summary>
     ChargingPinOnNormalPanel,
 

@@ -177,6 +177,23 @@ internal static class MapValidator
             {
                 errors.Add(new(MapValidationErrorCode.ChargingPinOnNormalPanel, $"通常パネル {panel.Id} には充電ピンを設置できません。"));
             }
+
+            if (panel.Type == PanelType.SpecialTransfer)
+            {
+                if (panel.CarrierLoweringHeading is null)
+                {
+                    errors.Add(new(MapValidationErrorCode.MissingCarrierLoweringHeading, $"特殊消耗品受け渡しパネル {panel.Id} に、キャリアを下ろす角度を設定してください。"));
+                }
+
+                if (panel.HasChargingPin)
+                {
+                    errors.Add(new(MapValidationErrorCode.ChargingPinOnSpecialTransferPanel, $"特殊消耗品受け渡しパネル {panel.Id} には充電ピンを設置できません。"));
+                }
+            }
+            else if (panel.CarrierLoweringHeading is not null)
+            {
+                errors.Add(new(MapValidationErrorCode.CarrierLoweringHeadingOnOtherPanel, $"パネル {panel.Id} は特殊消耗品受け渡しパネルでないので、キャリアを下ろす角度は設定できません。"));
+            }
         }
 
         return panelsById;

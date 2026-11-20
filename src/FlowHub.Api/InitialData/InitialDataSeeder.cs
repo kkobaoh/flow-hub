@@ -165,14 +165,17 @@ internal static partial class InitialDataSeeder
         }
         else
         {
-            var panels = Each(file.Map.Panels, errors, "パネル", p => new Panel(new PanelId(p.Id), p.Type, p.ChargingPin));
+            var panels = Each(file.Map.Panels, errors, "パネル", p => new Panel(new PanelId(p.Id), p.Type, p.ChargingPin)
+            {
+                CarrierLoweringHeading = p.CarrierLoweringHeading is { } heading ? new Heading(heading) : null,
+            });
             var connections = Each(file.Map.Connections, errors, "つながり", c => new Connection(new PanelId(c.From), new PanelId(c.To), c.DistanceMm, new Heading(c.Heading), c.OneWay));
             var result = MapSnapshot.Create(panels, connections);
             errors.AddRange(result.Errors.Select(e => $"マップ：{e.Message}"));
             map = result.Snapshot;
         }
 
-        bool IsTransferPanel(PanelId panel) => map?.Panels.Any(p => p.Id == panel && p.Type == PanelType.Transfer) ?? false;
+        bool IsTransferPanel(PanelId panel) => map?.Panels.Any(p => p.Id == panel && p.Type is PanelType.Transfer or PanelType.SpecialTransfer) ?? false;
 
         // ---- AGV ----
         var agvTypes = Each(file.AgvTypes, errors, "AGV の種類", t =>

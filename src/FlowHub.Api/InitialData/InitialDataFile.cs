@@ -29,6 +29,9 @@ internal sealed class PanelData
     public PanelType Type { get; set; }
 
     public bool ChargingPin { get; set; }
+
+    /// <summary>キャリアを下ろす角度（特殊消耗品受け渡しパネルだけ）。</summary>
+    public int? CarrierLoweringHeading { get; set; }
 }
 
 internal sealed class ConnectionData

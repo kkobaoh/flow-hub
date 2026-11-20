@@ -76,6 +76,7 @@ public sealed class DbMapStore : IMapStore
                     PanelId = panel.Id.Value,
                     Type = panel.Type.ToString(),
                     HasChargingPin = panel.HasChargingPin,
+                    CarrierLoweringHeading = panel.CarrierLoweringHeading?.Degrees,
                 }));
                 context.Connections.AddRange(snapshot.Connections.Select((connection, order) => new ConnectionRow
                 {
@@ -145,7 +146,10 @@ public sealed class DbMapStore : IMapStore
         var panels = await context.Panels.Where(p => p.Version == version).OrderBy(p => p.Order).ToListAsync(cancellationToken).ConfigureAwait(false);
         var connections = await context.Connections.Where(c => c.Version == version).OrderBy(c => c.Order).ToListAsync(cancellationToken).ConfigureAwait(false);
         var result = MapSnapshot.Create(
-            panels.Select(p => new Panel(new PanelId(p.PanelId), Enum.Parse<PanelType>(p.Type), p.HasChargingPin)),
+            panels.Select(p => new Panel(new PanelId(p.PanelId), Enum.Parse<PanelType>(p.Type), p.HasChargingPin)
+            {
+                CarrierLoweringHeading = p.CarrierLoweringHeading is { } heading ? new Heading(heading) : null,
+            }),
             connections.Select(c => new Connection(new PanelId(c.FromPanelId), new PanelId(c.ToPanelId), c.DistanceMm, new Heading(c.HeadingDegrees), c.OneWay)));
         var snapshot = result.Snapshot
             ?? throw new InvalidOperationException($"保存してあるマップの版 {version} が、検証を通りません：{string.Join("、", result.Errors.Select(e => e.ToString()))}");

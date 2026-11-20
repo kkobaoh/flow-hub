@@ -73,6 +73,9 @@ GET /agv/{agvId}/commands?lastReceived={番号}
 | `backward` | `distanceMm`、`panel` | 後退。項目は前進と同じ |
 | `rotate` | `heading` | その場での回転。回転後の絶対角度 |
 | `rotate_free` | `heading` | 角度を指定した、その場での回転（マニュアルで使う）。ラインを読まずに、回転後の絶対角度（0〜359度）まで回る。区間には、これ1つだけで入れる。終えたときの通知は `rotated` |
+| `forward_special` | `distanceMm`、`panel` | 特殊な前進。特殊消耗品受け渡しパネルを出発するか、そこに着く前進。項目は前進と同じ。終えたときの通知は `moved`（`direction` は `forward`） |
+| `backward_special` | `distanceMm`、`panel` | 特殊な後退。項目は後退と同じ。終えたときの通知は `moved`（`direction` は `backward`） |
+| `rotate_special` | `heading` | 特殊消耗品受け渡しパネルで、キャリアを下ろす角度などへの、その場での回転。回転後の絶対角度（0〜359度）。`rotate_free` とは別の動作。終えたときの通知は `rotated` |
 
 ## 2. 位置を取りに来る（再起動したとき）
 

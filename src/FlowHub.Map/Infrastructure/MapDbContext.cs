@@ -21,6 +21,9 @@ internal sealed class PanelRow
     public string Type { get; set; } = string.Empty;
 
     public bool HasChargingPin { get; set; }
+
+    /// <summary>キャリアを下ろす角度（特殊消耗品受け渡しパネルだけ）。</summary>
+    public int? CarrierLoweringHeading { get; set; }
 }
 
 /// <summary>版ごとのつながり。</summary>

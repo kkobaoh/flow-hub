@@ -91,6 +91,9 @@ namespace FlowHub.Map.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<int?>("CarrierLoweringHeading")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("HasChargingPin")
                         .HasColumnType("boolean");
 

@@ -74,6 +74,20 @@ public sealed class DbMapStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task 特殊消耗品受け渡しパネルとキャリアを下ろす角度も次に開いたときに読める()
+    {
+        var store = await OpenAsync();
+        var special = new Panel(new PanelId("X"), PanelType.SpecialTransfer, false) { CarrierLoweringHeading = new Heading(215) };
+        store.Publish(MapSnapshot.Create(
+            [new Panel(A, PanelType.Normal, false), special],
+            [new Connection(A, special.Id, 800, new Heading(0), OneWay: false)]).Snapshot!);
+
+        var reopened = await OpenAsync();
+
+        Assert.Equal(special, reopened.Current!.Panels[1]);
+    }
+
+    [Fact]
     public async Task 公開した版はすべて番号を付けて残し次に開いたときは一番新しい版を使う()
     {
         var store = await OpenAsync();

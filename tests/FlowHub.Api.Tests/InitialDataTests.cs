@@ -102,6 +102,23 @@ public sealed class InitialDataTests : IDisposable
     }
 
     [Fact]
+    public async Task 特殊消耗品受け渡しパネルとキャリアを下ろす角度を入れられ装置の受け渡しパネルに使える()
+    {
+        var path = WriteModified(json =>
+        {
+            json["map"]!["panels"]!.AsArray().Add(new JsonObject { ["id"] = "X", ["type"] = "SpecialTransfer", ["carrierLoweringHeading"] = 45 });
+            json["map"]!["connections"]!.AsArray().Add(new JsonObject { ["from"] = "P5", ["to"] = "X", ["distanceMm"] = 1000, ["heading"] = 90 });
+            json["consumables"]!["devices"]![0]!["transferPanel"] = "X";
+        });
+
+        var system = await StartAsync(path);
+
+        var panel = (await OpenMapAsync())!.Panels.Single(p => p.Id == new PanelId("X"));
+        Assert.Equal((PanelType.SpecialTransfer, new Heading(45)), (panel.Type, panel.CarrierLoweringHeading));
+        Assert.Equal(new PanelId("X"), system.Consumables.DeviceEndpoint(new DeviceId("DEV-1")).Panel);
+    }
+
+    [Fact]
     public async Task 再起動したときはDBが空でないので入れ直さない()
     {
         using (await StartAsync(BundledFile))

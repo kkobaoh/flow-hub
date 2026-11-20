@@ -10,11 +10,55 @@ public class MapSnapshotTests
     private static Panel Standby(string id, bool chargingPin = false) =>
         new(new PanelId(id), PanelType.Standby, chargingPin);
 
+    private static Panel Special(string id, int? loweringHeading = 45, bool chargingPin = false) =>
+        new(new PanelId(id), PanelType.SpecialTransfer, chargingPin) { CarrierLoweringHeading = loweringHeading is { } h ? new Heading(h) : null };
+
     private static Connection Connect(string from, string to, int distanceMm = 800, int heading = 0, bool oneWay = false) =>
         new(new PanelId(from), new PanelId(to), distanceMm, new Heading(heading), oneWay);
 
     private static MapValidationErrorCode[] ErrorCodes(MapSnapshotResult result) =>
         result.Errors.Select(e => e.Code).ToArray();
+
+    // ---- 特殊消耗品受け渡しパネル ----
+
+    [Fact]
+    public void 特殊消耗品受け渡しパネルは並べてつなげられ行き止まりではない()
+    {
+        // A ─ X1 ─ X2 ─ B（X1、X2 は特殊消耗品受け渡しパネル。間に通常パネルを挟まずにつながる）
+        var result = MapSnapshot.Create(
+            [Normal("A"), Special("X1"), Special("X2", loweringHeading: 300), Normal("B")],
+            [Connect("A", "X1", heading: 90), Connect("X1", "X2", heading: 90), Connect("X2", "B", heading: 90)]);
+
+        Assert.True(result.IsValid);
+        Assert.False(result.Snapshot!.Panels[1].IsDeadEnd);
+        Assert.Equal(new Heading(300), result.Snapshot.Panels[2].CarrierLoweringHeading);
+    }
+
+    [Fact]
+    public void 特殊消耗品受け渡しパネルにはキャリアを下ろす角度が要る()
+    {
+        var result = MapSnapshot.Create([Normal("A"), Special("X", loweringHeading: null)], [Connect("A", "X")]);
+
+        Assert.Equal([MapValidationErrorCode.MissingCarrierLoweringHeading], ErrorCodes(result));
+    }
+
+    [Fact]
+    public void 特殊消耗品受け渡しパネルには充電ピンを設置できない()
+    {
+        var result = MapSnapshot.Create([Normal("A"), Special("X", chargingPin: true)], [Connect("A", "X")]);
+
+        Assert.Equal([MapValidationErrorCode.ChargingPinOnSpecialTransferPanel], ErrorCodes(result));
+    }
+
+    [Fact]
+    public void ほかの種類のパネルにはキャリアを下ろす角度を設定できない()
+    {
+        var transfer = Transfer("T") with { CarrierLoweringHeading = new Heading(90) };
+
+        var result = MapSnapshot.Create([Normal("A"), transfer], [Connect("A", "T")]);
+
+        Assert.Equal([MapValidationErrorCode.CarrierLoweringHeadingOnOtherPanel], ErrorCodes(result));
+    }
 
     [Fact]
     public void 正しいマップからスナップショットを作れる()
