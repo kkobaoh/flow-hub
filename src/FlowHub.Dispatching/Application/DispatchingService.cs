@@ -649,7 +649,8 @@ public sealed class DispatchingService(
         }
 
         var candidates = _agvs.Select(pair => CandidateOf(pair.Key, pair.Value)).OfType<AgvCandidate>().ToArray();
-        var assignments = _queue.AssignWaiting(candidates, (candidate, source) => traffic.EstimateMoveCost(candidate.Id, source));
+        var specialPanels = CurrentMap().Panels.Where(p => p.Type == PanelType.SpecialTransfer).Select(p => p.Id).ToHashSet();
+        var assignments = _queue.AssignWaiting(candidates, (candidate, source) => traffic.EstimateMoveCost(candidate.Id, source), specialPanels.Contains);
 
         foreach (var assignment in assignments)
         {
@@ -684,7 +685,8 @@ public sealed class DispatchingService(
             agv.Policy,
             agv.Carrier,
             view.CumulativeDistanceMm,
-            agv.Loaded);
+            agv.Loaded,
+            view.CanTravelSpecialTransfer);
     }
 
     /// <summary>

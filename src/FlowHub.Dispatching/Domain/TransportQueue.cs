@@ -39,9 +39,11 @@ internal sealed class TransportQueue
     /// AGV が空いたとき、充電残量が変わったとき、新しい要求が来たときに呼ぶ。
     /// </summary>
     /// <param name="costOf">AGV の今の位置から、搬送元の受け渡しパネルまでの移動コスト。経路が見つからなければ null。</param>
+    /// <param name="isSpecialTransfer">特殊消耗品受け渡しパネルか（搬送元か搬送先がそうなら、走れる AGV にだけ割り当てる）。</param>
     public IReadOnlyList<Assignment> AssignWaiting(
         IEnumerable<AgvCandidate> candidates,
-        Func<AgvCandidate, PanelId, TimeSpan?> costOf)
+        Func<AgvCandidate, PanelId, TimeSpan?> costOf,
+        Func<PanelId, bool>? isSpecialTransfer = null)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(costOf);
@@ -65,7 +67,8 @@ internal sealed class TransportQueue
             }
 
             var source = transport.Request.Source.Panel;
-            var request = new AssignmentRequest(source, transport.Request.Carrier);
+            var special = isSpecialTransfer is not null && (isSpecialTransfer(source) || isSpecialTransfer(transport.Request.Destination.Panel));
+            var request = new AssignmentRequest(source, transport.Request.Carrier, special);
             if (AgvAssigner.Choose(request, available, candidate => costOf(candidate, source)) is not { } agv)
             {
                 continue;

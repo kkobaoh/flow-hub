@@ -51,6 +51,7 @@ internal sealed record ChargingPolicy
 /// <param name="Carrier">AGV のキャリアの種類。</param>
 /// <param name="CumulativeDistanceMm">これまでの累計の走行距離。</param>
 /// <param name="Loaded">搬送を取りやめて、ものを積んだまま止まっているか（その AGV 自身が搬送元の搬送にだけ割り当てる）。</param>
+/// <param name="CanTravelSpecialTransfer">特殊消耗品受け渡しパネルを走れるか。</param>
 internal sealed record AgvCandidate(
     AgvId Id,
     Pose Position,
@@ -60,7 +61,8 @@ internal sealed record AgvCandidate(
     ChargingPolicy Policy,
     CarrierTypeId Carrier,
     long CumulativeDistanceMm,
-    bool Loaded = false)
+    bool Loaded = false,
+    bool CanTravelSpecialTransfer = false)
 {
     /// <summary>今、搬送を割り当ててよいか（待機中で、充電残量が足りている）。</summary>
     public bool CanTakeTransport => IsIdle && Policy.AllowsAssignment(BatteryPercent, RecoveringCharge);
@@ -71,7 +73,8 @@ internal sealed record AgvCandidate(
 /// </summary>
 /// <param name="Source">搬送元の受け渡しパネル。</param>
 /// <param name="Carrier">搬送の要求が求めるキャリアの種類。</param>
-internal sealed record AssignmentRequest(PanelId Source, CarrierTypeId Carrier);
+/// <param name="RequiresSpecialTransfer">搬送元か搬送先が特殊消耗品受け渡しパネルか（走れる AGV にだけ割り当てる）。</param>
+internal sealed record AssignmentRequest(PanelId Source, CarrierTypeId Carrier, bool RequiresSpecialTransfer = false);
 
 /// <summary>
 /// 搬送の要求に、どの AGV を割り当てるかを決める。
@@ -97,7 +100,8 @@ internal static class AgvAssigner
         var reachable = candidates
             .Where(agv => agv.CanTakeTransport
                 && !agv.Loaded
-                && agv.Carrier == request.Carrier)
+                && agv.Carrier == request.Carrier
+                && (!request.RequiresSpecialTransfer || agv.CanTravelSpecialTransfer))
             .Select(agv => (Agv: agv, Cost: costOf(agv)))
             .Where(pair => pair.Cost is not null);
 
