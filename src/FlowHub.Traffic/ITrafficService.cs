@@ -31,6 +31,11 @@ public interface ITrafficService
     Task RaiseCarrierAsync(AgvId id, string correlationId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// 通り道を塞いでいる行き先のない AGV を、待機パネルへどかしてよいか（システムの運転状態が停止の間は止める）。切り替えたら、全台の経路を計画し直す。
+    /// </summary>
+    void SetEvacuationEnabled(bool enabled);
+
+    /// <summary>
     /// コントロールステータスを切り替える。切り替えたら、全台の経路を計画し直す。
     /// マニュアルとロックに切り替えるときは、行き先と残りの経路を捨てる（着いたことは知らせない）。
     /// </summary>

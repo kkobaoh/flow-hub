@@ -48,6 +48,10 @@ public class DispatchingSubscriptionsTests
 
         public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken) =>
             Task.FromResult(true);
+
+        public void SetEvacuationEnabled(bool enabled)
+        {
+        }
     }
 
     private static EventMetadata Meta() => EventMetadata.Start("test", new FixedTimeProvider());

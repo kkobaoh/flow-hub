@@ -61,6 +61,22 @@ public class ToolPlanningServiceTests
     private static string[] ActiveCargo(Fixture f) =>
         f.Dispatching.ActiveOrders.Select(o => string.Join(",", o.CargoRefs)).ToArray();
 
+    // ---- 運転状態 ----
+
+    [Fact]
+    public async Task 停止中は不足と回収を判断せず補充も頼まない()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        await SetAsync(f, (VarietyA, 2));
+        f.Dispatching.IsRunning = false;
+
+        await f.Planning.ReplanAsync(None);
+
+        Assert.Empty(f.Dispatching.Orders);
+        Assert.Empty(f.Replenishment.Requests);
+    }
+
     // ---- 届ける ----
 
     [Fact]

@@ -28,3 +28,6 @@ public sealed record NoChargingPortAvailable(EventMetadata Metadata, AgvId Agv) 
 
 /// <summary>AGV を動かそうとしたが、予約が取れずに止まっている。画面で警告する。</summary>
 public sealed record MoveBlocked(EventMetadata Metadata, AgvId Agv, PanelId Destination) : IIntegrationEvent;
+
+/// <summary>システムの運転状態がスタートになった（搬送計画は、不足と回収の判断を1回行う）。</summary>
+public sealed record OperationStarted(EventMetadata Metadata) : IIntegrationEvent;

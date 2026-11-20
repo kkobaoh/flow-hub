@@ -19,6 +19,9 @@ internal sealed class FakeDispatching : IDispatchingService
 {
     private long _nextId = 1;
 
+    /// <summary>運転状態がスタートか。</summary>
+    public bool IsRunning { get; set; } = true;
+
     public List<(TransportId Id, TransportOrder Order)> Orders { get; } = [];
 
     public List<TransportId> Cancelled { get; } = [];

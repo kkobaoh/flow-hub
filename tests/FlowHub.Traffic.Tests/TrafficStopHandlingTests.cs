@@ -215,4 +215,37 @@ public class TrafficStopHandlingTests
         Assert.Null(beforeEvacuated);
         Assert.NotNull(afterEvacuated);
     }
+
+    [Fact]
+    public async Task どかす動きを止めている間は塞いでいるAGVを動かさず戻したらどかす()
+    {
+        // N →(180度) M →(180度) S の通路の M に、行き先のない AGV-2 がいる。M の東（90度）に待機パネル P
+        var store = new InMemoryMapStore();
+        static PanelId P(string id) => new(id);
+        store.Publish(MapSnapshot.Create(
+            [
+                new Panel(P("N"), PanelType.Normal, false),
+                new Panel(P("M"), PanelType.Normal, false),
+                new Panel(P("S"), PanelType.Normal, false),
+                new Panel(P("P"), PanelType.Standby, false),
+            ],
+            [
+                new Connection(P("N"), P("M"), 800, new Heading(180), OneWay: false),
+                new Connection(P("M"), P("S"), 800, new Heading(180), OneWay: false),
+                new Connection(P("M"), P("P"), 800, new Heading(90), OneWay: false),
+            ]).Snapshot!);
+        var service = new TrafficService(store, new IgnoringPublisher(), new ManualTimeProvider());
+        await ReadyAsync(service, Agv1, new Pose("N", 180));
+        await ReadyAsync(service, Agv2, new Pose("M", 90));
+        service.SetEvacuationEnabled(false);
+
+        var result = await service.MoveAgvAsync(Agv1, new PanelId("S"), Start, "transport-1", None);
+        var whileDisabled = await MotionOf(service, Agv2);
+        service.SetEvacuationEnabled(true);
+        var afterEnabled = await MotionOf(service, Agv2);
+
+        Assert.Equal(MoveResult.Waiting, result);
+        Assert.Null(whileDisabled);
+        Assert.Equal<TravelCommand>([new ForwardCommand(800, new PanelId("P"))], afterEnabled!.Steps);
+    }
 }

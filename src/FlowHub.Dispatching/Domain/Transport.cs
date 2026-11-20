@@ -34,13 +34,25 @@ internal enum TransportStage
 internal sealed record TransportEventResult(bool Accepted, IReadOnlyList<TransportAction> Actions);
 
 /// <summary>
+/// 搬送を一時停止する理由。理由が1つでも残っていれば、次のコマンドを出さない。
+/// </summary>
+internal enum PauseReason
+{
+    /// <summary>AGV が緊急停止中。アラームクリアの完了で外れる。</summary>
+    AgvStopped,
+
+    /// <summary>システムの運転状態が停止。スタートで外れる。</summary>
+    OperationStopped,
+}
+
+/// <summary>
 /// 1回の搬送（1往復）。搬送の流れを1か所で進める状態遷移。
 /// </summary>
 internal sealed class Transport(TransportId id, TransportRequest request)
 {
     private static readonly TransportEventResult Ignored = new(false, []);
 
-    private bool _paused;
+    private readonly HashSet<PauseReason> _pauses = [];
 
     /// <summary>一時停止中に、今の段階のコマンドを出さずにおいたか。</summary>
     private bool _commandDeferred;
@@ -103,17 +115,18 @@ internal sealed class Transport(TransportId id, TransportRequest request)
     };
 
     /// <summary>
-    /// AGV が緊急停止中になった。一時停止中は、状態は進めるが、次のコマンドは出さない。
+    /// 一時停止する（AGV が緊急停止中になった、運転状態が停止になった）。一時停止中は、状態は進めるが、次のコマンドは出さない。
     /// </summary>
-    public void Pause() => _paused = true;
+    public void Pause(PauseReason reason) => _pauses.Add(reason);
 
     /// <summary>
-    /// AGV のアラームクリアが完了した。一時停止中に出さなかったコマンドがあれば出す。
+    /// 一時停止の理由を外す（アラームクリアが完了した、運転状態がスタートになった）。
+    /// ほかの理由が残っていなければ、一時停止中に出さなかったコマンドを出す。
     /// </summary>
-    public IReadOnlyList<TransportAction> Resume()
+    public IReadOnlyList<TransportAction> Resume(PauseReason reason)
     {
-        _paused = false;
-        if (!_commandDeferred)
+        _pauses.Remove(reason);
+        if (_pauses.Count > 0 || !_commandDeferred)
         {
             return [];
         }
@@ -155,7 +168,7 @@ internal sealed class Transport(TransportId id, TransportRequest request)
 
         if (CommandFor(next) is { } command)
         {
-            if (_paused)
+            if (_pauses.Count > 0)
             {
                 _commandDeferred = true;
             }

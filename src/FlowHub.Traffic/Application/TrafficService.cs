@@ -39,6 +39,9 @@ public sealed class TrafficService(
     /// <summary>マニュアルの1つずつの動作で、予約しているパネルが変わった（ほかの AGV の計画を立て直す）。</summary>
     private bool _manualStepsChanged;
 
+    /// <summary>通り道を塞いでいる行き先のない AGV を、待機パネルへどかしてよいか。</summary>
+    private bool _evacuationEnabled = true;
+
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public void Dispose() => _gate.Dispose();
@@ -135,6 +138,36 @@ public sealed class TrafficService(
     }
 
     // ---- 配車などからの頼み ----
+
+    /// <summary>
+    /// 通り道を塞いでいる行き先のない AGV を、待機パネルへどかしてよいかを切り替える。切り替えたら、全台の経路を計画し直す。
+    /// </summary>
+    public void SetEvacuationEnabled(bool enabled)
+    {
+        _gate.Wait();
+        try
+        {
+            if (_evacuationEnabled == enabled)
+            {
+                return;
+            }
+
+            _evacuationEnabled = enabled;
+            if (_passingGate is not null)
+            {
+                ReplanAll();
+            }
+
+            foreach (var entry in _agvs.Values)
+            {
+                entry.NotifyChanged(); // 渡すコマンドができたかもしれない
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
     /// <summary>
     /// 位置を上書きする（最初の登録も同じ）。指定のパネルをほかの AGV が予約していたら false。
@@ -817,13 +850,14 @@ public sealed class TrafficService(
     };
 
     /// <summary>
-    /// 行き先がなく、通り道を塞いでいたら待機パネルへ動かしてよいか（動かせる状況か）。
+    /// 行き先がなく、通り道を塞いでいたら待機パネルへ動かしてよいか（動かせる状況か）。どかす動きを止めている間は動かさない。
     /// 待機中で、キャリアが上がっていて、充電ピンのあるパネル（充電中）にいないこと。
     /// </summary>
     private bool IsMovable(AgvEntry entry)
     {
         var travel = entry.Travel;
-        return entry.Destination is null
+        return _evacuationEnabled
+            && entry.Destination is null
             && travel.Status == AgvTravelStatus.Idle
             && travel.Carrier == CarrierState.Raised
             && !CurrentMap().Panels.Any(panel => panel.Id.Value == travel.Position!.NodeId && panel.HasChargingPin);

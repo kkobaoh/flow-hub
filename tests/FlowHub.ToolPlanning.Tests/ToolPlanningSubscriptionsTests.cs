@@ -46,7 +46,31 @@ public class ToolPlanningSubscriptionsTests
         var callsBefore = dispatching.CancelCalls;
         await planning.ReplanAsync(None);
 
-        Assert.Equal([typeof(StockChanged), typeof(TransportCompleted)], subscriptions.SubscribedEventTypes);
+        Assert.Equal([typeof(StockChanged), typeof(TransportCompleted), typeof(OperationStarted)], subscriptions.SubscribedEventTypes);
         Assert.Equal(callsBefore, dispatching.CancelCalls); // 完了した搬送は、もう取りやめようとしない
+    }
+
+    [Fact]
+    public async Task 運転を始めたら判断をやり直す()
+    {
+        var time = new ManualTimeProvider(T0);
+        var dispatching = new FakeDispatching();
+        var subscriptions = new EventSubscriptions();
+        var bus = new InProcessEventBus(subscriptions);
+        var replenishment = new RecordingReplenishment();
+        using var consumables = new ConsumablesService(dispatching, new NoDevices(), new NoStations(), replenishment, new IgnoringPublisher(), time);
+        using var planning = new ToolPlanningService(consumables, dispatching, time);
+        ToolPlanningSubscriptions.Register(subscriptions, planning);
+        var device = new DeviceId("D1");
+        var variety = new VarietyId("A");
+        consumables.RegisterDevice(new DeviceLayout(device, new PanelId("D"), SlotsPerStocker: [3]));
+        consumables.RegisterProcessType(new ProcessTypeSettings(new ProcessTypeId("P"), new CarrierTypeId("X"), CarrierCapacity: 2));
+        consumables.RegisterVariety(variety, new ProcessTypeId("P"));
+        await consumables.SetStockerSettingAsync(device, new Dictionary<VarietyId, int> { [variety] = 1 }, None);
+
+        await bus.PublishAsync(new OperationStarted(EventMetadata.Start("operation", time)), None);
+        await bus.FlushAsync(None);
+
+        Assert.Equal([(variety, 1)], replenishment.Requests); // ステーションにないので補充を頼んだ
     }
 }

@@ -93,9 +93,9 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         }
     }
 
-    private async Task<FlowHubSystem> StartAsync()
+    private async Task<FlowHubSystem> StartAsync(bool startOnLaunch = false)
     {
-        var settings = new FlowHubSettings(Database, new TrafficPlanningOptions(), new AgvEndpointOptions { CommandWait = TimeSpan.FromMilliseconds(300) }, new SimulatorOptions());
+        var settings = new FlowHubSettings(Database, new TrafficPlanningOptions(), new AgvEndpointOptions { CommandWait = TimeSpan.FromMilliseconds(300) }, new SimulatorOptions(), StartOnLaunch: startOnLaunch);
         _system = await FlowHubSystem.StartAsync(settings, TimeProvider.System, _loggerFactory, Token);
         return _system;
     }
@@ -149,7 +149,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     public async Task AGVからの通知のあとにイベントを届けて配車が搬送を割り当てる()
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
-        var system = await StartAsync();
+        var system = await StartAsync(startOnLaunch: true);
         var client = await ServeAsync(system);
         await system.Dispatching.RequestTransportAsync(new TransportOrder("test", ["C-1"], S, "station-1", D, "device-1", CarrierX, DateTimeOffset.MaxValue), Token);
 
@@ -177,9 +177,10 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
             ["Traffic:AgvEndpoints:CommandWait"] = "00:00:30",
             ["Simulator:DeviceTransferDelay"] = "00:00:12",
             ["Simulator:ReplenishmentStation"] = "ST-2",
+            ["System:StartOnLaunch"] = "true",
         }).Build();
 
-        var settings = FlowHubSettings.Read(configuration);
+        var settings = FlowHubSettings.Read(configuration, contentRoot: _directory);
 
         Assert.Equal(DatabaseProvider.Sqlite, settings.Database.Provider);
         Assert.Equal("dev-data", settings.Database.SqliteDirectory);
@@ -189,5 +190,54 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(TimeSpan.FromSeconds(12), settings.Simulator.DeviceTransferDelay);
         Assert.Equal(TimeSpan.FromSeconds(10), settings.Simulator.StationTransferDelay);
         Assert.Equal("ST-2", settings.Simulator.ReplenishmentStation);
+        Assert.True(settings.StartOnLaunch);
+        Assert.False(FlowHubSettings.Read(new ConfigurationBuilder().Build(), _directory).StartOnLaunch); // 書かなければ停止から
+    }
+
+    // ---- 運転状態 ----
+
+    [Fact]
+    public async Task 起動したときは停止から始め搬送を割り当てない()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync();
+
+        Assert.False(system.Dispatching.IsRunning);
+    }
+
+    [Fact]
+    public async Task 設定で起動したらすぐスタートにできる()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync(startOnLaunch: true);
+
+        Assert.True(system.Dispatching.IsRunning);
+    }
+
+    [Fact]
+    public async Task HTTPで運転状態を切り替えて読める()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        var initial = await StatusAsync(client);
+        using var started = await client.PostAsync(new Uri("/system/start", UriKind.Relative), null, Token);
+        var afterStart = await StatusAsync(client);
+        using var stopped = await client.PostAsync(new Uri("/system/stop", UriKind.Relative), null, Token);
+        var afterStop = await StatusAsync(client);
+
+        Assert.Equal("stopped", initial);
+        Assert.Equal(HttpStatusCode.NoContent, started.StatusCode);
+        Assert.Equal("started", afterStart);
+        Assert.Equal(HttpStatusCode.NoContent, stopped.StatusCode);
+        Assert.Equal("stopped", afterStop);
+    }
+
+    private static async Task<string?> StatusAsync(HttpClient client)
+    {
+        using var response = await client.GetAsync(new Uri("/system/status", UriKind.Relative), Token);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (string?)JsonNode.Parse(await response.Content.ReadAsStringAsync(Token))!["state"];
     }
 }

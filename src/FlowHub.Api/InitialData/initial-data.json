@@ -1,0 +1,67 @@
+{
+  "map": {
+    "panels": [
+      { "id": "P1", "type": "Normal" },
+      { "id": "P2", "type": "Normal" },
+      { "id": "P3", "type": "Normal" },
+      { "id": "P4", "type": "Normal" },
+      { "id": "P5", "type": "Normal" },
+      { "id": "P6", "type": "Normal" },
+      { "id": "P7", "type": "Normal" },
+      { "id": "P8", "type": "Normal" },
+      { "id": "ST", "type": "Transfer" },
+      { "id": "D1", "type": "Transfer" },
+      { "id": "D2", "type": "Transfer" },
+      { "id": "SB", "type": "Standby" },
+      { "id": "SB2", "type": "Standby", "chargingPin": true }
+    ],
+    "connections": [
+      { "from": "P1", "to": "P2", "distanceMm": 1000, "heading": 90 },
+      { "from": "P2", "to": "P3", "distanceMm": 1000, "heading": 90 },
+      { "from": "P3", "to": "P4", "distanceMm": 1000, "heading": 90 },
+      { "from": "P1", "to": "P8", "distanceMm": 1000, "heading": 180 },
+      { "from": "P4", "to": "P5", "distanceMm": 1000, "heading": 180 },
+      { "from": "P8", "to": "P7", "distanceMm": 1000, "heading": 90 },
+      { "from": "P7", "to": "P6", "distanceMm": 1000, "heading": 90 },
+      { "from": "P6", "to": "P5", "distanceMm": 1000, "heading": 90 },
+      { "from": "P2", "to": "ST", "distanceMm": 1000, "heading": 0 },
+      { "from": "P6", "to": "D1", "distanceMm": 1000, "heading": 180 },
+      { "from": "P7", "to": "D2", "distanceMm": 1000, "heading": 180 },
+      { "from": "P1", "to": "SB", "distanceMm": 1000, "heading": 270 },
+      { "from": "P4", "to": "SB2", "distanceMm": 1000, "heading": 90 }
+    ]
+  },
+  "agvTypes": [
+    {
+      "id": "standard",
+      "forwardSpeedMmPerSecond": 500,
+      "backwardSpeedMmPerSecond": 250,
+      "rotationSpeedDegreesPerSecond": 90
+    }
+  ],
+  "agvs": [
+    { "id": "AGV-1", "type": "standard", "carrier": "tool-carrier" },
+    { "id": "AGV-2", "type": "standard", "carrier": "tool-carrier" }
+  ],
+  "consumables": {
+    "processTypes": [
+      { "id": "drill", "carrier": "tool-carrier", "carrierCapacity": 4 }
+    ],
+    "varieties": [
+      { "id": "DR-5", "processType": "drill" },
+      { "id": "DR-8", "processType": "drill" }
+    ],
+    "devices": [
+      { "id": "DEV-1", "transferPanel": "D1", "slotsPerStocker": [10] },
+      { "id": "DEV-2", "transferPanel": "D2", "slotsPerStocker": [10] }
+    ],
+    "stations": [
+      { "id": "ST-1", "transferPanel": "ST" }
+    ],
+    "stockerSettings": [
+      { "device": "DEV-1", "counts": { "DR-5": 3, "DR-8": 2 } },
+      { "device": "DEV-2", "counts": { "DR-5": 2 } }
+    ],
+    "expectedArrivals": []
+  }
+}

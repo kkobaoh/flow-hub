@@ -81,6 +81,11 @@ public class DispatchingServiceTests
 
         public List<(AgvId Agv, ControlStatus Target)> ControlChanges { get; } = [];
 
+        /// <summary>通り道を塞いでいる AGV をどかしてよいかの切り替え（切り替えた順）。</summary>
+        public List<bool> EvacuationChanges { get; } = [];
+
+        public void SetEvacuationEnabled(bool enabled) => EvacuationChanges.Add(enabled);
+
         public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken)
         {
             ControlChanges.Add((id, target));
@@ -524,5 +529,117 @@ public class DispatchingServiceTests
 
         await service.ChangeControlStatusAsync(Agv, ControlStatus.Auto, position: null, None);
         Assert.Equal(CP, Assert.Single(traffic.Moves).To);
+    }
+
+    // ---- 運転状態 ----
+
+    [Fact]
+    public async Task 停止中は搬送を割り当てずスタートしたら割り当てる()
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.StopAsync(None);
+
+        var id = await service.RequestTransportAsync(Order(), None);
+        var whileStopped = traffic.Moves.Count;
+        await service.StartAsync(None);
+
+        Assert.Equal(0, whileStopped); // 頼みは受け付けて、待ち行列に入れておく
+        Assert.Equal([(Agv, S, $"transport:{id}")], traffic.Moves);
+    }
+
+    [Fact]
+    public async Task 停止中は充電ポートへ向かわせずスタートしたら向かわせる()
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.StopAsync(None);
+
+        await service.OnAgvBatteryChangedAsync(new AgvBatteryChanged(Meta(), Agv, 19), None);
+        var whileStopped = traffic.Moves.Count;
+        await service.StartAsync(None);
+
+        Assert.Equal(0, whileStopped);
+        Assert.Equal(CP, Assert.Single(traffic.Moves).To);
+    }
+
+    [Fact]
+    public async Task 停止したら搬送の次のコマンドを出さずスタートしたら続きから出す()
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.RequestTransportAsync(Order(), None);
+        await service.StopAsync(None);
+
+        traffic.SetAgv(S);
+        await service.OnAgvArrivedAsync(new AgvArrived(Meta(), Agv, S), None);
+        var whileStopped = traffic.Lowers.Count;
+        await service.StartAsync(None);
+
+        Assert.Equal(0, whileStopped); // 着いたことは受け付けるが、キャリアは下げない
+        Assert.Equal([Agv], traffic.Lowers);
+    }
+
+    [Fact]
+    public async Task 停止中は緊急停止から再開しても次のコマンドを出さない()
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.RequestTransportAsync(Order(), None);
+        await service.StopAsync(None);
+        await service.OnAgvStoppedAsync(new AgvStopped(Meta(), Agv), None);
+        traffic.SetAgv(S);
+        await service.OnAgvArrivedAsync(new AgvArrived(Meta(), Agv, S), None);
+
+        await service.OnAgvResumedAsync(new AgvResumed(Meta(), Agv), None);
+        var afterResumed = traffic.Lowers.Count;
+        await service.StartAsync(None);
+
+        Assert.Equal(0, afterResumed);
+        Assert.Equal([Agv], traffic.Lowers);
+    }
+
+    [Fact]
+    public async Task スタートしても緊急停止中なら次のコマンドを出さず再開したら出す()
+    {
+        var (service, traffic, _) = Setup(A);
+        await service.RequestTransportAsync(Order(), None);
+        await service.StopAsync(None);
+        await service.OnAgvStoppedAsync(new AgvStopped(Meta(), Agv), None);
+        traffic.SetAgv(S);
+        await service.OnAgvArrivedAsync(new AgvArrived(Meta(), Agv, S), None);
+
+        await service.StartAsync(None);
+        var afterStarted = traffic.Lowers.Count;
+        await service.OnAgvResumedAsync(new AgvResumed(Meta(), Agv), None);
+
+        Assert.Equal(0, afterStarted);
+        Assert.Equal([Agv], traffic.Lowers);
+    }
+
+    [Fact]
+    public async Task 停止とスタートで交通整理がどかす動きを止めて戻す()
+    {
+        var (service, traffic, _) = Setup(A);
+
+        await service.StopAsync(None);
+        await service.StartAsync(None);
+
+        Assert.Equal([false, true], traffic.EvacuationChanges);
+    }
+
+    [Fact]
+    public async Task スタートしたら運転を始めたことを知らせ同じ状態への切り替えは何もしない()
+    {
+        var (service, traffic, events) = Setup(A);
+        var initiallyRunning = service.IsRunning;
+
+        await service.StartAsync(None); // すでにスタート
+        await service.StopAsync(None);
+        var stopped = service.IsRunning;
+        await service.StopAsync(None); // すでに停止
+        await service.StartAsync(None);
+
+        Assert.True(initiallyRunning);
+        Assert.False(stopped);
+        Assert.True(service.IsRunning);
+        Assert.Single(events.Of<OperationStarted>());
+        Assert.Equal([false, true], traffic.EvacuationChanges);
     }
 }

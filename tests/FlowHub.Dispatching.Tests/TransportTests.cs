@@ -182,7 +182,7 @@ public class TransportTests
     public void 一時停止中に届いた知らせは状態を進めるが次のコマンドは出さない()
     {
         var transport = AssignedTransport();
-        transport.Pause();
+        transport.Pause(PauseReason.AgvStopped);
 
         var result = transport.OnArrived(Station.Panel);
 
@@ -195,12 +195,27 @@ public class TransportTests
     public void 再開すると一時停止中に出さなかったコマンドを出す()
     {
         var transport = AssignedTransport();
-        transport.Pause();
+        transport.Pause(PauseReason.AgvStopped);
         transport.OnArrived(Station.Panel);
 
-        var actions = transport.Resume();
+        var actions = transport.Resume(PauseReason.AgvStopped);
 
         Assert.Equal([new LowerCarrier(Agv)], actions);
+    }
+
+    [Fact]
+    public void 一時停止の理由がすべて外れるまで次のコマンドを出さない()
+    {
+        var transport = AssignedTransport();
+        transport.Pause(PauseReason.AgvStopped);
+        transport.Pause(PauseReason.OperationStopped);
+        transport.OnArrived(Station.Panel);
+
+        var afterOne = transport.Resume(PauseReason.OperationStopped);
+        var afterBoth = transport.Resume(PauseReason.AgvStopped);
+
+        Assert.Empty(afterOne);
+        Assert.Equal([new LowerCarrier(Agv)], afterBoth);
     }
 
     [Fact]
@@ -208,9 +223,9 @@ public class TransportTests
     {
         // 搬送元へ動かすコマンドは出してあり、AGV はアラームクリアのあと続きを走る
         var transport = AssignedTransport();
-        transport.Pause();
+        transport.Pause(PauseReason.AgvStopped);
 
-        var actions = transport.Resume();
+        var actions = transport.Resume(PauseReason.AgvStopped);
 
         Assert.Empty(actions);
     }
@@ -219,12 +234,12 @@ public class TransportTests
     public void 一時停止中にキャリアが上がったら状態は進めて搬送先へは再開してから動かす()
     {
         var transport = TransferredAtSource();
-        transport.Pause();
+        transport.Pause(PauseReason.AgvStopped);
 
         var result = transport.OnCarrierRaised();
 
         Assert.Empty(result.Actions);
-        Assert.Equal([new MoveAgv(Agv, Device.Panel)], transport.Resume());
+        Assert.Equal([new MoveAgv(Agv, Device.Panel)], transport.Resume(PauseReason.AgvStopped));
     }
 
     [Fact]
@@ -232,12 +247,12 @@ public class TransportTests
     {
         var transport = AssignedTransport();
         transport.OnArrived(Station.Panel);
-        transport.Pause();
+        transport.Pause(PauseReason.AgvStopped);
 
         var result = transport.OnCarrierLowered();
 
         Assert.Empty(result.Actions);
-        Assert.Equal([new RequestTransferPermission(transport.Id, Station, TransferSide.Load)], transport.Resume());
+        Assert.Equal([new RequestTransferPermission(transport.Id, Station, TransferSide.Load)], transport.Resume(PauseReason.AgvStopped));
     }
 
     [Fact]
@@ -246,11 +261,11 @@ public class TransportTests
         var transport = AssignedTransport();
         transport.OnArrived(Station.Panel);
         transport.OnCarrierLowered();
-        transport.Pause();
+        transport.Pause(PauseReason.AgvStopped);
 
         transport.OnTransferCompleted();
 
-        Assert.Equal([new RaiseCarrier(Agv)], transport.Resume());
+        Assert.Equal([new RaiseCarrier(Agv)], transport.Resume(PauseReason.AgvStopped));
     }
 
     // ---- 中断 ----

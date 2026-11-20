@@ -19,6 +19,7 @@ public static class ToolPlanningSubscriptions
 
         // 配車から
         subscriptions.Subscribe(() => new TransportCompletedSubscriber(service));
+        subscriptions.Subscribe(() => new OperationStartedSubscriber(service));
     }
 }
 
@@ -32,4 +33,10 @@ internal sealed class TransportCompletedSubscriber(ToolPlanningService service) 
 {
     public Task HandleAsync(TransportCompleted integrationEvent, CancellationToken cancellationToken) =>
         service.OnTransportCompletedAsync(integrationEvent, cancellationToken);
+}
+
+internal sealed class OperationStartedSubscriber(ToolPlanningService service) : IEventSubscriber<OperationStarted>
+{
+    public Task HandleAsync(OperationStarted integrationEvent, CancellationToken cancellationToken) =>
+        service.ReplanAsync(cancellationToken);
 }

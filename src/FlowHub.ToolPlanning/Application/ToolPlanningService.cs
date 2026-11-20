@@ -27,10 +27,15 @@ public sealed class ToolPlanningService(
     public void Dispose() => _gate.Dispose();
 
     /// <summary>
-    /// 不足と回収の判断をやり直し、搬送の要求を出し直す。
+    /// 不足と回収の判断をやり直し、搬送の要求を出し直す。システムの運転状態が停止の間は、何もしない（スタートしたら判断する）。
     /// </summary>
     public async Task ReplanAsync(CancellationToken cancellationToken)
     {
+        if (!dispatching.IsRunning)
+        {
+            return;
+        }
+
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {

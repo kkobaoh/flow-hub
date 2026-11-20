@@ -1,4 +1,5 @@
 using FlowHub.Api.Database;
+using FlowHub.Api.InitialData;
 using FlowHub.BuildingBlocks;
 using FlowHub.Consumables.Application;
 using FlowHub.Consumables.Infrastructure;
@@ -20,6 +21,7 @@ namespace FlowHub.Api.Composition;
 /// 各コンテキストの組み立て。起動するときに DB を開いて構成を読み、サービスを作って、購読をつなぐ。
 /// </summary>
 /// <remarks>
+/// 起動したときは、運転状態を停止から始める（docs/domain.md「システムの運転状態」）。
 /// イベントは、処理（HTTP のリクエスト、シミュレーターの通知）を終えたあとにまとめて届ける。
 /// 装置・ステーション・上位システムとのやり取りは、本物の通信ができるまでシミュレーターで仮に実装する。
 /// </remarks>
@@ -74,6 +76,11 @@ internal sealed partial class FlowHubSystem : IDisposable
         var trafficStore = await TrafficDatabase.OpenAsync(b => Configure(b, TrafficDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
         var dispatchingStore = await DispatchingDatabase.OpenAsync(b => Configure(b, DispatchingDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
         var consumablesStore = await ConsumablesDatabase.OpenAsync(b => Configure(b, ConsumablesDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
+        var logger = loggerFactory.CreateLogger<FlowHubSystem>();
+        if (settings.InitialDataPath is { } initialData)
+        {
+            await InitialDataSeeder.SeedIfEmptyAsync(initialData, map, trafficStore, dispatchingStore, consumablesStore, logger, cancellationToken).ConfigureAwait(false);
+        }
 
         var subscriptions = new EventSubscriptions();
         var events = new InProcessEventBus(subscriptions);
@@ -81,7 +88,7 @@ internal sealed partial class FlowHubSystem : IDisposable
 
         var traffic = new TrafficService(map, events, timeProvider, trafficStore, settings.Planning, controlStatuses: trafficStore);
         var dispatching = new DispatchingService(traffic, map, events, timeProvider);
-        await RegisterAgvsAsync(traffic, trafficStore, dispatching, dispatchingStore, loggerFactory.CreateLogger<FlowHubSystem>(), cancellationToken).ConfigureAwait(false);
+        await RegisterAgvsAsync(traffic, trafficStore, dispatching, dispatchingStore, logger, cancellationToken).ConfigureAwait(false);
 
         var consumables = new ConsumablesService(dispatching, simulator, simulator, simulator, events, timeProvider, consumablesStore);
         consumables.LoadConfiguration(await consumablesStore.LoadAsync(cancellationToken).ConfigureAwait(false));
@@ -94,6 +101,15 @@ internal sealed partial class FlowHubSystem : IDisposable
 
         // シミュレーターの通知も、処理を終えたあとにイベントを届ける
         simulator.Attach(new ConsumablesSimulationTarget(consumables), events.FlushAsync);
+
+        // 起動したときは、いつも停止から始める（設定があれば、すぐスタートにする）
+        await dispatching.StopAsync(cancellationToken).ConfigureAwait(false);
+        if (settings.StartOnLaunch)
+        {
+            await dispatching.StartAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await events.FlushAsync(cancellationToken).ConfigureAwait(false);
 
         return new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, settings.AgvEndpoints, timeProvider);
     }
@@ -113,6 +129,7 @@ internal sealed partial class FlowHubSystem : IDisposable
             await Events.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         });
         app.MapAgvEndpoints(Traffic, _agvEndpoints, _timeProvider);
+        app.MapSystemEndpoints(Dispatching);
     }
 
     public void Dispose()

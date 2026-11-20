@@ -27,6 +27,8 @@ public class ConsumablesServiceTests
 
     private sealed class FakeDispatching : IDispatchingService
     {
+        public bool IsRunning => true;
+
         public List<TransportId> TransferCompleted { get; } = [];
 
         public Task<TransportId> RequestTransportAsync(TransportOrder order, CancellationToken cancellationToken) =>

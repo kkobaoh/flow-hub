@@ -24,6 +24,12 @@ public sealed class DispatchingService(
     private readonly Dictionary<TransportId, Transport> _transports = [];
     private readonly Dictionary<AgvId, AgvDispatch> _agvs = [];
 
+    /// <summary>システムの運転状態がスタートか。組み立ては、起動したらまず停止にする。</summary>
+    private volatile bool _running = true;
+
+    /// <inheritdoc />
+    public bool IsRunning => _running;
+
     public void Dispose() => _gate.Dispose();
 
     // ---- 登録と頼み ----
@@ -151,8 +157,64 @@ public sealed class DispatchingService(
         await AssignWaitingAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>システムの判断で動かせる（オートか割り当て停止）か。</summary>
-    private bool IsSystemControlled(AgvId id) => traffic.GetAgv(id).Control is ControlStatus.Auto or ControlStatus.AssignmentPaused;
+    /// <summary>システムの判断で動かせる（運転状態がスタートで、AGV がオートか割り当て停止）か。</summary>
+    private bool IsSystemControlled(AgvId id) => _running && traffic.GetAgv(id).Control is ControlStatus.Auto or ControlStatus.AssignmentPaused;
+
+    // ---- 運転状態 ----
+
+    /// <summary>
+    /// 運転状態をスタートにする。一時停止していた搬送を続きから進め、待ち行列の搬送を割り当て、充電を待っていた AGV を充電ポートへ向かわせる。
+    /// <see cref="OperationStarted"/> で知らせる（搬送計画が、不足と回収の判断を1回行う）。すでにスタートなら何もしない。
+    /// </summary>
+    public Task StartAsync(CancellationToken cancellationToken) =>
+        RunAsync(async () =>
+        {
+            if (_running)
+            {
+                return false;
+            }
+
+            _running = true;
+            traffic.SetEvacuationEnabled(true);
+            foreach (var transport in _agvs.Values.Select(agv => agv.Active).OfType<Transport>().ToArray())
+            {
+                await ExecuteAsync(transport, transport.Resume(PauseReason.OperationStopped), cancellationToken).ConfigureAwait(false);
+            }
+
+            await AssignWaitingAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var (id, agv) in _agvs.ToArray())
+            {
+                if (agv.Charging.State is ChargingState.SeekingPort or ChargingState.WaitingForPort)
+                {
+                    await SeekChargingPortAsync(id, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            await PublishAsync("operation", m => new OperationStarted(m), cancellationToken).ConfigureAwait(false);
+            return true;
+        });
+
+    /// <summary>
+    /// 運転状態を停止にする。新しい割り当て、充電に向かわせること、通り道を塞いでいる AGV をどかすことをやめ、
+    /// 割り当てている搬送は一時停止する（次のコマンドを出さない）。すでに停止なら何もしない。
+    /// </summary>
+    public Task StopAsync(CancellationToken cancellationToken) =>
+        RunAsync(() =>
+        {
+            if (!_running)
+            {
+                return Task.FromResult(false);
+            }
+
+            _running = false;
+            traffic.SetEvacuationEnabled(false);
+            foreach (var transport in _agvs.Values.Select(agv => agv.Active).OfType<Transport>())
+            {
+                transport.Pause(PauseReason.OperationStopped);
+            }
+
+            return Task.FromResult(true);
+        });
 
     // ---- 交通整理からのイベント（購読者から呼ぶ） ----
 
@@ -181,7 +243,7 @@ public sealed class DispatchingService(
     internal Task OnAgvStoppedAsync(AgvStopped stopped, CancellationToken cancellationToken) =>
         RunAsync(() =>
         {
-            Agv(stopped.Agv).Active?.Pause();
+            Agv(stopped.Agv).Active?.Pause(PauseReason.AgvStopped);
             return Task.FromResult(true);
         });
 
@@ -190,7 +252,7 @@ public sealed class DispatchingService(
         {
             if (Agv(resumed.Agv).Active is { } transport)
             {
-                await ExecuteAsync(transport, transport.Resume(), cancellationToken).ConfigureAwait(false);
+                await ExecuteAsync(transport, transport.Resume(PauseReason.AgvStopped), cancellationToken).ConfigureAwait(false);
             }
             else
             {
@@ -360,6 +422,11 @@ public sealed class DispatchingService(
     /// </summary>
     private async Task AssignWaitingAsync(CancellationToken cancellationToken)
     {
+        if (!_running)
+        {
+            return; // 停止中は割り当てない（スタートしたら割り当てる）
+        }
+
         var candidates = _agvs.Select(pair => CandidateOf(pair.Key, pair.Value)).OfType<AgvCandidate>().ToArray();
         var assignments = _queue.AssignWaiting(candidates, (candidate, source) => traffic.EstimateMoveCost(candidate.Id, source));
 
