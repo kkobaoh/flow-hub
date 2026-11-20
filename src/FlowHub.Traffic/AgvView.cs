@@ -35,7 +35,13 @@ public enum AgvState
 /// <param name="CarrierRaised">キャリアが上がっているか（下がっている間は走れない）。</param>
 /// <param name="CumulativeDistanceMm">累計の走行距離。</param>
 /// <param name="Control">コントロールステータス。</param>
-public sealed record AgvView(AgvId Id, Pose? Position, AgvState State, bool CarrierRaised, long CumulativeDistanceMm, ControlStatus Control = ControlStatus.Auto);
+public sealed record AgvView(AgvId Id, Pose? Position, AgvState State, bool CarrierRaised, long CumulativeDistanceMm, ControlStatus Control = ControlStatus.Auto)
+{
+    /// <summary>
+    /// AGV が止まれる最初の位置（渡した区間は取り消せないので、走っていれば、その区間を走り終えたところ）。止まっていれば、今の位置。
+    /// </summary>
+    public Pose? StopsAt { get; init; } = Position;
+}
 
 /// <summary>
 /// AGV を動かす頼みの結果。

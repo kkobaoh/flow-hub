@@ -178,7 +178,7 @@ public sealed class DispatchingService(
             traffic.SetEvacuationEnabled(true);
             foreach (var transport in _agvs.Values.Select(agv => agv.Active).OfType<Transport>().ToArray())
             {
-                await ExecuteAsync(transport, transport.Resume(PauseReason.OperationStopped), cancellationToken).ConfigureAwait(false);
+                await ExecuteAsync(transport, ResumeActions(transport, PauseReason.OperationStopped), cancellationToken).ConfigureAwait(false);
             }
 
             await AssignWaitingAsync(cancellationToken).ConfigureAwait(false);
@@ -196,14 +196,14 @@ public sealed class DispatchingService(
 
     /// <summary>
     /// 運転状態を停止にする。新しい割り当て、充電に向かわせること、通り道を塞いでいる AGV をどかすことをやめ、
-    /// 割り当てている搬送は一時停止する（次のコマンドを出さない）。すでに停止なら何もしない。
+    /// 割り当てている搬送は一時停止する（次のコマンドを出さない）。通路にいる AGV は、待機パネルへ動かして止める。すでに停止なら何もしない。
     /// </summary>
     public Task StopAsync(CancellationToken cancellationToken) =>
-        RunAsync(() =>
+        RunAsync(async () =>
         {
             if (!_running)
             {
-                return Task.FromResult(false);
+                return false;
             }
 
             _running = false;
@@ -213,8 +213,114 @@ public sealed class DispatchingService(
                 transport.Pause(PauseReason.OperationStopped);
             }
 
-            return Task.FromResult(true);
+            await ParkAsync(cancellationToken).ConfigureAwait(false);
+            return true;
         });
+
+    /// <summary>
+    /// 一時停止の理由を外して、続きのコマンドを返す。理由がすべて外れて移動の段階なら、もう一度行き先へ向かわせる
+    /// （停止中に待機パネルへ動かしたり、その場に止めたりして、行き先を上書きしたかもしれないため）。
+    /// </summary>
+    private static IReadOnlyList<TransportAction> ResumeActions(Transport transport, PauseReason reason)
+    {
+        var actions = transport.Resume(reason);
+        return actions.Count == 0 && !transport.IsPaused && transport.CurrentMove() is { } move ? [move] : actions;
+    }
+
+    /// <summary>
+    /// 通路にいる、システムが動かす AGV を、待機パネルへ動かして止める（docs/domain.md「スタートから停止にしたとき」）。
+    /// 充電ピンのある待機パネル、一番近い待機パネル、一番近い受け渡しパネルの順に選び、どれも空いていなければその場で止めて知らせる。
+    /// 取り合うときは、充電残量が少ない AGV（わからなければ最後）、同じなら空いている候補に近い AGV から決める。
+    /// </summary>
+    private async Task ParkAsync(CancellationToken cancellationToken)
+    {
+        if (mapStore.Current is not { } map)
+        {
+            return; // マップがなければ、AGV もマップの上にいない
+        }
+
+        var views = _agvs.Keys.ToDictionary(id => id, traffic.GetAgv);
+
+        // 空いていないパネル：ほかの AGV がいる・止まる、充電ポートへ向かっている先
+        var taken = new HashSet<PanelId>(views.Values
+            .SelectMany(view => new[] { view.Position, view.StopsAt })
+            .OfType<Pose>()
+            .Select(pose => new PanelId(pose.NodeId)));
+        taken.UnionWith(_agvs.Values.Select(agv => agv.Charging.Port).OfType<PanelId>());
+
+        var corridor = map.Panels.Where(p => p.Type == PanelType.Normal).Select(p => p.Id).ToHashSet();
+
+        // 通路で緊急停止中の AGV は、待機パネルへ向かわせず、アラームクリアのあとも続きを走らないように、その場を行き先にしておく
+        foreach (var (id, agv) in _agvs.Where(pair => IsStoppedInCorridor(pair.Value, views[pair.Key], corridor)).ToArray())
+        {
+            await traffic.MoveAgvAsync(id, new PanelId(views[id].StopsAt!.NodeId), neededBy: null, $"park:{id}", cancellationToken).ConfigureAwait(false);
+        }
+
+        var parking = _agvs
+            .Where(pair => ShouldPark(pair.Value, views[pair.Key], corridor))
+            .Select(pair => pair.Key)
+            .ToArray();
+
+        var pins = map.Panels.Where(p => p.Type == PanelType.Standby && p.HasChargingPin).Select(p => p.Id).ToArray();
+        var standbys = map.Panels.Where(p => p.Type == PanelType.Standby && !p.HasChargingPin).Select(p => p.Id).ToArray();
+        var transfers = map.Panels.Where(p => p.Type == PanelType.Transfer).Select(p => p.Id).ToArray();
+        var allCandidates = pins.Concat(standbys).Concat(transfers).ToArray();
+
+        bool IsFree(AgvId id, PanelId panel) => !taken.Contains(panel) && !traffic.IsReservedByOther(panel, id);
+        (PanelId Panel, TimeSpan Cost)? Nearest(AgvId id, IEnumerable<PanelId> panels) => panels
+            .Where(panel => IsFree(id, panel))
+            .Select(panel => (Panel: panel, Cost: traffic.EstimateMoveCost(id, panel)))
+            .Where(c => c.Cost is not null)
+            .Select(c => (c.Panel, Cost: c.Cost!.Value))
+            .OrderBy(c => c.Cost)
+            .ThenBy(c => c.Panel.Value, StringComparer.Ordinal)
+            .Cast<(PanelId, TimeSpan)?>()
+            .FirstOrDefault();
+
+        var ordered = parking
+            .OrderBy(id => _agvs[id].Charging.BatteryPercent is null)
+            .ThenBy(id => _agvs[id].Charging.BatteryPercent)
+            .ThenBy(id => Nearest(id, allCandidates)?.Cost ?? TimeSpan.MaxValue)
+            .ThenBy(id => id.Value, StringComparer.Ordinal)
+            .ToArray();
+
+        foreach (var id in ordered)
+        {
+            var correlationId = $"park:{id}";
+            var chosen = Nearest(id, pins) ?? Nearest(id, standbys) ?? Nearest(id, transfers);
+            if (chosen is { } spot)
+            {
+                taken.Add(spot.Panel);
+                await traffic.MoveAgvAsync(id, spot.Panel, neededBy: null, correlationId, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            // どこも空いていない：止まれる最初の位置で止めて、知らせる
+            var stopsAt = new PanelId(views[id].StopsAt!.NodeId);
+            await traffic.MoveAgvAsync(id, stopsAt, neededBy: null, correlationId, cancellationToken).ConfigureAwait(false);
+            await PublishAsync(correlationId, m => new NoParkingSpace(m, id), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 停止にしたときに、待機パネルへ動かす AGV か。システムが動かす（オートか割り当て停止）、止まれる最初の位置が通路、
+    /// 走れる状態（待機中か走行中。緊急停止中は含めない）、充電ポートへ向かっていない・充電していない、のすべてを満たすもの。
+    /// </summary>
+    private static bool ShouldPark(AgvDispatch agv, AgvView view, HashSet<PanelId> corridor) =>
+        IsSystemMovedInCorridor(view, corridor)
+        && view.State is AgvState.Idle or AgvState.Moving
+        && agv.Charging.State is not (ChargingState.GoingToPort or ChargingState.Charging);
+
+    /// <summary>停止にしたときに、通路で緊急停止中の、システムが動かす AGV か（充電ポートへ向かっているものは除く）。</summary>
+    private static bool IsStoppedInCorridor(AgvDispatch agv, AgvView view, HashSet<PanelId> corridor) =>
+        IsSystemMovedInCorridor(view, corridor)
+        && view.State == AgvState.EmergencyStopped
+        && agv.Charging.State is not (ChargingState.GoingToPort or ChargingState.Charging);
+
+    private static bool IsSystemMovedInCorridor(AgvView view, HashSet<PanelId> corridor) =>
+        view.Control is ControlStatus.Auto or ControlStatus.AssignmentPaused
+        && view.StopsAt is { } stopsAt
+        && corridor.Contains(new PanelId(stopsAt.NodeId));
 
     // ---- 交通整理からのイベント（購読者から呼ぶ） ----
 
@@ -252,7 +358,7 @@ public sealed class DispatchingService(
         {
             if (Agv(resumed.Agv).Active is { } transport)
             {
-                await ExecuteAsync(transport, transport.Resume(PauseReason.AgvStopped), cancellationToken).ConfigureAwait(false);
+                await ExecuteAsync(transport, ResumeActions(transport, PauseReason.AgvStopped), cancellationToken).ConfigureAwait(false);
             }
             else
             {

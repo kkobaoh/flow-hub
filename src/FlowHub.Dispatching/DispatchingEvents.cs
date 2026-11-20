@@ -31,3 +31,6 @@ public sealed record MoveBlocked(EventMetadata Metadata, AgvId Agv, PanelId Dest
 
 /// <summary>システムの運転状態がスタートになった（搬送計画は、不足と回収の判断を1回行う）。</summary>
 public sealed record OperationStarted(EventMetadata Metadata) : IIntegrationEvent;
+
+/// <summary>運転状態を停止にしたとき、AGV を止める待機パネルも受け渡しパネルも空いていなかったので、その場で止めた（画面で知らせる）。</summary>
+public sealed record NoParkingSpace(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;

@@ -533,6 +533,10 @@ public class DispatchingServiceTests
 
     // ---- 運転状態 ----
 
+    /// <summary>停止にしたときに待機パネルへ向かわせた移動を除いた移動。</summary>
+    private static (AgvId Agv, PanelId To, string CorrelationId)[] NonParkingMoves(FakeTraffic traffic) =>
+        traffic.Moves.Where(m => !m.CorrelationId.StartsWith("park:", StringComparison.Ordinal)).ToArray();
+
     [Fact]
     public async Task 停止中は搬送を割り当てずスタートしたら割り当てる()
     {
@@ -540,11 +544,11 @@ public class DispatchingServiceTests
         await service.StopAsync(None);
 
         var id = await service.RequestTransportAsync(Order(), None);
-        var whileStopped = traffic.Moves.Count;
+        var whileStopped = NonParkingMoves(traffic).Length;
         await service.StartAsync(None);
 
         Assert.Equal(0, whileStopped); // 頼みは受け付けて、待ち行列に入れておく
-        Assert.Equal([(Agv, S, $"transport:{id}")], traffic.Moves);
+        Assert.Equal([(Agv, S, $"transport:{id}")], NonParkingMoves(traffic));
     }
 
     [Fact]
@@ -554,11 +558,11 @@ public class DispatchingServiceTests
         await service.StopAsync(None);
 
         await service.OnAgvBatteryChangedAsync(new AgvBatteryChanged(Meta(), Agv, 19), None);
-        var whileStopped = traffic.Moves.Count;
+        var whileStopped = NonParkingMoves(traffic).Length;
         await service.StartAsync(None);
 
         Assert.Equal(0, whileStopped);
-        Assert.Equal(CP, Assert.Single(traffic.Moves).To);
+        Assert.Equal(CP, Assert.Single(NonParkingMoves(traffic)).To);
     }
 
     [Fact]

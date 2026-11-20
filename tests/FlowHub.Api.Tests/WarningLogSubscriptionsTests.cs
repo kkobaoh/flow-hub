@@ -95,6 +95,15 @@ public class WarningLogSubscriptionsTests
     }
 
     [Fact]
+    public async Task 停止したときに止める場所がなかったことを警告としてログに残す()
+    {
+        var entry = await PublishAsync(new NoParkingSpace(EventMetadata.Start("park:AGV-1", Time), new AgvId("AGV-1")));
+
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("AGV-1", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void 警告のイベントを購読する()
     {
         var subscriptions = new EventSubscriptions();
@@ -102,6 +111,6 @@ public class WarningLogSubscriptionsTests
 
         ApiSubscriptions.Register(subscriptions, factory);
 
-        Assert.Equal([typeof(TransportInterrupted), typeof(MoveBlocked), typeof(NoChargingPortAvailable), typeof(ManualStepsDropped)], subscriptions.SubscribedEventTypes);
+        Assert.Equal([typeof(TransportInterrupted), typeof(MoveBlocked), typeof(NoChargingPortAvailable), typeof(NoParkingSpace), typeof(ManualStepsDropped)], subscriptions.SubscribedEventTypes);
     }
 }

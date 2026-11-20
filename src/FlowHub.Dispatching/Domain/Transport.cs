@@ -135,6 +135,15 @@ internal sealed class Transport(TransportId id, TransportRequest request)
         return CommandFor(Stage) is { } command ? [command] : [];
     }
 
+    /// <summary>一時停止中か（理由が1つでも残っている）。</summary>
+    public bool IsPaused => _pauses.Count > 0;
+
+    /// <summary>
+    /// 移動の段階なら、その移動（運転状態を停止にして待機パネルへ動かしたあと、もう一度向かわせるのに使う）。移動の段階でなければ null。
+    /// </summary>
+    public MoveAgv? CurrentMove() =>
+        Stage is TransportStage.MovingToSource or TransportStage.MovingToDestination ? (MoveAgv)CommandFor(Stage)! : null;
+
     /// <summary>
     /// AGV が異常になった。搬送を中断して知らせる。
     /// </summary>

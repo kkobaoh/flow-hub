@@ -22,6 +22,7 @@ internal static class ApiSubscriptions
         subscriptions.Subscribe(() => new TransportInterruptedLogger(loggerFactory.CreateLogger<TransportInterruptedLogger>()));
         subscriptions.Subscribe(() => new MoveBlockedLogger(loggerFactory.CreateLogger<MoveBlockedLogger>()));
         subscriptions.Subscribe(() => new NoChargingPortAvailableLogger(loggerFactory.CreateLogger<NoChargingPortAvailableLogger>()));
+        subscriptions.Subscribe(() => new NoParkingSpaceLogger(loggerFactory.CreateLogger<NoParkingSpaceLogger>()));
 
         // 交通整理から
         subscriptions.Subscribe(() => new ManualStepsDroppedLogger(loggerFactory.CreateLogger<ManualStepsDroppedLogger>()));
@@ -85,5 +86,20 @@ internal sealed partial class ManualStepsDroppedLogger(ILogger<ManualStepsDroppe
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Agv} はマニュアルで並べた動作の予約が取れなかったので、そこで止めて残りを捨てました。EventId={EventId} CorrelationId={CorrelationId} CausationId={CausationId}")]
+    private static partial void Log(ILogger logger, string agv, Guid eventId, string correlationId, Guid? causationId);
+}
+
+/// <summary>運転状態を停止にしたとき、AGV を止める待機パネルも受け渡しパネルも空いていなかったので、その場で止めた。</summary>
+internal sealed partial class NoParkingSpaceLogger(ILogger<NoParkingSpaceLogger> logger) : IEventSubscriber<NoParkingSpace>
+{
+    public Task HandleAsync(NoParkingSpace integrationEvent, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(integrationEvent);
+        var m = integrationEvent.Metadata;
+        Log(logger, integrationEvent.Agv.ToString(), m.EventId, m.CorrelationId, m.CausationId);
+        return Task.CompletedTask;
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Agv} を止める待機パネルも受け渡しパネルも空いていないので、その場で止めました。EventId={EventId} CorrelationId={CorrelationId} CausationId={CausationId}")]
     private static partial void Log(ILogger logger, string agv, Guid eventId, string correlationId, Guid? causationId);
 }

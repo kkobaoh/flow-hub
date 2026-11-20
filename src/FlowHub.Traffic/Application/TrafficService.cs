@@ -90,7 +90,10 @@ public sealed class TrafficService(
         {
             var entry = Entry(id);
             var travel = entry.Travel;
-            return new AgvView(id, travel.Position, ToState(travel.Status), travel.Carrier == CarrierState.Raised, travel.CumulativeDistanceMm, entry.Control);
+            return new AgvView(id, travel.Position, ToState(travel.Status), travel.Carrier == CarrierState.Raised, travel.CumulativeDistanceMm, entry.Control)
+            {
+                StopsAt = travel.Position is null ? null : travel.PlanningStart,
+            };
         }
         finally
         {
