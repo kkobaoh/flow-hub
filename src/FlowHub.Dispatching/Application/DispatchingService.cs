@@ -312,7 +312,8 @@ public sealed class DispatchingService(
             .Select(pose => new PanelId(pose.NodeId)));
         taken.UnionWith(_agvs.Values.Select(agv => agv.Charging.Port).OfType<PanelId>());
 
-        var corridor = map.Panels.Where(p => p.Type == PanelType.Normal).Select(p => p.Id).ToHashSet();
+        // 特殊消耗品受け渡しパネルは通過できるので、通路と同じに扱う
+        var corridor = map.Panels.Where(p => p.Type is PanelType.Normal or PanelType.SpecialTransfer).Select(p => p.Id).ToHashSet();
 
         // 通路で緊急停止中の AGV は、待機パネルへ向かわせず、アラームクリアのあとも続きを走らないように、その場を行き先にしておく
         foreach (var (id, agv) in _agvs.Where(pair => IsStoppedInCorridor(pair.Value, views[pair.Key], corridor)).ToArray())

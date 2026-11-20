@@ -17,12 +17,14 @@ internal sealed record TravelSection(IReadOnlyList<TravelCommand> Commands, IRea
 /// </summary>
 internal static class TravelSectionBuilder
 {
-    public static IReadOnlyList<TravelSection> Build(Pose start, IReadOnlyList<RouteStep> steps)
+    /// <param name="specialPanels">特殊消耗品受け渡しパネルと、そのキャリアを下ろす角度。出入りする前進・後退は特殊にし、
+    /// キャリアを下ろす角度へ回るときは特殊な回転にする。</param>
+    public static IReadOnlyList<TravelSection> Build(Pose start, IReadOnlyList<RouteStep> steps, IReadOnlyDictionary<string, int>? specialPanels = null)
     {
         ArgumentNullException.ThrowIfNull(start);
         ArgumentNullException.ThrowIfNull(steps);
 
-        var builder = new SectionsInProgress(start);
+        var builder = new SectionsInProgress(start, specialPanels ?? new Dictionary<string, int>());
 
         foreach (var step in steps)
         {
@@ -56,7 +58,7 @@ internal static class TravelSectionBuilder
     /// <summary>
     /// 組み立て中の区間。
     /// </summary>
-    private sealed class SectionsInProgress(Pose start)
+    private sealed class SectionsInProgress(Pose start, IReadOnlyDictionary<string, int> specialPanels)
     {
         private readonly List<TravelCommand> _commands = [];
         private List<PanelId> _panels = [new(start.NodeId)];
@@ -70,9 +72,10 @@ internal static class TravelSectionBuilder
         public void AddMove(MoveStep move)
         {
             var to = new PanelId(move.To);
+            var special = specialPanels.ContainsKey(move.From) || specialPanels.ContainsKey(move.To);
             _commands.Add(move.Direction == MoveDirection.Forward
-                ? new ForwardCommand(move.DistanceMm, to)
-                : new BackwardCommand(move.DistanceMm, to));
+                ? new ForwardCommand(move.DistanceMm, to, special)
+                : new BackwardCommand(move.DistanceMm, to, special));
             _panels.Add(to);
             _current = move.After;
             LastDirection = move.Direction;
@@ -80,7 +83,9 @@ internal static class TravelSectionBuilder
 
         public void AddRotate(RotateStep rotate)
         {
-            _commands.Add(new RotateCommand(rotate.ToHeading));
+            _commands.Add(specialPanels.TryGetValue(rotate.NodeId, out var lowering) && lowering == rotate.ToHeading
+                ? new RotateSpecialCommand(rotate.ToHeading)
+                : new RotateCommand(rotate.ToHeading));
             _current = rotate.After;
         }
 

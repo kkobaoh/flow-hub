@@ -6,6 +6,7 @@ using FlowHub.BuildingBlocks;
 using FlowHub.Map;
 using FlowHub.Routing;
 using FlowHub.Traffic.Application;
+using FlowHub.Traffic.Domain;
 using FlowHub.Traffic.Infrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -193,6 +194,18 @@ public sealed class AgvEndpointsTests : IAsyncDisposable
         var commands = await CommandsAsync(client, 1);
 
         AssertJson("""[{ "number": 2, "type": "motion", "steps": [{ "action": "rotate_free", "heading": 45 }] }]""", commands);
+    }
+
+    [Fact]
+    public void 特殊な前進と後退と回転の動作の形()
+    {
+        var steps = new TravelCommand[] { new ForwardCommand(800, B, Special: true), new BackwardCommand(800, T, Special: true), new RotateSpecialCommand(215) };
+
+        var json = AgvMessages.Commands([new MotionCommand(5, steps)]);
+
+        AssertJson(
+            """[{ "number": 5, "type": "motion", "steps": [{ "action": "forward_special", "distanceMm": 800, "panel": "B" }, { "action": "backward_special", "distanceMm": 800, "panel": "T" }, { "action": "rotate_special", "heading": 215 }] }]""",
+            json["commands"]);
     }
 
     [Fact]

@@ -25,6 +25,7 @@ public class DispatchingParkingTests
     private static readonly PanelId CP = new("CP");
     private static readonly PanelId SB1 = new("SB1");
     private static readonly PanelId SB2 = new("SB2");
+    private static readonly PanelId X = new("X");
     private static readonly DateTimeOffset Now = new(2026, 11, 20, 9, 0, 0, TimeSpan.Zero);
     private static readonly CancellationToken None = CancellationToken.None;
 
@@ -57,6 +58,7 @@ public class DispatchingParkingTests
                 new Panel(CP, PanelType.Standby, true),
                 new Panel(SB1, PanelType.Standby, false),
                 new Panel(SB2, PanelType.Standby, false),
+                new Panel(X, PanelType.SpecialTransfer, false) { CarrierLoweringHeading = new Heading(45) },
             ],
             [
                 new Connection(A1, A2, 800, new Heading(90), false),
@@ -65,6 +67,7 @@ public class DispatchingParkingTests
                 new Connection(A1, CP, 800, new Heading(270), false),
                 new Connection(A2, SB1, 800, new Heading(0), false),
                 new Connection(A2, SB2, 800, new Heading(180), false),
+                new Connection(A2, X, 800, new Heading(90), false),
             ]).Snapshot!);
         return store;
     }
@@ -147,6 +150,17 @@ public class DispatchingParkingTests
 
         Assert.DoesNotContain(CP, ParkingOf(traffic, Agv1));
         Assert.Empty(ParkingOf(traffic, Agv2));
+    }
+
+    [Fact]
+    public async Task 特殊消耗品受け渡しパネルは通路と同じに扱いそこにいるAGVを待機パネルへ向かわせる()
+    {
+        var (service, traffic, _) = Setup(Agv1);
+        traffic.Set(Agv1, X);
+
+        await service.StopAsync(None);
+
+        Assert.Equal([CP], ParkingOf(traffic, Agv1));
     }
 
     [Fact]

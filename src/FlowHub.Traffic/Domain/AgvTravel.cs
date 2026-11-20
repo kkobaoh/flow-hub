@@ -337,9 +337,15 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
             throw new ArgumentException($"{currentPanel.Id} は {Id} の今いるパネル（{Position.NodeId}）ではありません。", nameof(currentPanel));
         }
 
-        if (currentPanel.Type != PanelType.Transfer)
+        if (currentPanel.Type is not (PanelType.Transfer or PanelType.SpecialTransfer))
         {
             throw new InvalidOperationException($"{currentPanel.Id} は受け渡しパネルでないため、キャリアを下げられません。");
+        }
+
+        // 特殊消耗品受け渡しパネルでは、キャリアを下ろす角度を向いているときだけ下げられる
+        if (currentPanel.Type == PanelType.SpecialTransfer && currentPanel.CarrierLoweringHeading?.Degrees != Position.Heading)
+        {
+            throw new InvalidOperationException($"{Id} は特殊消耗品受け渡しパネル {currentPanel.Id} のキャリアを下ろす角度（{currentPanel.CarrierLoweringHeading?.Degrees}度）を向いていないため、キャリアを下げられません（今の向き：{Position.Heading}度）。");
         }
 
         IssueCarrierCommand(number => new LowerCarrierCommand(number, heightMm));
@@ -625,6 +631,7 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
         {
             RotateCommand rotate => new Pose(Position.NodeId, rotate.Heading),
             FreeRotateCommand free => new Pose(Position.NodeId, free.Heading),
+            RotateSpecialCommand special => new Pose(Position.NodeId, special.Heading),
             _ => new Pose(completion.Arrived!.Value.Value, Position.Heading),
         };
 
@@ -871,7 +878,7 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
         {
             ForwardCommand forward => Direction == MoveDirection.Forward && Arrived == forward.To,
             BackwardCommand backward => Direction == MoveDirection.Backward && Arrived == backward.To,
-            RotateCommand or FreeRotateCommand => Direction is null,
+            RotateCommand or FreeRotateCommand or RotateSpecialCommand => Direction is null,
             _ => false,
         };
     }

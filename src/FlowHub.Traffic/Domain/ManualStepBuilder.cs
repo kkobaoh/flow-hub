@@ -29,17 +29,19 @@ internal static class ManualStepBuilder
                 return new TravelSection([new RotateCommand(rotate.Heading)], [here], new Pose(start.NodeId, rotate.Heading));
 
             case ManualFreeRotate free when free.Heading is >= 0 and < 360 && !panel.IsDeadEnd:
-                return new TravelSection([new FreeRotateCommand(free.Heading)], [here], new Pose(start.NodeId, free.Heading));
+                // 特殊消耗品受け渡しパネルの上では、特殊な回転を送る
+                TravelCommand rotation = panel.Type == PanelType.SpecialTransfer ? new RotateSpecialCommand(free.Heading) : new FreeRotateCommand(free.Heading);
+                return new TravelSection([rotation], [here], new Pose(start.NodeId, free.Heading));
 
             case ManualForward when IsLineHeading(start.Heading) && !panel.IsDeadEnd:
                 return Traverse(map, here, start.Heading) is { } ahead && CanEnter(map, ahead.To, canTravelSpecialTransfer)
-                    ? new TravelSection([new ForwardCommand(ahead.DistanceMm, ahead.To)], [here, ahead.To], new Pose(ahead.To.Value, start.Heading))
+                    ? new TravelSection([new ForwardCommand(ahead.DistanceMm, ahead.To, IsSpecialMove(map, here, ahead.To))], [here, ahead.To], new Pose(ahead.To.Value, start.Heading))
                     : null;
 
             case ManualBackward when IsLineHeading(start.Heading):
                 return Traverse(map, here, (start.Heading + 180) % 360) is { } behind && !map.Panels.Single(p => p.Id == behind.To).IsDeadEnd
                     && CanEnter(map, behind.To, canTravelSpecialTransfer)
-                    ? new TravelSection([new BackwardCommand(behind.DistanceMm, behind.To)], [here, behind.To], new Pose(behind.To.Value, start.Heading))
+                    ? new TravelSection([new BackwardCommand(behind.DistanceMm, behind.To, IsSpecialMove(map, here, behind.To))], [here, behind.To], new Pose(behind.To.Value, start.Heading))
                     : null;
 
             default:
@@ -48,6 +50,10 @@ internal static class ManualStepBuilder
     }
 
     private static bool IsLineHeading(int heading) => heading is 0 or 90 or 180 or 270;
+
+    /// <summary>特殊消耗品受け渡しパネルを出発するか、そこに着く移動か（特殊な前進・後退を送る）。</summary>
+    private static bool IsSpecialMove(MapSnapshot map, PanelId from, PanelId to) =>
+        map.Panels.Any(p => (p.Id == from || p.Id == to) && p.Type == PanelType.SpecialTransfer);
 
     private static bool CanEnter(MapSnapshot map, PanelId panel, bool canTravelSpecialTransfer) =>
         canTravelSpecialTransfer || map.Panels.Single(p => p.Id == panel).Type != PanelType.SpecialTransfer;

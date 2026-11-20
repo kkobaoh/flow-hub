@@ -94,10 +94,11 @@ internal static class AgvMessages
 
     private static JsonObject Step(TravelCommand step) => step switch
     {
-        ForwardCommand forward => new JsonObject { ["action"] = "forward", ["distanceMm"] = forward.DistanceMm, ["panel"] = forward.To.Value },
-        BackwardCommand backward => new JsonObject { ["action"] = "backward", ["distanceMm"] = backward.DistanceMm, ["panel"] = backward.To.Value },
+        ForwardCommand forward => new JsonObject { ["action"] = forward.Special ? "forward_special" : "forward", ["distanceMm"] = forward.DistanceMm, ["panel"] = forward.To.Value },
+        BackwardCommand backward => new JsonObject { ["action"] = backward.Special ? "backward_special" : "backward", ["distanceMm"] = backward.DistanceMm, ["panel"] = backward.To.Value },
         RotateCommand rotate => new JsonObject { ["action"] = "rotate", ["heading"] = rotate.Heading },
         FreeRotateCommand free => new JsonObject { ["action"] = "rotate_free", ["heading"] = free.Heading },
+        RotateSpecialCommand special => new JsonObject { ["action"] = "rotate_special", ["heading"] = special.Heading },
         _ => throw new InvalidOperationException($"未知の動作です：{step.GetType().Name}"),
     };
 

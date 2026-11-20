@@ -730,6 +730,7 @@ public sealed class TrafficService(
     private void ReplanAll()
     {
         var map = PlanningMapFactory.FromMap(CurrentMap());
+        var specialPanels = SpecialPanelHeadings();
         var obstacles = new List<PlanningObstacle>();
         var participants = new List<AgvEntry>();
         foreach (var entry in _agvs.Values.Where(e => e.Travel.Position is not null && !IsDetachedForGood(e)))
@@ -769,7 +770,7 @@ public sealed class TrafficService(
             entry.PlanStatus = entry.Destination is null ? null : plan.Status;
             var travel = entry.Travel;
             IReadOnlyList<TravelSection> sections = plan.Status == PlanStatus.Planned
-                ? TravelSectionBuilder.Build(travel.PlanningStart, ToRouteSteps(travel.PlanningStart, plan.Actions.Skip(travel.CommittedCommands.Count)))
+                ? TravelSectionBuilder.Build(travel.PlanningStart, ToRouteSteps(travel.PlanningStart, plan.Actions.Skip(travel.CommittedCommands.Count)), specialPanels)
                 : [];
             if (sections.Count > 0 || travel.RemainingSections.Count > 0)
             {
@@ -790,6 +791,19 @@ public sealed class TrafficService(
             entry.Travel.SetRoute([], dispatchNow: false);
         }
     }
+
+    /// <summary>
+    /// 行き先で向く角度。特殊消耗品受け渡しパネルなら、キャリアを下ろす角度（着いたら回ってから止まる。マニュアルの行き先も同じ）。
+    /// ほかのパネルは、向きを決めない。
+    /// </summary>
+    private int? GoalHeadingOf(PanelId destination) =>
+        SpecialPanelHeadings().TryGetValue(destination.Value, out var heading) ? heading : null;
+
+    /// <summary>特殊消耗品受け渡しパネルと、そのキャリアを下ろす角度。</summary>
+    private Dictionary<string, int> SpecialPanelHeadings() =>
+        CurrentMap().Panels
+            .Where(panel => panel.Type == PanelType.SpecialTransfer && panel.CarrierLoweringHeading is not null)
+            .ToDictionary(panel => panel.Id.Value, panel => panel.CarrierLoweringHeading!.Value.Degrees);
 
     /// <summary>特殊消耗品受け渡しパネル（走れない AGV が入れないノード）。</summary>
     private HashSet<string> SpecialTransferPanels() =>
@@ -858,13 +872,16 @@ public sealed class TrafficService(
                 case FreeRotateCommand free:
                     committed.Add(new RotateAction(node, free.Heading));
                     break;
+                case RotateSpecialCommand special:
+                    committed.Add(new RotateAction(node, special.Heading));
+                    break;
                 case RotateCommand rotate:
                     committed.Add(new RotateAction(node, rotate.Heading));
                     break;
             }
         }
 
-        var goal = entry.Destination is { } destination && travel.Carrier == CarrierState.Raised ? new AgentGoal(destination.Value, Heading: null) : null;
+        var goal = entry.Destination is { } destination && travel.Carrier == CarrierState.Raised ? new AgentGoal(destination.Value, GoalHeadingOf(destination)) : null;
         var motion = entry.Motion;
         return new PlanningAgent(
             travel.Id.Value,
@@ -969,7 +986,7 @@ public sealed class TrafficService(
     private RouteResult Plan(AgvEntry entry, PanelId destination)
     {
         var graph = RouteGraphFactory.FromMap(CurrentMap(), entry.CanTravelSpecialTransfer);
-        return _planner.Plan(new RouteRequest(graph, entry.Travel.Position!, destination.Value, GoalHeading: null, entry.Motion));
+        return _planner.Plan(new RouteRequest(graph, entry.Travel.Position!, destination.Value, GoalHeadingOf(destination), entry.Motion));
     }
 
     private MapSnapshot CurrentMap() =>
