@@ -24,6 +24,57 @@ public class RoutePlannerTests
         MotionProfile? motion = null) =>
         Planner.Plan(new RouteRequest(new RouteGraph(nodes, edges), start, goal, goalHeading, motion ?? Motion));
 
+    // ---- 同じコストの経路の選び方 ----
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void 移動コストが同じなら回転の少ない経路を選ぶ(bool reverseEdgeOrder)
+    {
+        // S（北向き）から G へ。180度回って S → M（1600mm）→ G（800mm）と前進するか、90度ずつ2回回って S → E（800mm）→ G（1600mm）と前進するか
+        // （どちらも 180度、2400mm で 6.8秒）。回転の多い経路のほうが、先に G の手前まで着く
+        RouteEdge[] edges = [Edge("S", "M", heading: 180, distanceMm: 1600), Edge("M", "G", heading: 180), Edge("S", "E", heading: 90), Edge("E", "G", heading: 180, distanceMm: 1600)];
+        var result = Plan(
+            [Normal("S"), Normal("M"), Normal("E"), Normal("G")],
+            reverseEdgeOrder ? edges.Reverse() : edges,
+            new Pose("S", 0),
+            "G");
+
+        Assert.Single(result.Steps.OfType<RotateStep>());
+        Assert.Equal(["M", "G"], result.Steps.OfType<MoveStep>().Select(m => m.To));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void 移動コストも回転の回数も同じなら後退の少ない経路を選ぶ(bool reverseEdgeOrder)
+    {
+        // S（北向き）から G へ。S → X → G と 800mm ずつ前進するか、S → Y へ 400mm 後退して Y → G へ 800mm 前進するか（どちらも 3.2秒、回転なし）
+        RouteEdge[] edges = [Edge("S", "X", heading: 0), Edge("X", "G", heading: 0), Edge("S", "Y", heading: 180, distanceMm: 400), Edge("Y", "G", heading: 0)];
+        var result = Plan(
+            [Normal("S"), Normal("X"), Normal("Y"), Normal("G")],
+            reverseEdgeOrder ? edges.Reverse() : edges,
+            new Pose("S", 0),
+            "G");
+
+        Assert.All(result.Steps.OfType<MoveStep>(), m => Assert.Equal(MoveDirection.Forward, m.Direction));
+        Assert.Equal(["X", "G"], result.Steps.OfType<MoveStep>().Select(m => m.To));
+    }
+
+    [Fact]
+    public void 小数の誤差があっても同じ所要時間なら同じコストとして比べる()
+    {
+        // S（北向き）から G へ。S → X（50mm）→ G（100mm）と前進すると 0.1秒 + 0.2秒、S → G へ 75mm 後退すると 0.3秒。
+        // 小数で足すと 0.1 + 0.2 は 0.3 より少し大きくなるが、同じ所要時間なので、後退の少ないほうを選ぶ
+        var result = Plan(
+            [Normal("S"), Normal("X"), Normal("G")],
+            [Edge("S", "X", heading: 0, distanceMm: 50), Edge("X", "G", heading: 0, distanceMm: 100), Edge("S", "G", heading: 180, distanceMm: 75)],
+            new Pose("S", 0),
+            "G");
+
+        Assert.Equal(["X", "G"], result.Steps.OfType<MoveStep>().Select(m => m.To));
+    }
+
     [Fact]
     public void まっすぐ前進してゴールに着く()
     {
