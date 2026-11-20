@@ -1,0 +1,160 @@
+using FlowHub.Api.Database;
+using FlowHub.BuildingBlocks;
+using FlowHub.Consumables.Application;
+using FlowHub.Consumables.Infrastructure;
+using FlowHub.Dispatching.Application;
+using FlowHub.Dispatching.Infrastructure;
+using FlowHub.Map.Infrastructure;
+using FlowHub.Simulator;
+using FlowHub.ToolPlanning.Application;
+using FlowHub.Traffic;
+using FlowHub.Traffic.Application;
+using FlowHub.Traffic.Infrastructure;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+
+namespace FlowHub.Api.Composition;
+
+/// <summary>
+/// 各コンテキストの組み立て。起動するときに DB を開いて構成を読み、サービスを作って、購読をつなぐ。
+/// </summary>
+/// <remarks>
+/// イベントは、処理（HTTP のリクエスト、シミュレーターの通知）を終えたあとにまとめて届ける。
+/// 装置・ステーション・上位システムとのやり取りは、本物の通信ができるまでシミュレーターで仮に実装する。
+/// </remarks>
+internal sealed partial class FlowHubSystem : IDisposable
+{
+    private readonly AgvEndpointOptions _agvEndpoints;
+    private readonly TimeProvider _timeProvider;
+
+    private FlowHubSystem(
+        InProcessEventBus events,
+        TrafficService traffic,
+        DispatchingService dispatching,
+        ConsumablesService consumables,
+        ToolPlanningService toolPlanning,
+        AgvEndpointOptions agvEndpoints,
+        TimeProvider timeProvider)
+    {
+        Events = events;
+        Traffic = traffic;
+        Dispatching = dispatching;
+        Consumables = consumables;
+        ToolPlanning = toolPlanning;
+        _agvEndpoints = agvEndpoints;
+        _timeProvider = timeProvider;
+    }
+
+    public InProcessEventBus Events { get; }
+
+    public TrafficService Traffic { get; }
+
+    public DispatchingService Dispatching { get; }
+
+    public ConsumablesService Consumables { get; }
+
+    public ToolPlanningService ToolPlanning { get; }
+
+    /// <summary>
+    /// DB を開いて構成を読み、各コンテキストを組み立てる。
+    /// </summary>
+    public static async Task<FlowHubSystem> StartAsync(
+        FlowHubSettings settings, TimeProvider timeProvider, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+
+        var database = settings.Database;
+        void Configure(DbContextOptionsBuilder builder, string schema) => Databases.Configure(builder, database, schema);
+        Task Initialize(DbContext context, CancellationToken token) => Databases.InitializeAsync(context, database, token);
+
+        var map = await MapDatabase.OpenAsync(b => Configure(b, MapDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
+        var trafficStore = await TrafficDatabase.OpenAsync(b => Configure(b, TrafficDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
+        var dispatchingStore = await DispatchingDatabase.OpenAsync(b => Configure(b, DispatchingDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
+        var consumablesStore = await ConsumablesDatabase.OpenAsync(b => Configure(b, ConsumablesDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
+
+        var subscriptions = new EventSubscriptions();
+        var events = new InProcessEventBus(subscriptions);
+        var simulator = new EquipmentSimulator(settings.Simulator, timeProvider, loggerFactory.CreateLogger<EquipmentSimulator>());
+
+        var traffic = new TrafficService(map, events, timeProvider, trafficStore, settings.Planning, controlStatuses: trafficStore);
+        var dispatching = new DispatchingService(traffic, map, events, timeProvider);
+        await RegisterAgvsAsync(traffic, trafficStore, dispatching, dispatchingStore, loggerFactory.CreateLogger<FlowHubSystem>(), cancellationToken).ConfigureAwait(false);
+
+        var consumables = new ConsumablesService(dispatching, simulator, simulator, simulator, events, timeProvider, consumablesStore);
+        consumables.LoadConfiguration(await consumablesStore.LoadAsync(cancellationToken).ConfigureAwait(false));
+        var toolPlanning = new ToolPlanningService(consumables, dispatching, timeProvider);
+
+        DispatchingSubscriptions.Register(subscriptions, dispatching);
+        ConsumablesSubscriptions.Register(subscriptions, consumables);
+        ToolPlanningSubscriptions.Register(subscriptions, toolPlanning);
+        ApiSubscriptions.Register(subscriptions, loggerFactory);
+
+        // シミュレーターの通知も、処理を終えたあとにイベントを届ける
+        simulator.Attach(new ConsumablesSimulationTarget(consumables), events.FlushAsync);
+
+        return new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, settings.AgvEndpoints, timeProvider);
+    }
+
+    /// <summary>
+    /// HTTP の窓口を開く。リクエストを処理し終えたら、たまったイベントを届ける。
+    /// </summary>
+    public void MapEndpoints(WebApplication app)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+
+        app.Use(async (context, next) =>
+        {
+            await next(context).ConfigureAwait(false);
+
+            // リクエストが途中で切れても、受け付けた処理のイベントは届ける
+            await Events.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+        });
+        app.MapAgvEndpoints(Traffic, _agvEndpoints, _timeProvider);
+    }
+
+    public void Dispose()
+    {
+        ToolPlanning.Dispose();
+        Consumables.Dispose();
+        Dispatching.Dispose();
+        Traffic.Dispose();
+    }
+
+    /// <summary>
+    /// 交通整理と配車の両方に登録されている AGV だけを登録する。片方にしかない AGV は、ログで警告する（画面での通知は backlog #10）。
+    /// </summary>
+    private static async Task RegisterAgvsAsync(
+        TrafficService traffic,
+        TrafficStore trafficStore,
+        DispatchingService dispatching,
+        DispatchingStore dispatchingStore,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var inTraffic = await trafficStore.LoadAgvsAsync(cancellationToken).ConfigureAwait(false);
+        var inDispatching = (await dispatchingStore.LoadAgvsAsync(cancellationToken).ConfigureAwait(false)).ToDictionary(a => a.Id);
+
+        foreach (var agv in inTraffic)
+        {
+            if (!inDispatching.Remove(agv.Id, out var dispatchingAgv))
+            {
+                LogMissingIn(logger, agv.Id.ToString(), "配車");
+                continue;
+            }
+
+            traffic.RegisterAgv(agv.Id, agv.Motion);
+            dispatching.RegisterAgv(agv.Id, dispatchingAgv.Carrier, dispatchingAgv.GoChargeBelowPercent, dispatchingAgv.ResumeAtPercent);
+        }
+
+        foreach (var id in inDispatching.Keys.OrderBy(id => id.Value, StringComparer.Ordinal))
+        {
+            LogMissingIn(logger, id.ToString(), "交通整理");
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Agv} は {Missing} に登録されていないので、登録しませんでした。交通整理と配車の両方に登録してください。")]
+    private static partial void LogMissingIn(ILogger logger, string agv, string missing);
+}

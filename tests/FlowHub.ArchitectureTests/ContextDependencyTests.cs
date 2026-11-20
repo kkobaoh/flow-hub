@@ -15,6 +15,14 @@ public class ContextDependencyTests
     /// </summary>
     private const string HostProject = "FlowHub.Api";
 
+    /// <summary>
+    /// コンテキストではなく、装置・ステーション・上位システムのポートを仮に実装するシミュレーター。組み立てだけが参照する。
+    /// </summary>
+    private const string SimulatorProject = "FlowHub.Simulator";
+
+    /// <summary>シミュレーターが参照してよい相手（ポートを持つ消耗品の管理と、その公開インターフェースが使う配車）。</summary>
+    private static readonly string[] SimulatorAllowedReferences = ["FlowHub.Consumables", "FlowHub.Dispatching"];
+
     public static TheoryData<string> Contexts => new(AllowedReferences.Keys);
 
     [Fact]
@@ -22,7 +30,7 @@ public class ContextDependencyTests
     {
         var projects = Directory.GetDirectories(Path.Combine(RepositoryRoot, "src"))
             .Select(Path.GetFileName)
-            .Where(name => name != HostProject)
+            .Where(name => name is not (HostProject or SimulatorProject))
             .Order()
             .ToArray();
 
@@ -51,6 +59,28 @@ public class ContextDependencyTests
             .Where(name => name.StartsWith("FlowHub.", StringComparison.Ordinal));
 
         Assert.Empty(used.Except(AllowedReferences[context]));
+    }
+
+    [Fact]
+    public void シミュレーターのプロジェクト参照は消耗品の管理と配車だけ()
+    {
+        var csproj = Path.Combine(RepositoryRoot, "src", SimulatorProject, $"{SimulatorProject}.csproj");
+        var referenced = XDocument.Load(csproj)
+            .Descendants("ProjectReference")
+            .Select(e => Path.GetFileNameWithoutExtension(e.Attribute("Include")!.Value));
+
+        Assert.Empty(referenced.Except(SimulatorAllowedReferences));
+    }
+
+    [Fact]
+    public void シミュレーターのアセンブリが使っているのは消耗品の管理と配車だけ()
+    {
+        var used = Assembly.Load(SimulatorProject)
+            .GetReferencedAssemblies()
+            .Select(a => a.Name!)
+            .Where(name => name.StartsWith("FlowHub.", StringComparison.Ordinal));
+
+        Assert.Empty(used.Except(SimulatorAllowedReferences));
     }
 
     private static string RepositoryRoot

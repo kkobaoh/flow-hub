@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 
 namespace FlowHub.BuildingBlocks;
@@ -42,14 +43,21 @@ public sealed class EventSubscriptions
 /// 処理（DB のコミットなど）が終わったあとに FlushAsync を呼ぶことで、「コミット後に届ける」形にする。
 /// </summary>
 /// <remarks>
-/// プロセスが落ちると、まだ届けていないイベントは失われる。必要になったら、失われないアウトボックス方式に差し替える。
+/// <para>プロセスが落ちると、まだ届けていないイベントは失われる。必要になったら、失われないアウトボックス方式に差し替える。</para>
+/// <para>
+/// 複数のスレッドから同時に公開しても、FlushAsync を呼んでもよい。届けるのは一度に1つの FlushAsync だけで、
+/// 届けている途中に呼ばれた FlushAsync は何もせずに戻る（そのあいだに公開されたイベントは、届けている側が続けて届ける）。
+/// </para>
 /// </remarks>
 public sealed class InProcessEventBus(EventSubscriptions subscriptions) : IEventPublisher
 {
     /// <summary>イベントを届けるときのトレースの発生元。</summary>
     public static readonly ActivitySource ActivitySource = new("FlowHub.Events");
 
-    private readonly Queue<IIntegrationEvent> _pending = new();
+    private readonly ConcurrentQueue<IIntegrationEvent> _pending = new();
+
+    /// <summary>届けている FlushAsync があるか（1 なら、ある）。</summary>
+    private int _delivering;
 
     public Task PublishAsync<TEvent>(TEvent integrationEvent, CancellationToken cancellationToken)
         where TEvent : IIntegrationEvent
@@ -68,6 +76,27 @@ public sealed class InProcessEventBus(EventSubscriptions subscriptions) : IEvent
     {
         var failures = new List<Exception>();
 
+        // 届け終えて手を離したあとに公開されたイベントがあれば、もう一度届ける（ほかに届けている側がいなければ）
+        while (!_pending.IsEmpty && Interlocked.CompareExchange(ref _delivering, 1, 0) == 0)
+        {
+            try
+            {
+                await DeliverPendingAsync(failures, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                Volatile.Write(ref _delivering, 0);
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new AggregateException("イベントを届けるときに、失敗したハンドラーがあります。", failures);
+        }
+    }
+
+    private async Task DeliverPendingAsync(List<Exception> failures, CancellationToken cancellationToken)
+    {
         while (_pending.TryDequeue(out var integrationEvent))
         {
             foreach (var handler in subscriptions.HandlersFor(integrationEvent.GetType()))
@@ -84,11 +113,6 @@ public sealed class InProcessEventBus(EventSubscriptions subscriptions) : IEvent
                     failures.Add(failure);
                 }
             }
-        }
-
-        if (failures.Count > 0)
-        {
-            throw new AggregateException("イベントを届けるときに、失敗したハンドラーがあります。", failures);
         }
     }
 

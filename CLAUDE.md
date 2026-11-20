@@ -150,6 +150,7 @@
     - 接続文字列は **ユーザーシークレット** に置きます（リポジトリに入れないため）。雛型は `tests/FlowHub.IntegrationTests/secrets.template.json`、使い方は同じディレクトリの `README.md` にあります。環境変数があれば、そちらを優先します。
       - 設定のしかた：`dotnet user-secrets set "Postgres:ConnectionString" "Host=localhost;..." --project tests/FlowHub.IntegrationTests`
 - `FlowHub.Api` は、各コンテキストの組み立てとエントリーポイントだけを担当します。
+- `FlowHub.Simulator` は、本物の通信ができるまで、装置・ステーション・上位システムのポートを仮に実装するシミュレーターです（コンテキストではありません）。参照してよいのは消耗品の管理と配車だけで、参照するのは `FlowHub.Api` だけです。
 
 #### コンテキストの間のやり取り
 
@@ -182,6 +183,7 @@ src/
   FlowHub.Dispatching/
   FlowHub.ToolPlanning/
   FlowHub.Consumables/
+  FlowHub.Simulator/
   FlowHub.Api/
 tests/
   FlowHub.Api.Tests/
@@ -193,6 +195,7 @@ tests/
   FlowHub.Dispatching.Tests/
   FlowHub.ToolPlanning.Tests/
   FlowHub.Consumables.Tests/
+  FlowHub.Simulator.Tests/
   FlowHub.IntegrationTests/
   FlowHub.ArchitectureTests/
 ```

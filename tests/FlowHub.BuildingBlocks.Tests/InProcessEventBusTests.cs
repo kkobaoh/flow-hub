@@ -182,6 +182,74 @@ public class InProcessEventBusTests
         Assert.Equal(metadata.EventId, activity.GetTagItem("flowhub.event_id"));
     }
 
+    /// <summary>届け始めたことを知らせ、続けてよいと言われるまで待つハンドラー。</summary>
+    private sealed class Blocking(List<string> log, TaskCompletionSource started, Task release) : IEventSubscriber<SomethingHappened>
+    {
+        public async Task HandleAsync(SomethingHappened integrationEvent, CancellationToken cancellationToken)
+        {
+            lock (log)
+            {
+                log.Add($"{integrationEvent.Name} 開始");
+            }
+
+            if (integrationEvent.Name == "1")
+            {
+                started.SetResult();
+                await release;
+            }
+
+            lock (log)
+            {
+                log.Add($"{integrationEvent.Name} 終了");
+            }
+        }
+    }
+
+    [Fact]
+    public async Task 届けている途中に別のFlushが呼ばれても公開した順に1つずつ届ける()
+    {
+        var log = new List<string>();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var subscriptions = new EventSubscriptions();
+        subscriptions.Subscribe(() => new Blocking(log, started, release.Task));
+        var bus = new InProcessEventBus(subscriptions);
+        await bus.PublishAsync(new SomethingHappened(Metadata(), "1"), TestContext.Current.CancellationToken);
+        var first = bus.FlushAsync(TestContext.Current.CancellationToken);
+        await started.Task;
+
+        await bus.PublishAsync(new SomethingHappened(Metadata(), "2"), TestContext.Current.CancellationToken);
+        await bus.FlushAsync(TestContext.Current.CancellationToken); // 1 を届けている途中（2 は、届けている側があとで届ける）
+        release.SetResult();
+        await first;
+
+        Assert.Equal(["1 開始", "1 終了", "2 開始", "2 終了"], log);
+    }
+
+    [Fact]
+    public async Task 複数のスレッドから同時に公開しても全部届ける()
+    {
+        var count = 0;
+        var subscriptions = new EventSubscriptions();
+        subscriptions.Subscribe(() => new Counting(() => Interlocked.Increment(ref count)));
+        var bus = new InProcessEventBus(subscriptions);
+
+        await Parallel.ForAsync(0, 10_000, TestContext.Current.CancellationToken, async (i, cancellationToken) =>
+            await bus.PublishAsync(new SomethingHappened(Metadata(), $"{i}"), cancellationToken));
+        await bus.FlushAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(10_000, count);
+    }
+
+    private sealed class Counting(Action onHandled) : IEventSubscriber<SomethingHappened>
+    {
+        public Task HandleAsync(SomethingHappened integrationEvent, CancellationToken cancellationToken)
+        {
+            onHandled();
+            return Task.CompletedTask;
+        }
+    }
+
     [Fact]
     public void 購読しているイベントの種類を登録した順に重複なく一覧できる()
     {

@@ -13,6 +13,7 @@
     <ProjectReference Include="..\FlowHub.Dispatching\FlowHub.Dispatching.csproj" />
     <ProjectReference Include="..\FlowHub.ToolPlanning\FlowHub.ToolPlanning.csproj" />
     <ProjectReference Include="..\FlowHub.Consumables\FlowHub.Consumables.csproj" />
+    <ProjectReference Include="..\FlowHub.Simulator\FlowHub.Simulator.csproj" />
   </ItemGroup>
 
   <ItemGroup>
