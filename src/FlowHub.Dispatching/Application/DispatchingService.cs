@@ -97,6 +97,29 @@ public sealed class DispatchingService(
         });
 
     /// <summary>
+    /// 搬送を取りやめる。割り当て前なら待ち行列から外す。割り当てたあとなら、AGV へのコマンドの単位で取りやめる
+    /// （docs/domain.md「搬送の流れ」）。運転状態が停止でも受け付ける。
+    /// </summary>
+    /// <exception cref="InvalidOperationException">知らない搬送のとき。</exception>
+    public Task<TransportCancelResult> CancelAsync(TransportId id, CancellationToken cancellationToken) =>
+        RunAsync(async () =>
+        {
+            var transport = _transports.TryGetValue(id, out var found)
+                ? found
+                : throw new InvalidOperationException($"搬送 {id} はありません。");
+
+            if (transport.Stage == TransportStage.Waiting)
+            {
+                _queue.Cancel(id);
+                return TransportCancelResult.Canceled;
+            }
+
+            var outcome = transport.RequestCancel();
+            await ExecuteAsync(transport, outcome.Actions, cancellationToken).ConfigureAwait(false);
+            return outcome.Result;
+        });
+
+    /// <summary>
     /// 受け渡しの相手が、受け渡しを終えた（消耗品の管理から）。
     /// </summary>
     public Task ReportTransferCompletedAsync(TransportId id, CancellationToken cancellationToken) =>
@@ -482,6 +505,16 @@ public sealed class DispatchingService(
                     await OnTransportFinishedAsync(transport.AssignedAgv!.Value, cancellationToken).ConfigureAwait(false);
                     break;
 
+                case StopAgv stop:
+                    await traffic.StopAgvAsync(stop.Agv, correlationId, cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case NotifyCanceled canceled:
+                    await PublishAsync(correlationId, m => new TransportCanceled(m, canceled.Transport, request.Requester, canceled.Agv, canceled.Loaded), cancellationToken).ConfigureAwait(false);
+                    Agv(canceled.Agv).Loaded = canceled.Loaded;
+                    await OnTransportFinishedAsync(canceled.Agv, cancellationToken).ConfigureAwait(false);
+                    break;
+
                 case NotifyInterrupted interrupted:
                     await PublishAsync(correlationId, m => new TransportInterrupted(m, interrupted.Transport, request.Requester), cancellationToken).ConfigureAwait(false);
                     break;
@@ -573,7 +606,7 @@ public sealed class DispatchingService(
     }
 
     /// <summary>
-    /// 割り当ての候補。オートの AGV だけを、空いているものとする。位置がわからない AGV は候補にしない。充電残量の通知がまだなければ、足りているものとみなす。
+    /// 割り当ての候補。オートで、ものを積んだまま止まっていない AGV だけを、空いているものとする。位置がわからない AGV は候補にしない。充電残量の通知がまだなければ、足りているものとみなす。
     /// </summary>
     private AgvCandidate? CandidateOf(AgvId id, AgvDispatch agv)
     {
@@ -585,6 +618,7 @@ public sealed class DispatchingService(
 
         var isIdle = view.State == AgvState.Idle
             && view.Control == ControlStatus.Auto
+            && !agv.Loaded
             && view.CarrierRaised
             && agv.Active is null
             && agv.Charging.State == ChargingState.Normal;
@@ -646,5 +680,8 @@ public sealed class DispatchingService(
 
         /// <summary>割り当てている搬送（中断したものも含む）。なければ null。</summary>
         public Transport? Active { get; set; }
+
+        /// <summary>搬送を取りやめて、ものを積んだまま止まっている（届けるか返すまで、ほかの搬送は割り当てない）。</summary>
+        public bool Loaded { get; set; }
     }
 }

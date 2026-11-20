@@ -86,6 +86,15 @@ public class DispatchingServiceTests
 
         public void SetEvacuationEnabled(bool enabled) => EvacuationChanges.Add(enabled);
 
+        /// <summary>止めた AGV（止めた順）。</summary>
+        public List<AgvId> Stops { get; } = [];
+
+        public Task StopAgvAsync(AgvId id, string correlationId, CancellationToken cancellationToken)
+        {
+            Stops.Add(id);
+            return Task.CompletedTask;
+        }
+
         public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken)
         {
             ControlChanges.Add((id, target));
@@ -645,5 +654,260 @@ public class DispatchingServiceTests
         Assert.True(service.IsRunning);
         Assert.Single(events.Of<OperationStarted>());
         Assert.Equal([false, true], traffic.EvacuationChanges);
+    }
+
+    // ---- 割り当てたあとの取りやめ ----
+
+    /// <summary>搬送元に着いてキャリアを下げ始めたところまで進める（受け渡しの許可はまだ）。</summary>
+    private static async Task<TransportId> LoweringAtSource(DispatchingService service, FakeTraffic traffic)
+    {
+        var id = await service.RequestTransportAsync(Order(), None);
+        traffic.SetAgv(S);
+        await service.OnAgvArrivedAsync(new AgvArrived(Meta(), Agv, S), None);
+        return id;
+    }
+
+    private static TransportCanceled CanceledEvent(RecordingPublisher events) => Assert.Single(events.Of<TransportCanceled>());
+
+    [Fact]
+    public async Task 割り当て前の搬送も取りやめられる()
+    {
+        var (service, traffic, events) = Setup(A);
+        traffic.SetAgv(A, AgvState.EmergencyStopped); // 割り当てられる AGV がいない
+        var id = await service.RequestTransportAsync(Order(), None);
+
+        var result = await service.CancelAsync(id, None);
+
+        Assert.Equal(TransportCancelResult.Canceled, result);
+        Assert.Empty(events.Of<TransportCanceled>()); // 割り当て前は、頼んだ側が自分で取りやめたので知らせない
+    }
+
+    [Fact]
+    public async Task 搬送元へ移動中に取りやめるとAGVを止めて何も積まずに取りやめたことを知らせる()
+    {
+        var (service, traffic, events) = Setup(A);
+        var id = await service.RequestTransportAsync(Order(), None);
+
+        var result = await service.CancelAsync(id, None);
+
+        Assert.Equal(TransportCancelResult.Canceled, result);
+        Assert.Equal([Agv], traffic.Stops);
+        var canceled = CanceledEvent(events);
+        Assert.Equal((id, "ToolPlanning", Agv, false), (canceled.Transport, canceled.Requester, canceled.Agv, canceled.Loaded));
+    }
+
+    [Fact]
+    public async Task 何も積まずに取りやめたAGVにはほかの搬送を割り当てる()
+    {
+        var (service, traffic, _) = Setup(A);
+        var id = await service.RequestTransportAsync(Order(), None);
+        await service.CancelAsync(id, None);
+
+        var next = await service.RequestTransportAsync(Order(), None);
+
+        Assert.Equal((Agv, S, $"transport:{next}"), traffic.Moves[^1]);
+    }
+
+    [Fact]
+    public async Task 搬送元で許可の前に取りやめるとキャリアが下がったら上げて止まり何も積まずに取りやめる()
+    {
+        var (service, traffic, events) = Setup(A);
+        var id = await LoweringAtSource(service, traffic);
+
+        var result = await service.CancelAsync(id, None);
+        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None);
+        var beforeRaised = events.Of<TransportCanceled>().Count();
+        await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
+
+        Assert.Equal(TransportCancelResult.Canceling, result);
+        Assert.Empty(events.Of<TransferPermissionRequested>()); // 許可は出さない
+        Assert.Equal([Agv], traffic.Raises);
+        Assert.Equal(0, beforeRaised);
+        Assert.False(CanceledEvent(events).Loaded);
+    }
+
+    [Fact]
+    public async Task 搬送元で許可のあとに取りやめると受け渡しを終えてキャリアを上げたところで積んだまま取りやめる()
+    {
+        var (service, traffic, events) = Setup(A);
+        var id = await LoweringAtSource(service, traffic);
+        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None); // 許可を頼んだ
+
+        var result = await service.CancelAsync(id, None);
+        await service.ReportTransferCompletedAsync(id, None);
+        await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
+
+        Assert.Equal(TransportCancelResult.Canceling, result);
+        Assert.Equal([Agv], traffic.Raises);
+        Assert.True(CanceledEvent(events).Loaded);
+        Assert.DoesNotContain(traffic.Moves, m => m.To == D); // 搬送先へは向かわない
+    }
+
+    [Fact]
+    public async Task 搬送先へ移動中に取りやめるとAGVを止めて積んだまま取りやめる()
+    {
+        var (service, traffic, events) = Setup(A);
+        var id = await LoadedTransport(service, traffic);
+
+        var result = await service.CancelAsync(id, None);
+
+        Assert.Equal(TransportCancelResult.Canceled, result);
+        Assert.Equal([Agv], traffic.Stops);
+        Assert.True(CanceledEvent(events).Loaded);
+    }
+
+    [Fact]
+    public async Task 積んだまま取りやめたAGVにはほかの搬送を割り当てない()
+    {
+        var (service, traffic, _) = Setup(A);
+        var id = await LoadedTransport(service, traffic);
+        await service.CancelAsync(id, None);
+        var moves = traffic.Moves.Count;
+
+        await service.RequestTransportAsync(Order(), None);
+
+        Assert.Equal(moves, traffic.Moves.Count);
+    }
+
+    [Fact]
+    public async Task 搬送先で許可の前に取りやめるとキャリアが下がったら上げて止まり積んだまま取りやめる()
+    {
+        var (service, traffic, events) = Setup(A);
+        var id = await LoadedTransport(service, traffic);
+        traffic.SetAgv(D);
+        await service.OnAgvArrivedAsync(new AgvArrived(Meta(), Agv, D), None);
+
+        var result = await service.CancelAsync(id, None);
+        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None);
+        await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
+
+        Assert.Equal(TransportCancelResult.Canceling, result);
+        Assert.Single(events.Of<TransferPermissionRequested>()); // 搬送元の許可だけ
+        Assert.True(CanceledEvent(events).Loaded);
+        Assert.Empty(events.Of<TransportCompleted>());
+    }
+
+    [Fact]
+    public async Task 搬送先で許可のあとに取りやめると受け渡しを終えて完了として扱う()
+    {
+        var (service, traffic, events) = Setup(A);
+        var id = await LoadedTransport(service, traffic);
+        traffic.SetAgv(D);
+        await service.OnAgvArrivedAsync(new AgvArrived(Meta(), Agv, D), None);
+        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None); // 搬送先の許可を頼んだ
+
+        var result = await service.CancelAsync(id, None);
+        await service.ReportTransferCompletedAsync(id, None);
+        await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
+
+        Assert.Equal(TransportCancelResult.Completing, result);
+        Assert.Single(events.Of<TransportCompleted>());
+        Assert.Empty(events.Of<TransportCanceled>());
+    }
+
+    [Fact]
+    public async Task 中断した搬送と終えた搬送は取りやめられない()
+    {
+        var (service, traffic, _) = Setup(A);
+        var interrupted = await service.RequestTransportAsync(Order(), None);
+        await service.OnAgvFaultedAsync(new AgvFaulted(Meta(), Agv), None);
+
+        var result = await service.CancelAsync(interrupted, None);
+
+        Assert.Equal(TransportCancelResult.NotCancelable, result);
+        Assert.Empty(traffic.Stops);
+    }
+
+    [Fact]
+    public async Task 割り当てたあとの取りやめでも知らない搬送は取りやめられない()
+    {
+        var (service, _, _) = Setup(A);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CancelAsync(new TransportId(99), None));
+    }
+
+    [Fact]
+    public async Task 停止中でも取りやめを受け付けキャリアを上げる()
+    {
+        var (service, traffic, events) = Setup(A);
+        var id = await LoweringAtSource(service, traffic);
+        await service.StopAsync(None);
+
+        var result = await service.CancelAsync(id, None);
+        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None);
+        await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
+
+        Assert.Equal(TransportCancelResult.Canceling, result);
+        Assert.Equal([Agv], traffic.Raises);
+        Assert.False(CanceledEvent(events).Loaded);
+    }
+
+    [Fact]
+    public async Task 緊急停止中に取りやめたらアラームクリアのあとにキャリアを上げる()
+    {
+        var (service, traffic, _) = Setup(A);
+        var id = await LoweringAtSource(service, traffic);
+        await service.OnAgvStoppedAsync(new AgvStopped(Meta(), Agv), None);
+
+        await service.CancelAsync(id, None);
+        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None);
+        var whileStopped = traffic.Raises.Count;
+        await service.OnAgvResumedAsync(new AgvResumed(Meta(), Agv), None);
+
+        Assert.Equal(0, whileStopped);
+        Assert.Equal([Agv], traffic.Raises);
+    }
+
+    [Fact]
+    public async Task 停止中に着いてキャリアを下げる前なら取りやめると下げずにすぐ取りやめる()
+    {
+        var (service, traffic, events) = Setup(A);
+        var id = await service.RequestTransportAsync(Order(), None);
+        await service.StopAsync(None);
+        traffic.SetAgv(S);
+        await service.OnAgvArrivedAsync(new AgvArrived(Meta(), Agv, S), None); // キャリアを下げるコマンドは出さずにおく
+
+        var result = await service.CancelAsync(id, None);
+
+        Assert.Equal(TransportCancelResult.Canceled, result);
+        Assert.Empty(traffic.Lowers);
+        Assert.Empty(traffic.Raises);
+        Assert.False(CanceledEvent(events).Loaded);
+    }
+
+    [Fact]
+    public async Task 停止中にキャリアが下がって許可をまだ頼んでいなければ許可を出さずにキャリアを上げる()
+    {
+        var (service, traffic, events) = Setup(A);
+        var id = await LoweringAtSource(service, traffic);
+        await service.StopAsync(None);
+        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None); // 許可は頼まずにおく
+
+        var result = await service.CancelAsync(id, None);
+        await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
+
+        Assert.Equal(TransportCancelResult.Canceling, result);
+        Assert.Empty(events.Of<TransferPermissionRequested>());
+        Assert.Equal([Agv], traffic.Raises);
+        Assert.False(CanceledEvent(events).Loaded);
+    }
+
+    [Fact]
+    public async Task 停止中に受け渡しを終えてキャリアを上げる前なら取りやめるとすぐにキャリアを上げる()
+    {
+        var (service, traffic, events) = Setup(A);
+        var id = await LoweringAtSource(service, traffic);
+        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None);
+        await service.StopAsync(None);
+        await service.ReportTransferCompletedAsync(id, None); // キャリアを上げるコマンドは出さずにおく
+        var beforeCancel = traffic.Raises.Count;
+
+        var result = await service.CancelAsync(id, None);
+        await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
+
+        Assert.Equal(0, beforeCancel);
+        Assert.Equal(TransportCancelResult.Canceling, result);
+        Assert.Equal([Agv], traffic.Raises);
+        Assert.True(CanceledEvent(events).Loaded);
     }
 }

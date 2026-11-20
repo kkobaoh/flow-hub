@@ -49,3 +49,10 @@ internal sealed record NotifyCompleted(TransportId Transport) : TransportAction;
 
 /// <summary>イベントで知らせる：搬送を中断した（画面で知らせる）。</summary>
 internal sealed record NotifyInterrupted(TransportId Transport) : TransportAction;
+
+/// <summary>AGV を止める（搬送の取りやめ）。まだ渡していないコマンドを取り下げ、受け取ったコマンドを終えたところで止まる。</summary>
+internal sealed record StopAgv(AgvId Agv) : TransportAction;
+
+/// <summary>割り当てたあとの搬送を取りやめたことを知らせる。</summary>
+/// <param name="Loaded">AGV がものを積んだまま止まったか。</param>
+internal sealed record NotifyCanceled(TransportId Transport, AgvId Agv, bool Loaded) : TransportAction;

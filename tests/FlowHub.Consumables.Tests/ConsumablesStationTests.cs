@@ -26,6 +26,9 @@ public class ConsumablesStationTests
     {
         public bool IsRunning => true;
 
+        public Task<TransportCancelResult> CancelAsync(TransportId id, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<TransportId> RequestTransportAsync(TransportOrder order, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<bool> CancelTransportAsync(TransportId id, CancellationToken cancellationToken) => throw new NotSupportedException();

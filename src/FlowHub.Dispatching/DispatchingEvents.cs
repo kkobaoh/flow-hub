@@ -34,3 +34,10 @@ public sealed record OperationStarted(EventMetadata Metadata) : IIntegrationEven
 
 /// <summary>運転状態を停止にしたとき、AGV を止める待機パネルも受け渡しパネルも空いていなかったので、その場で止めた（画面で知らせる）。</summary>
 public sealed record NoParkingSpace(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
+
+/// <summary>
+/// 割り当てたあとの搬送を取りやめた。要求元は、届ける途中の数から外して判断をやり直す。
+/// </summary>
+/// <param name="Agv">止まった AGV。</param>
+/// <param name="Loaded">AGV がものを積んだまま止まったか（届けるか返すまで、その AGV にほかの搬送は割り当てない）。</param>
+public sealed record TransportCanceled(EventMetadata Metadata, TransportId Transport, string Requester, AgvId Agv, bool Loaded) : IIntegrationEvent;

@@ -42,6 +42,8 @@ internal sealed class FakeFleetTraffic : ITrafficService
     {
     }
 
+    public Task StopAgvAsync(AgvId id, string correlationId, CancellationToken cancellationToken) => Task.CompletedTask;
+
     /// <summary>AGV を置く。走っているなら、止まれる最初の位置も渡す。</summary>
     public void Set(AgvId id, PanelId at, PanelId? stopsAt = null, ControlStatus control = ControlStatus.Auto) =>
         Agvs[id] = new AgvView(id, new Pose(at.Value, 0), stopsAt is null ? AgvState.Idle : AgvState.Moving, CarrierRaised: true, CumulativeDistanceMm: 0, control)

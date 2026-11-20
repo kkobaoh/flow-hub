@@ -203,6 +203,42 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
         _remainingSections.Add(section);
     }
 
+    /// <summary>
+    /// 経路を取りやめる（搬送の取りやめなど）。まだ渡していない区間と動作コマンドを取り下げ、AGV に渡した動作コマンドを終えたところで止まる。
+    /// 渡したが受け取っていなかった動作コマンドは、次に取りに来たときに取り下げる。今いるパネルと、走っている区間で使うパネル以外の予約を外す。
+    /// </summary>
+    public void CancelRoute()
+    {
+        _remainingSections.Clear();
+        foreach (var item in _outbox.Where(item => item.Command is MotionCommand).ToArray())
+        {
+            if (item.HandedOut)
+            {
+                item.WithdrawIfNotReceived = true;
+                item.ReissueOnWithdraw = false;
+                item.ReleaseOnWithdraw = true;
+            }
+            else
+            {
+                _outbox.Remove(item);
+                OnWithdrawn(item, reissueLater: false);
+            }
+        }
+
+        ReleaseUnused();
+    }
+
+    /// <summary>今いるパネルと、これから通るパネル以外の予約を外す。</summary>
+    private void ReleaseUnused()
+    {
+        var keep = RemainingPanels();
+        keep.Add(new PanelId(Position!.NodeId));
+        foreach (var panel in reservations.ReservedBy(Id).Where(panel => !keep.Contains(panel)).ToArray())
+        {
+            reservations.Release(Id, panel);
+        }
+    }
+
     /// <summary>並べた区間をすべて終えたあとの姿勢（なければ <see cref="PlanningStart"/>）。</summary>
     public Pose RouteEnd => _remainingSections.Count > 0 ? _remainingSections[^1].End : PlanningStart;
 
@@ -377,6 +413,10 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
             {
                 _outbox.Remove(item); // 受け取っていなかったので、取り下げる
                 OnWithdrawn(item, item.ReissueOnWithdraw);
+                if (item.ReleaseOnWithdraw)
+                {
+                    ReleaseUnused();
+                }
             }
         }
 
@@ -812,6 +852,9 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
 
         /// <summary>取り下げたとき、アラームクリアのあとに渡し直すか。</summary>
         public bool ReissueOnWithdraw { get; set; }
+
+        /// <summary>取り下げたとき、使わなくなったパネルの予約を外すか（経路を取りやめたとき）。</summary>
+        public bool ReleaseOnWithdraw { get; set; }
     }
 
     /// <summary>

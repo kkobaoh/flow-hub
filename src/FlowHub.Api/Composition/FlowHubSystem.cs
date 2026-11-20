@@ -130,6 +130,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         });
         app.MapAgvEndpoints(Traffic, _agvEndpoints, _timeProvider);
         app.MapSystemEndpoints(Dispatching);
+        app.MapTransportEndpoints(Dispatching);
     }
 
     public void Dispose()

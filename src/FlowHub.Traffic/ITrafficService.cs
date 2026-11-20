@@ -24,6 +24,12 @@ public interface ITrafficService
     /// <param name="correlationId">一連の流れの ID（例：搬送 ID）。このあとのイベントに付ける。</param>
     Task<MoveResult> MoveAgvAsync(AgvId id, PanelId destination, DateTimeOffset? neededBy, string correlationId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// AGV を止める（搬送の取りやめなど）。行き先とまだ渡していないコマンドを取り下げ、AGV が受け取ったコマンドを終えたところで止まる。
+    /// 止まったパネル以外の予約を外す。着いたことは知らせない。
+    /// </summary>
+    Task StopAgvAsync(AgvId id, string correlationId, CancellationToken cancellationToken);
+
     /// <summary>キャリアを下げる。下がったら <see cref="CarrierLowered"/> で知らせる。</summary>
     Task LowerCarrierAsync(AgvId id, string correlationId, CancellationToken cancellationToken);
 

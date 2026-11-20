@@ -59,6 +59,16 @@ internal sealed class FakeDispatching : IDispatchingService
 
     public Task ReportTransferCompletedAsync(TransportId id, CancellationToken cancellationToken) => Task.CompletedTask;
 
+    /// <summary>割り当てたあとでも取りやめるよう頼まれた搬送（頼まれた順）。</summary>
+    public List<TransportId> CancelRequests { get; } = [];
+
+    public Task<TransportCancelResult> CancelAsync(TransportId id, CancellationToken cancellationToken)
+    {
+        CancelRequests.Add(id);
+        Cancelled.Add(id);
+        return Task.FromResult(TransportCancelResult.Canceled);
+    }
+
     /// <summary>今残っている要求を、すべて割り当て済みにする。</summary>
     public void AssignAll()
     {

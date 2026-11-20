@@ -22,9 +22,12 @@ internal enum TransportStage
     /// <summary>AGV が異常になったため中断した。</summary>
     Interrupted,
 
-    /// <summary>割り当て前に取りやめた。</summary>
+    /// <summary>取りやめた（割り当て前、または割り当てたあと）。</summary>
     Canceled,
 }
+
+/// <summary>取りやめを頼んだ結果と、続けて頼むことや知らせること。</summary>
+internal sealed record TransportCancelOutcome(TransportCancelResult Result, IReadOnlyList<TransportAction> Actions);
 
 /// <summary>
 /// 知らせを受けた結果。
@@ -56,6 +59,15 @@ internal sealed class Transport(TransportId id, TransportRequest request)
 
     /// <summary>一時停止中に、今の段階のコマンドを出さずにおいたか。</summary>
     private bool _commandDeferred;
+
+    /// <summary>割り当てたあとに取りやめを頼まれた（受け渡しの途中なので、キャリアを上げたところで止まる）。</summary>
+    private bool _cancelRequested;
+
+    /// <summary>搬送元で受け渡しを終えた（積み込んだ）。</summary>
+    private bool _loaded;
+
+    /// <summary>搬送先で受け渡しを終えた（降ろした）。</summary>
+    private bool _unloaded;
 
     public TransportId Id { get; } = id;
 
@@ -90,29 +102,98 @@ internal sealed class Transport(TransportId id, TransportRequest request)
         _ => Ignored,
     };
 
-    /// <summary>キャリアが下がった（交通整理から）。</summary>
+    /// <summary>キャリアが下がった（交通整理から）。取りやめを頼まれていれば、受け渡しをせずにキャリアを上げる。</summary>
     public TransportEventResult OnCarrierLowered() => Stage switch
     {
-        TransportStage.LoweringAtSource => MoveTo(TransportStage.TransferringAtSource),
-        TransportStage.LoweringAtDestination => MoveTo(TransportStage.TransferringAtDestination),
+        TransportStage.LoweringAtSource => MoveTo(_cancelRequested ? TransportStage.RaisingAtSource : TransportStage.TransferringAtSource),
+        TransportStage.LoweringAtDestination => MoveTo(_cancelRequested ? TransportStage.RaisingAtDestination : TransportStage.TransferringAtDestination),
         _ => Ignored,
     };
 
     /// <summary>受け渡しの相手が、受け渡しを終えた（消耗品の管理から）。</summary>
-    public TransportEventResult OnTransferCompleted() => Stage switch
+    public TransportEventResult OnTransferCompleted()
     {
-        TransportStage.TransferringAtSource => MoveTo(TransportStage.RaisingAtSource),
-        TransportStage.TransferringAtDestination => MoveTo(TransportStage.RaisingAtDestination),
-        _ => Ignored,
-    };
+        switch (Stage)
+        {
+            case TransportStage.TransferringAtSource:
+                _loaded = true;
+                return MoveTo(TransportStage.RaisingAtSource);
+            case TransportStage.TransferringAtDestination:
+                _unloaded = true;
+                return MoveTo(TransportStage.RaisingAtDestination);
+            default:
+                return Ignored;
+        }
+    }
 
-    /// <summary>キャリアが上がった（交通整理から）。</summary>
+    /// <summary>キャリアが上がった（交通整理から）。取りやめを頼まれていれば、そこで止まって取りやめる（搬送先で降ろしたあとなら完了）。</summary>
     public TransportEventResult OnCarrierRaised() => Stage switch
     {
+        TransportStage.RaisingAtSource when _cancelRequested => MoveTo(TransportStage.Canceled, new NotifyCanceled(Id, AssignedAgv!.Value, _loaded)),
         TransportStage.RaisingAtSource => MoveTo(TransportStage.MovingToDestination),
+        TransportStage.RaisingAtDestination when _cancelRequested && !_unloaded => MoveTo(TransportStage.Canceled, new NotifyCanceled(Id, AssignedAgv!.Value, Loaded: true)),
         TransportStage.RaisingAtDestination => MoveTo(TransportStage.Completed, new NotifyCompleted(Id)),
         _ => Ignored,
     };
+
+    /// <summary>
+    /// 割り当てたあとの搬送の取りやめを頼まれた（AGV へのコマンドの単位で取りやめる）。
+    /// 走っていれば AGV を止めてすぐに取りやめる。受け渡しの途中なら、許可の前ならキャリアを上げて、許可のあとなら受け渡しを終えて
+    /// キャリアを上げたところで取りやめる。搬送先で許可を出したあとなら、最後まで終えて完了にする。
+    /// 運転状態が停止でも、取りやめに要るコマンドは出す（緊急停止中は、アラームクリアのあとに出す）。
+    /// </summary>
+    public TransportCancelOutcome RequestCancel()
+    {
+        var agv = AssignedAgv;
+        switch (Stage)
+        {
+            case TransportStage.MovingToSource or TransportStage.MovingToDestination:
+                var loaded = Stage == TransportStage.MovingToDestination;
+                Stage = TransportStage.Canceled;
+                _commandDeferred = false;
+                return new(TransportCancelResult.Canceled, [new StopAgv(agv!.Value), new NotifyCanceled(Id, agv.Value, loaded)]);
+
+            case TransportStage.LoweringAtSource or TransportStage.LoweringAtDestination when _commandDeferred:
+                // キャリアを下げるコマンドをまだ出していない：下げずに、そのまま取りやめる
+                var loadedHere = Stage == TransportStage.LoweringAtDestination;
+                Stage = TransportStage.Canceled;
+                _commandDeferred = false;
+                return new(TransportCancelResult.Canceled, [new NotifyCanceled(Id, agv!.Value, loadedHere)]);
+
+            case TransportStage.LoweringAtSource or TransportStage.LoweringAtDestination:
+                _cancelRequested = true;
+                return new(TransportCancelResult.Canceling, []);
+
+            case TransportStage.TransferringAtSource or TransportStage.TransferringAtDestination when _commandDeferred:
+                // 受け渡しの許可をまだ頼んでいない（許可の前）：受け渡しをせずに、キャリアを上げる
+                _cancelRequested = true;
+                _commandDeferred = false;
+                return new(TransportCancelResult.Canceling, MoveTo(Stage == TransportStage.TransferringAtSource ? TransportStage.RaisingAtSource : TransportStage.RaisingAtDestination).Actions);
+
+            case TransportStage.TransferringAtSource or TransportStage.RaisingAtSource:
+                _cancelRequested = true;
+                return new(TransportCancelResult.Canceling, ReleaseDeferredForCancel());
+
+            case TransportStage.TransferringAtDestination or TransportStage.RaisingAtDestination:
+                _cancelRequested = true;
+                return new(TransportCancelResult.Completing, ReleaseDeferredForCancel());
+
+            default:
+                return new(TransportCancelResult.NotCancelable, []);
+        }
+    }
+
+    /// <summary>運転状態の停止で出さずにおいたコマンドがあれば、取りやめのために今出す（緊急停止中は出さない）。</summary>
+    private IReadOnlyList<TransportAction> ReleaseDeferredForCancel()
+    {
+        if (!_commandDeferred || _pauses.Contains(PauseReason.AgvStopped) || CommandFor(Stage) is not { } command)
+        {
+            return [];
+        }
+
+        _commandDeferred = false;
+        return [command];
+    }
 
     /// <summary>
     /// 一時停止する（AGV が緊急停止中になった、運転状態が停止になった）。一時停止中は、状態は進めるが、次のコマンドは出さない。
@@ -177,7 +258,8 @@ internal sealed class Transport(TransportId id, TransportRequest request)
 
         if (CommandFor(next) is { } command)
         {
-            if (_pauses.Count > 0)
+            // 取りやめの途中は、運転状態の停止では止めない（緊急停止中だけ待つ）
+            if (_cancelRequested ? _pauses.Contains(PauseReason.AgvStopped) : _pauses.Count > 0)
             {
                 _commandDeferred = true;
             }

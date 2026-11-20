@@ -234,6 +234,22 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal("stopped", afterStop);
     }
 
+    [Fact]
+    public async Task HTTPで搬送を取りやめられる()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        var id = await system.Dispatching.RequestTransportAsync(new TransportOrder("test", ["C-1"], S, "station-1", D, "device-1", CarrierX, DateTimeOffset.MaxValue), Token);
+
+        using var canceled = await client.PostAsync(new Uri($"/transports/{id.Value}/cancel", UriKind.Relative), null, Token);
+        using var unknown = await client.PostAsync(new Uri("/transports/999/cancel", UriKind.Relative), null, Token);
+
+        Assert.Equal(HttpStatusCode.OK, canceled.StatusCode);
+        Assert.Equal("canceled", (string?)JsonNode.Parse(await canceled.Content.ReadAsStringAsync(Token))!["result"]);
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+    }
+
     private static async Task<string?> StatusAsync(HttpClient client)
     {
         using var response = await client.GetAsync(new Uri("/system/status", UriKind.Relative), Token);

@@ -52,6 +52,8 @@ public class DispatchingSubscriptionsTests
         public void SetEvacuationEnabled(bool enabled)
         {
         }
+
+        public Task StopAgvAsync(AgvId id, string correlationId, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private static EventMetadata Meta() => EventMetadata.Start("test", new FixedTimeProvider());

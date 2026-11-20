@@ -287,6 +287,22 @@ public sealed class TrafficService(
         }, cancellationToken);
 
     /// <summary>
+    /// AGV を止める（搬送の取りやめなど）。行き先とまだ渡していないコマンドを取り下げ、AGV が受け取ったコマンドを終えたところで止まる。
+    /// 止まったパネル以外の予約を外して、全台の経路を計画し直す。着いたことは知らせない。
+    /// </summary>
+    /// <exception cref="InvalidOperationException">システムが動かす AGV（オートか割り当て停止）でないとき。</exception>
+    public Task StopAgvAsync(AgvId id, string correlationId, CancellationToken cancellationToken) =>
+        RunAsync(id, correlationId, entry =>
+        {
+            RefuseUnlessSystemControlled(entry);
+            entry.Destination = null;
+            entry.PlanStatus = null;
+            entry.Travel.CancelRoute();
+            ReplanAll();
+            return true;
+        }, cancellationToken);
+
+    /// <summary>
     /// キャリアを下げる。高さはマップの設定から読む（設定されていなければ、AGV に測定させる）。
     /// </summary>
     public Task LowerCarrierAsync(AgvId id, string correlationId, CancellationToken cancellationToken) =>

@@ -29,6 +29,9 @@ public class ConsumablesServiceTests
     {
         public bool IsRunning => true;
 
+        public Task<TransportCancelResult> CancelAsync(TransportId id, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public List<TransportId> TransferCompleted { get; } = [];
 
         public Task<TransportId> RequestTransportAsync(TransportOrder order, CancellationToken cancellationToken) =>
