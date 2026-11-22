@@ -1,0 +1,151 @@
+import { useEffect, useState } from 'react';
+import type { AgvId } from '../map/agv';
+import { panelOf } from '../map/drawing';
+import { MapViewport } from '../map/MapViewport';
+import type { Heading, MapLayout, PanelId } from '../map/model';
+import type { Size } from '../map/viewport';
+import { AgvCard, type AgvDetail } from './AgvCard';
+import { AppHeader, type SignedInUser } from './AppHeader';
+import type { ControlStatus } from './controlStatus';
+import type { ManualOutcome } from './manual';
+import { ManualPanel, type DestinationOption, type ManualStepCommand } from './ManualPanel';
+import { MessageRail, MessageTab, type Message } from './MessageRail';
+import type { Permissions } from './permissions';
+import { RunSwitch } from './RunSwitch';
+import type { ScreenKey } from './screens';
+
+export interface MapScreenProps {
+  readonly layout: MapLayout;
+  readonly agvs: readonly AgvDetail[];
+  readonly reservedPanels: readonly PanelId[];
+  readonly routes: readonly (readonly PanelId[])[];
+  readonly messages: readonly Message[];
+  readonly running: boolean;
+  readonly user: SignedInUser;
+  readonly permissions: Permissions;
+  readonly mapVersion: string;
+  /** マニュアルで選べる行き先。 */
+  readonly destinations: readonly DestinationOption[];
+  /** マップを描く大きさ（テストと Storybook のため。なければ、置かれた場所の大きさを測る）。 */
+  readonly mapViewportSize?: Size;
+  readonly onNavigate: (screen: ScreenKey) => void;
+  readonly onChangePassword: () => void;
+  readonly onLogout: () => void;
+  readonly onStart: () => void;
+  readonly onStop: () => void;
+  readonly onMarkAllSeen: () => void;
+  readonly onEmergencyStop: (id: AgvId) => void;
+  readonly onChangeControl: (id: AgvId, status: ControlStatus, needsPosition: boolean) => void;
+  readonly onAlarmClear: (id: AgvId) => void;
+  readonly onPositionReset: (id: AgvId) => void;
+  readonly onManualMove: (id: AgvId, destination: PanelId, arrival: Heading | null) => Promise<ManualOutcome>;
+  readonly onManualStep: (id: AgvId, step: ManualStepCommand) => Promise<ManualOutcome>;
+  readonly onManualCarrier: (id: AgvId, action: 'raise' | 'lower') => Promise<ManualOutcome>;
+}
+
+/** 押してもカードを閉じない場所（カード、マップの AGV、マップの上のボタン、メッセージの列）。 */
+const KEEP_CARD = '[data-agv-card], [data-agv], [data-keep-card]';
+
+function isNarrow(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches;
+}
+
+/**
+ * 1 全体の様子（マップ）。床のいまの様子を見て、その場で対処する画面。
+ * サーバーとのやり取りはしない（受け取ったものを描き、操作を知らせる）。
+ */
+export function MapScreen(props: MapScreenProps) {
+  const { layout, agvs, messages, permissions } = props;
+  const [selected, setSelected] = useState<AgvId | null>(null);
+  const [highlighted, setHighlighted] = useState<AgvId | null>(null);
+  const unreadCount = messages.filter((m) => m.unread).length;
+  // null のあいだは、まだ見ていないメッセージがあれば開いておく（スマートフォンでは、たたんでおく）
+  const [railChoice, setRailChoice] = useState<boolean | null>(null);
+  const railOpen = railChoice ?? (unreadCount > 0 && !isNarrow());
+  const agv = agvs.find((a) => a.id === selected) ?? null;
+
+  useEffect(() => {
+    if (!selected) {
+      return undefined;
+    }
+    const closeOutside = (e: MouseEvent) => {
+      if (e.target instanceof Element && !e.target.closest(KEEP_CARD)) {
+        setSelected(null);
+      }
+    };
+    document.addEventListener('click', closeOutside);
+    return () => document.removeEventListener('click', closeOutside);
+  }, [selected]);
+
+  return (
+    <div className="flex min-h-screen flex-col bg-ground font-sans text-graphite">
+      <AppHeader
+        running={props.running}
+        user={props.user}
+        current="map"
+        mapVersion={props.mapVersion}
+        onNavigate={props.onNavigate}
+        onChangePassword={props.onChangePassword}
+        onLogout={props.onLogout}
+      />
+      <main className="flex min-h-0 flex-1">
+        <section aria-label="マップ" className="relative min-h-[420px] min-w-0 flex-1 bg-floor">
+          <div className="absolute inset-0">
+            <MapViewport
+              layout={layout}
+              agvs={agvs}
+              reservedPanels={props.reservedPanels}
+              routes={props.routes}
+              selectedAgv={selected}
+              highlightedAgv={highlighted}
+              onSelectAgv={setSelected}
+              onHighlightAgv={setHighlighted}
+              {...(props.mapViewportSize ? { size: props.mapViewportSize } : {})}
+            />
+          </div>
+          <div data-keep-card="" className="absolute top-3 right-0 max-sm:top-auto max-sm:right-auto max-sm:bottom-0 max-sm:left-1/2 max-sm:-translate-x-1/2">
+            <MessageTab open={railOpen} unreadCount={unreadCount} onToggle={() => setRailChoice(!railOpen)} />
+          </div>
+          <div data-keep-card="" className="absolute right-3 bottom-3 max-sm:bottom-14">
+            <RunSwitch running={props.running} onStart={props.onStart} onStop={props.onStop} />
+          </div>
+        </section>
+        {railOpen && (
+          <aside
+            id="message-rail"
+            data-keep-card=""
+            className="w-[300px] shrink-0 overflow-y-auto border-l border-line max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-24 max-sm:h-[55vh] max-sm:w-auto max-sm:animate-sheet-in max-sm:rounded-t-2xl max-sm:border-t max-sm:border-l-0 max-sm:shadow-[0_-6px_20px_rgba(35,38,43,0.18)]"
+          >
+            <MessageRail messages={messages} onMarkAllSeen={props.onMarkAllSeen} onClose={() => setRailChoice(false)} />
+          </aside>
+        )}
+      </main>
+      {agv && (
+        <div
+          data-agv-card=""
+          className="fixed inset-y-0 left-0 z-25 w-[380px] max-w-[calc(100vw-32px)] animate-drawer-in overflow-y-auto border-r border-line bg-paper shadow-[6px_0_20px_rgba(35,38,43,0.18)] motion-reduce:animate-none max-sm:top-auto max-sm:right-0 max-sm:h-[55vh] max-sm:w-auto max-sm:max-w-none max-sm:animate-sheet-in max-sm:rounded-t-2xl max-sm:border-t max-sm:border-r-0"
+        >
+          <AgvCard
+            agv={agv}
+            onChargingPin={panelOf(layout, agv.panel).hasChargingPin}
+            permissions={permissions}
+            onClose={() => setSelected(null)}
+            onEmergencyStop={props.onEmergencyStop}
+            onChangeControl={props.onChangeControl}
+            onAlarmClear={props.onAlarmClear}
+            onPositionReset={props.onPositionReset}
+            manual={
+              <ManualPanel
+                input={{ operation: agv.operation, activity: agv.manualActivity ?? 'none', heading: agv.heading }}
+                destinations={props.destinations}
+                onMove={(destination, arrival) => props.onManualMove(agv.id, destination, arrival)}
+                onStep={(step) => props.onManualStep(agv.id, step)}
+                onCarrier={(action) => props.onManualCarrier(agv.id, action)}
+              />
+            }
+          />
+        </div>
+      )}
+    </div>
+  );
+}

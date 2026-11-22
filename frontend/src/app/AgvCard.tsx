@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { indicatorLight, lightLabel, type AgvId, type AgvOnMap } from '../map/agv';
 import type { Heading } from '../map/model';
 import { controlOptions, controlStatusLabel, type AgvOperation, type ControlStatus } from './controlStatus';
+import type { ManualActivity } from './manual';
 import type { Permissions } from './permissions';
 
 /** カードに出す AGV の詳細。 */
@@ -12,6 +13,8 @@ export interface AgvDetail extends AgvOnMap {
   readonly transport: string | null;
   /** 充電残量（%）。まだ一度も届いていなければ null。 */
   readonly batteryPercent: number | null;
+  /** マニュアルで、今走らせているもの（なければ 'none'）。 */
+  readonly manualActivity?: ManualActivity;
 }
 
 export interface AgvCardProps {

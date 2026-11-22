@@ -1,19 +1,18 @@
-import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { render } from './test/render';
 import { App } from './App';
 
 describe('App', () => {
-  it('システムの名前を見出しに出す', () => {
-    const html = renderToStaticMarkup(<App />);
+  it('入り口は、全体の様子（マップ）の画面にする', () => {
+    const { container } = render(<App />);
 
-    expect(html).toContain('<h1');
-    expect(html).toContain('FlowHub');
+    expect(container.querySelector('header')?.textContent).toContain('FlowHub');
+    expect(container.querySelector('svg[aria-label="マップ"]')).not.toBeNull();
   });
 
-  it('床の色の上に、グラファイトの字で描く', () => {
-    const html = renderToStaticMarkup(<App />);
+  it('サーバーとつながるまでは、見本のデータで動かしていることを知らせる', () => {
+    const { container } = render(<App />);
 
-    expect(html).toContain('bg-ground');
-    expect(html).toContain('text-graphite');
+    expect(container.textContent).toContain('見本のデータで表示しています');
   });
 });
