@@ -13,6 +13,12 @@
   --color-ink-muted: #4f545b;
   --color-line: #c9c9c2;
   --color-panel: #000000;
+  --color-panel-edge: #3a3a3a;
+  --color-panel-line: #ffffff;
+  --color-hole: #8a94a3;
+  --color-pin: #c88a3a;
+  --color-pin-charging: #3fd07a;
+  --color-lowering: #fbbf24;
 
   /* 状態 */
   --color-route: #f97316;
