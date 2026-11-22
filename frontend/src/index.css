@@ -13,6 +13,11 @@
   --color-ink-muted: #4f545b;
   --color-line: #c9c9c2;
   --color-control-border: #8b9097;
+  --color-header-muted: #d4d6d9;
+  --color-header-border: #5e636a;
+  --color-running: #1e7b45;
+  --color-running-dot: #7ce3a1;
+  --color-stopped-dot: #5e636a;
   --color-focus: #1d4ed8;
   --color-panel: #000000;
   --color-panel-edge: #3a3a3a;
