@@ -1,0 +1,137 @@
+import { describe, expect, it, vi } from 'vitest';
+import { click, pointer, render, wheel } from '../test/render';
+import { agvId, type AgvOnMap } from './agv';
+import { MapViewport } from './MapViewport';
+import { heading, panelId } from './model';
+import { sampleLayout } from './sampleLayout';
+
+// 見本のマップは 6000 x 4000 mm。余白 24px を除いた 1000 x 600 px に収めると、0.15 px/mm
+const size = { width: 1048, height: 648 };
+const agvs: AgvOnMap[] = [
+  { id: agvId('AGV-1'), label: '1', panel: panelId('P3'), heading: heading(90), status: { activity: 'moving', charging: false, carrierMoving: false } },
+];
+
+function viewBox(container: HTMLElement): number[] {
+  return (container.querySelector('svg')?.getAttribute('viewBox') ?? '').split(' ').map(Number);
+}
+
+function button(container: HTMLElement, label: string): HTMLElement {
+  const found = container.querySelector<HTMLElement>(`button[aria-label="${label}"]`);
+  if (!found) {
+    throw new Error(`「${label}」のボタンがありません`);
+  }
+  return found;
+}
+
+function surface(container: HTMLElement): HTMLElement {
+  const found = container.querySelector<HTMLElement>('[data-map-surface]');
+  if (!found) {
+    throw new Error('マップの面がありません');
+  }
+  return found;
+}
+
+describe('MapViewport', () => {
+  it('最初は、マップの全体が収まる大きさで、真ん中に置く', () => {
+    const { container } = render(<MapViewport layout={sampleLayout} size={size} />);
+    const [x, y, w, h] = viewBox(container);
+
+    expect(w).toBeCloseTo(1048 / 0.15);
+    expect(h).toBeCloseTo(648 / 0.15);
+    expect(x! + w! / 2).toBeCloseTo(3000);
+    expect(y! + h! / 2).toBeCloseTo(2000);
+  });
+
+  it('「拡大する」「縮小する」で、画面の真ん中を中心に大きさを変える', () => {
+    const { container } = render(<MapViewport layout={sampleLayout} size={size} />);
+    const [, , before] = viewBox(container);
+
+    click(button(container, '拡大する'));
+    const [x, , zoomed] = viewBox(container);
+    expect(zoomed).toBeCloseTo(before! / 1.25);
+    expect(x! + zoomed! / 2).toBeCloseTo(3000);
+
+    click(button(container, '縮小する'));
+    expect(viewBox(container)[2]).toBeCloseTo(before!);
+  });
+
+  it('「表示の位置を戻す」で、全体が収まる大きさに戻す', () => {
+    const { container } = render(<MapViewport layout={sampleLayout} size={size} />);
+    const fit = viewBox(container);
+
+    click(button(container, '拡大する'));
+    pointer(surface(container), 'pointerdown', { x: 100, y: 100 });
+    pointer(surface(container), 'pointermove', { x: 160, y: 130 });
+    pointer(surface(container), 'pointerup', { x: 160, y: 130 });
+    click(button(container, '表示の位置を戻す'));
+
+    expect(viewBox(container)).toEqual(fit);
+  });
+
+  it('ドラッグした向きに、マップを動かす', () => {
+    const { container } = render(<MapViewport layout={sampleLayout} size={size} />);
+    const [x0, y0] = viewBox(container);
+
+    pointer(surface(container), 'pointerdown', { x: 100, y: 100 });
+    pointer(surface(container), 'pointermove', { x: 130, y: 115 });
+    pointer(surface(container), 'pointerup', { x: 130, y: 115 });
+
+    const [x1, y1] = viewBox(container);
+    expect(x1).toBeCloseTo(x0! - 30 / 0.15);
+    expect(y1).toBeCloseTo(y0! - 15 / 0.15);
+  });
+
+  it('ホイールを奥へ回すと拡大し、手前へ回すと縮小する', () => {
+    const { container } = render(<MapViewport layout={sampleLayout} size={size} />);
+    const [, , before] = viewBox(container);
+
+    wheel(surface(container), -100, { x: 524, y: 324 });
+    const [, , zoomedIn] = viewBox(container);
+    expect(zoomedIn).toBeLessThan(before!);
+
+    wheel(surface(container), 100, { x: 524, y: 324 });
+    wheel(surface(container), 100, { x: 524, y: 324 });
+    expect(viewBox(container)[2]).toBeGreaterThan(before!);
+  });
+
+  it('ドラッグしたあとは、指を離したところの AGV を選ばない', () => {
+    const onSelectAgv = vi.fn();
+    const { container } = render(<MapViewport layout={sampleLayout} size={size} agvs={agvs} onSelectAgv={onSelectAgv} />);
+    const agv = container.querySelector('[data-agv="AGV-1"]')!;
+
+    pointer(surface(container), 'pointerdown', { x: 100, y: 100 });
+    pointer(surface(container), 'pointermove', { x: 140, y: 100 });
+    pointer(surface(container), 'pointerup', { x: 140, y: 100 });
+    click(agv);
+
+    expect(onSelectAgv).not.toHaveBeenCalled();
+  });
+
+  it('少し動かしただけ（4px まで）なら、押したことにして AGV を選ぶ', () => {
+    const onSelectAgv = vi.fn();
+    const { container } = render(<MapViewport layout={sampleLayout} size={size} agvs={agvs} onSelectAgv={onSelectAgv} />);
+    const agv = container.querySelector('[data-agv="AGV-1"]')!;
+    const [x0] = viewBox(container);
+
+    pointer(surface(container), 'pointerdown', { x: 100, y: 100 });
+    pointer(surface(container), 'pointermove', { x: 103, y: 101 });
+    pointer(surface(container), 'pointerup', { x: 103, y: 101 });
+    click(agv);
+
+    expect(onSelectAgv).toHaveBeenCalledWith('AGV-1');
+    expect(viewBox(container)[0]).toBeCloseTo(x0!);
+  });
+
+  it('2本の指でつまむと、指の間を広げた割合だけ拡大する', () => {
+    const { container } = render(<MapViewport layout={sampleLayout} size={size} />);
+    const [, , before] = viewBox(container);
+    const el = surface(container);
+
+    pointer(el, 'pointerdown', { x: 400, y: 300 }, 1);
+    pointer(el, 'pointerdown', { x: 500, y: 300 }, 2);
+    pointer(el, 'pointermove', { x: 530, y: 300 }, 2);
+
+    // 指の間が 100px から 130px に広がったので、1.3倍
+    expect(viewBox(container)[2]).toBeCloseTo(before! / 1.3);
+  });
+});

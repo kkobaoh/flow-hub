@@ -2,6 +2,7 @@ import { useMemo, type KeyboardEvent } from 'react';
 import { indicatorLight, lightLabel, type AgvId, type AgvOnMap, type LightColor } from './agv';
 import { crossPoint, drawMap, panelOf, routeSegments } from './drawing';
 import type { MapLayout, PanelId } from './model';
+import type { ViewBox } from './viewport';
 
 const LIGHT_FILL: Record<LightColor, string> = {
   moving: 'fill-light-moving',
@@ -34,6 +35,8 @@ export interface MapCanvasProps {
   readonly onSelectAgv?: (id: AgvId) => void;
   /** マウスを乗せた AGV を知らせる（外したら null）。 */
   readonly onHighlightAgv?: (id: AgvId | null) => void;
+  /** 見えている範囲（mm）。なければ、マップの全体。 */
+  readonly viewBox?: ViewBox | undefined;
 }
 
 /**
@@ -49,6 +52,7 @@ export function MapCanvas({
   highlightedAgv = null,
   onSelectAgv,
   onHighlightAgv,
+  viewBox,
 }: MapCanvasProps) {
   const d = useMemo(() => drawMap(layout), [layout]);
   const size = layout.panelSizeMm;
@@ -76,7 +80,7 @@ export function MapCanvas({
     <svg
       role="img"
       aria-label="マップ"
-      viewBox={`0 0 ${d.widthMm} ${d.heightMm}`}
+      viewBox={viewBox ? `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}` : `0 0 ${d.widthMm} ${d.heightMm}`}
       className="block h-full w-full"
     >
       {d.tiles.map((t) => (

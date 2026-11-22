@@ -41,6 +41,29 @@ export function pressKey(element: Element, key: string): void {
   });
 }
 
+/** ポインター（マウスや指）の知らせを送る。jsdom に PointerEvent がなければ、MouseEvent に pointerId を足して送る。 */
+export function pointer(
+  element: Element,
+  type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel',
+  at: { x: number; y: number },
+  pointerId = 1,
+): void {
+  act(() => {
+    const init = { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, pointerId };
+    const event = typeof PointerEvent === 'function' ? new PointerEvent(type, init) : new MouseEvent(type, init);
+    if (!('pointerId' in event) || event.pointerId !== pointerId) {
+      Object.defineProperty(event, 'pointerId', { value: pointerId });
+    }
+    element.dispatchEvent(event);
+  });
+}
+
+export function wheel(element: Element, deltaY: number, at: { x: number; y: number }): void {
+  act(() => {
+    element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY, clientX: at.x, clientY: at.y }));
+  });
+}
+
 export function hover(element: Element, on: boolean): void {
   act(() => {
     element.dispatchEvent(new MouseEvent(on ? 'mouseover' : 'mouseout', { bubbles: true }));
