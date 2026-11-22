@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render } from './test/render';
+import { click, render } from './test/render';
 import { App } from './App';
 
 describe('App', () => {
@@ -7,6 +7,21 @@ describe('App', () => {
     const { container } = render(<App />);
 
     expect(container.querySelector('header')?.textContent).toContain('FlowHub');
+    expect(container.querySelector('svg[aria-label="マップ"]')).not.toBeNull();
+  });
+
+  it('メニューで選んだ画面に切り替え、URL の # のあとに覚える', () => {
+    window.location.hash = '';
+    const { container } = render(<App />);
+
+    click(container.querySelector('button[aria-controls="main-menu"]')!);
+    click(container.querySelector('[data-screen="transports"]')!);
+
+    expect(container.querySelector('h1')?.textContent).toBe('搬送の一覧');
+    expect(window.location.hash).toBe('#/transports');
+
+    click(container.querySelector('button[aria-controls="main-menu"]')!);
+    click(container.querySelector('[data-screen="map"]')!);
     expect(container.querySelector('svg[aria-label="マップ"]')).not.toBeNull();
   });
 
