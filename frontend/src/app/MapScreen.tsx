@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { AgvId } from '../map/agv';
-import { panelOf } from '../map/drawing';
+import { crossPoint, panelOf } from '../map/drawing';
 import { MapViewport } from '../map/MapViewport';
 import type { Heading, MapLayout, PanelId } from '../map/model';
-import type { Size } from '../map/viewport';
+import type { Obstruction, Size } from '../map/viewport';
 import { AgvCard, type AgvDetail } from './AgvCard';
 import { AppHeader, type SignedInUser } from './AppHeader';
 import type { ControlStatus } from './controlStatus';
@@ -48,6 +48,14 @@ const KEEP_CARD = '[data-agv-card], [data-agv], [data-keep-card]';
 
 function isNarrow(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches;
+}
+
+/** カードを開いたときに覆われるところ。パソコンでは左のカード（幅 380px）、スマートフォンでは下のカード（画面の 55%）。 */
+function cardCovers(): Obstruction {
+  if (typeof window === 'undefined') {
+    return { left: 0, bottom: 0 };
+  }
+  return isNarrow() ? { left: 0, bottom: window.innerHeight * 0.55 } : { left: Math.min(380, window.innerWidth - 32), bottom: 0 };
 }
 
 /**
@@ -100,6 +108,8 @@ export function MapScreen(props: MapScreenProps) {
               highlightedAgv={highlighted}
               onSelectAgv={setSelected}
               onHighlightAgv={setHighlighted}
+              focus={agv ? crossPoint(panelOf(layout, agv.panel), layout.panelSizeMm) : null}
+              covered={cardCovers()}
               {...(props.mapViewportSize ? { size: props.mapViewportSize } : {})}
             />
           </div>

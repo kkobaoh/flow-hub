@@ -133,6 +133,18 @@ describe('MapScreen', () => {
     expect(card(container)?.textContent).toContain('この行き先へ動かす');
   });
 
+  it('カードを開いた AGV がカードに隠れるなら、見えるところまでマップを動かし、閉じたら戻す', () => {
+    const { container } = render(<MapScreen {...props()} />);
+    const viewBox = () => container.querySelector('svg[aria-label="マップ"]')?.getAttribute('viewBox');
+    const before = viewBox();
+
+    click(marker(container, 'AGV-3')); // SB（マップの左の端）にいる
+    expect(viewBox()).not.toBe(before);
+
+    click(card(container)!.querySelector('button[aria-label="閉じる"]')!);
+    expect(viewBox()).toBe(before);
+  });
+
   it('「すべて見たことにする」を知らせる', () => {
     const onMarkAllSeen = vi.fn();
     const { container } = render(<MapScreen {...props({ onMarkAllSeen })} />);

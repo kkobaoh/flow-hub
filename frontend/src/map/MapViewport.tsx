@@ -15,7 +15,9 @@ import {
   fitView,
   panBy,
   pinchView,
+  reveal,
   viewBoxOf,
+  type Obstruction,
   zoomAt,
   zoomLimits,
   type PinchPoint,
@@ -25,6 +27,8 @@ import {
   type ZoomLimits,
 } from './viewport';
 
+const NOT_COVERED: Obstruction = { left: 0, bottom: 0 };
+
 /** ここまでの動きは、ドラッグではなく押したことにする（px）。 */
 const DRAG_THRESHOLD_PX = 4;
 const BUTTON_ZOOM = 1.25;
@@ -33,6 +37,20 @@ const WHEEL_ZOOM = 1.1;
 export interface MapViewportProps extends Omit<MapCanvasProps, 'viewBox'> {
   /** 画面の大きさ（px）。なければ、置かれた場所の大きさを測る。 */
   readonly size?: Size;
+  /**
+   * 隠したくないマップの点（mm）。カードを開いた AGV など。覆われていれば、見えるところまで動かす。
+   * null に戻ったら、最初に動かす前の位置に戻す（そのあいだに、自分でマップを動かしていなければ）。
+   */
+  readonly focus?: { readonly x: number; readonly y: number } | null;
+  /** 画面のうち、カードなどに覆われているところ。 */
+  readonly covered?: Obstruction;
+}
+
+interface RevealMemory {
+  /** 最初に動かす前の見え方（null は「全体が収まる大きさ」）。 */
+  readonly before: View | null;
+  /** 動かしたあとに、自分でマップを動かしたか（そうなら戻さない）。 */
+  moved: boolean;
 }
 
 interface Gesture {
@@ -47,7 +65,7 @@ interface Gesture {
  * マップを、ドラッグで動かし、ホイール・つまむ操作・ボタンで拡大・縮小して見せる。
  * 見え方の計算は viewport.ts の関数が行い、ここでは操作をその関数に渡すだけにする。
  */
-export function MapViewport({ size: fixedSize, ...canvas }: MapViewportProps) {
+export function MapViewport({ size: fixedSize, focus = null, covered = NOT_COVERED, ...canvas }: MapViewportProps) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const size = useMeasuredSize(surfaceRef, fixedSize);
   const drawing = useMemo(() => drawMap(canvas.layout), [canvas.layout]);
@@ -62,6 +80,9 @@ export function MapViewport({ size: fixedSize, ...canvas }: MapViewportProps) {
   live.current = { view: current, size, limits };
   const gesture = useRef<Gesture>({ pointers: new Map(), dragged: false, drag: null, pinch: null });
 
+  const revealed = useRef<RevealMemory | null>(null);
+
+  /** ユーザーの操作で見え方を変える（動かしたあとなら、focus がなくなっても戻さない）。 */
   const update = (next: (view: View, size: Size, limits: ZoomLimits) => View) => {
     const { view: v, size: s, limits: l } = live.current;
     if (!v || !s || !l) {
@@ -69,8 +90,37 @@ export function MapViewport({ size: fixedSize, ...canvas }: MapViewportProps) {
     }
     const nextView = next(v, s, l);
     live.current = { ...live.current, view: nextView };
+    if (revealed.current) {
+      revealed.current.moved = true;
+    }
     setView(nextView);
   };
+
+  const focusX = focus?.x;
+  const focusY = focus?.y;
+  useEffect(() => {
+    const { view: v, size: s } = live.current;
+    if (focusX === undefined || focusY === undefined) {
+      const memory = revealed.current;
+      revealed.current = null;
+      if (memory && !memory.moved) {
+        setView(memory.before);
+      }
+      return;
+    }
+    if (!v || !s) {
+      return;
+    }
+    const next = reveal(v, s, { x: focusX, y: focusY }, covered);
+    if (!revealed.current) {
+      revealed.current = { before: view, moved: false };
+    }
+    if (next) {
+      live.current = { ...live.current, view: next };
+      setView(next);
+    }
+    // 点が変わったときだけ動かす（覆われ方や見え方が変わっただけでは動かさない）
+  }, [focusX, focusY]);
 
   useEffect(() => {
     const el = surfaceRef.current;
@@ -180,6 +230,9 @@ export function MapViewport({ size: fixedSize, ...canvas }: MapViewportProps) {
           label="表示の位置を戻す"
           onClick={() => {
             live.current = { ...live.current, view: fit };
+            if (revealed.current) {
+              revealed.current.moved = true;
+            }
             setView(null);
           }}
         >

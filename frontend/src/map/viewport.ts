@@ -98,6 +98,34 @@ export function zoomAt(view: View, screen: Size, point: ScreenPoint, factor: num
   return centered(toMap(view, screen, point), point, screen, clamp(view.scale * factor, limits));
 }
 
+/** 画面のうち、カードなどに覆われているところ（左からの幅、下からの高さ。px）。 */
+export interface Obstruction {
+  readonly left: number;
+  readonly bottom: number;
+}
+
+/** 覆われていない範囲の端から、ここまで近ければ、見えていないものとして動かす（px）。 */
+const REVEAL_MARGIN_PX = 48;
+
+/**
+ * マップの点 point が、覆われていない範囲に見えていなければ、その範囲の真ん中に来るように動かした見え方を返す。
+ * 見えていれば null（動かさない）。拡大の割合は変えない。
+ */
+export function reveal(view: View, screen: Size, point: { readonly x: number; readonly y: number }, covered: Obstruction): View | null {
+  const sx = (point.x - view.centerX) * view.scale + screen.width / 2;
+  const sy = (point.y - view.centerY) * view.scale + screen.height / 2;
+  const visibleBottom = screen.height - covered.bottom;
+  const visible =
+    sx - REVEAL_MARGIN_PX >= covered.left &&
+    sx + REVEAL_MARGIN_PX <= screen.width &&
+    sy - REVEAL_MARGIN_PX >= 0 &&
+    sy + REVEAL_MARGIN_PX <= visibleBottom;
+  if (visible) {
+    return null;
+  }
+  return centered(point, { x: (covered.left + screen.width) / 2, y: visibleBottom / 2 }, screen, view.scale);
+}
+
 /** つまむ操作。指の間を広げた割合だけ拡大し、つまみ始めた点を、今の指の真ん中に付いてこさせる。 */
 export function pinchView(start: View, screen: Size, from: PinchPoint, now: PinchPoint, limits: ZoomLimits): View {
   const scale = clamp((start.scale * now.distance) / Math.max(from.distance, 1), limits);

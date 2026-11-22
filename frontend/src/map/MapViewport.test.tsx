@@ -122,6 +122,59 @@ describe('MapViewport', () => {
     expect(viewBox(container)[0]).toBeCloseTo(x0!);
   });
 
+  it('隠したくない点（focus）がカードに覆われていたら、見えるところまで動かし、focus がなくなったら元に戻す', () => {
+    const covered = { left: 380, bottom: 0 };
+    const sb = { x: 500, y: 1500 }; // SB の十字（左の端）
+    const { container, rerender } = render(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={null} />);
+    const fit = viewBox(container);
+
+    rerender(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={sb} />);
+    const moved = viewBox(container);
+    expect(moved).not.toEqual(fit);
+    // 覆われていない範囲（380〜1048px）の真ん中あたりに来る
+    const sx = ((sb.x - moved[0]!) / moved[2]!) * size.width;
+    expect(sx).toBeCloseTo((380 + 1048) / 2);
+
+    rerender(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={null} />);
+    expect(viewBox(container)).toEqual(fit);
+  });
+
+  it('見えている点なら、動かさない', () => {
+    const covered = { left: 380, bottom: 0 };
+    const { container, rerender } = render(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={null} />);
+    const fit = viewBox(container);
+
+    rerender(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={{ x: 4500, y: 1500 }} />);
+
+    expect(viewBox(container)).toEqual(fit);
+  });
+
+  it('動かしたあとに自分でマップを動かしたら、focus がなくなっても戻さない', () => {
+    const covered = { left: 380, bottom: 0 };
+    const { container, rerender } = render(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={null} />);
+
+    rerender(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={{ x: 500, y: 1500 }} />);
+    pointer(surface(container), 'pointerdown', { x: 600, y: 300 });
+    pointer(surface(container), 'pointermove', { x: 650, y: 300 });
+    pointer(surface(container), 'pointerup', { x: 650, y: 300 });
+    const dragged = viewBox(container);
+
+    rerender(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={null} />);
+    expect(viewBox(container)).toEqual(dragged);
+  });
+
+  it('focus をほかの点に変えても、なくなったときは、最初に動かす前の位置に戻す', () => {
+    const covered = { left: 380, bottom: 0 };
+    const { container, rerender } = render(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={null} />);
+    const fit = viewBox(container);
+
+    rerender(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={{ x: 500, y: 1500 }} />);
+    rerender(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={{ x: 1500, y: 3500 }} />);
+    rerender(<MapViewport layout={sampleLayout} size={size} covered={covered} focus={null} />);
+
+    expect(viewBox(container)).toEqual(fit);
+  });
+
   it('2本の指でつまむと、指の間を広げた割合だけ拡大する', () => {
     const { container } = render(<MapViewport layout={sampleLayout} size={size} />);
     const [, , before] = viewBox(container);
