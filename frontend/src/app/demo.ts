@@ -2,7 +2,9 @@ import { agvId } from '../map/agv';
 import { heading, panelId } from '../map/model';
 import { sampleEquipment } from '../map/sampleLayout';
 import type { AgvDetail } from './AgvCard';
+import { equipmentId } from '../map/equipment';
 import type { EquipmentDetail } from './EquipmentCard';
+import type { ConsumableHit } from './ListPanel';
 import type { DestinationOption } from './ManualPanel';
 import type { Message } from './MessageRail';
 
@@ -44,6 +46,16 @@ export const demoDestinations: readonly DestinationOption[] = [
   { id: panelId('ST'), label: 'ST（ST-1 の受け渡しパネル）' },
   { id: panelId('D1'), label: 'D1（DEV-1 の受け渡しパネル）' },
   { id: panelId('P1'), label: 'P1' },
+];
+
+/** 見本の消耗品（一覧の消耗品のタブで探す）。 */
+export const demoConsumables: readonly ConsumableHit[] = [
+  { id: 'T-0101', variety: '[品種A]', condition: '新品', where: 'DEV-1 のストッカー1・スロット1', status: '使える', at: { kind: 'equipment', id: equipmentId('DEV-1') } },
+  { id: 'T-0110', variety: '[品種A]', condition: '新品', where: 'ST-1', status: '届けられる', at: { kind: 'equipment', id: equipmentId('ST-1') } },
+  { id: 'T-0111', variety: '[品種A]', condition: '新品', where: 'ST-1', status: '届ける予約あり（搬送 #14）', at: { kind: 'equipment', id: equipmentId('ST-1') } },
+  { id: 'T-0203', variety: '[品種B]', condition: '中古品', where: 'DEV-1 のストッカー2・スロット1', status: '回収を頼んだ（廃棄）', at: { kind: 'equipment', id: equipmentId('DEV-1') } },
+  { id: 'T-0207', variety: '[品種B]', condition: '新品', where: 'AGV-1 のキャリアの中', status: '届ける途中（搬送 #12、DEV-1 へ）', at: { kind: 'agv', id: agvId('AGV-1') } },
+  { id: 'X-9001', variety: '不明', condition: '不明', where: 'ST-1', status: '要確認', at: { kind: 'equipment', id: equipmentId('ST-1') } },
 ];
 
 /** 見本の装置とステーション（マップの外形は map/sampleLayout.ts と同じ）。 */

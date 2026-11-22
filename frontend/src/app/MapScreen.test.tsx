@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { agvId } from '../map/agv';
 import { heading, panelId } from '../map/model';
 import { sampleLayout } from '../map/sampleLayout';
-import { click, render } from '../test/render';
+import { change, click, hover, render } from '../test/render';
 import type { AgvDetail } from './AgvCard';
-import { demoEquipment } from './demo';
+import { demoConsumables, demoEquipment } from './demo';
 import { MapScreen, type MapScreenProps } from './MapScreen';
 import type { Message } from './MessageRail';
 import { initialRoles } from './permissions';
@@ -56,6 +56,8 @@ function props(overrides: Partial<MapScreenProps> = {}): MapScreenProps {
     onManualCarrier: accepted,
     equipment: demoEquipment,
     onOpenEquipment: () => {},
+    searchConsumables: (q) => demoConsumables.filter((c) => c.id.includes(q.toUpperCase())),
+    onOpenConsumable: () => {},
     ...overrides,
   };
 }
@@ -168,6 +170,63 @@ describe('MapScreen', () => {
     click([...card(container)!.querySelectorAll('button')].find((b) => b.textContent === '装置とストッカーを開く')!);
 
     expect(onOpenEquipment).toHaveBeenCalledWith('devices', 'DEV-1');
+  });
+
+  it('一覧のボタンで、左に一覧を出す。もう一度押すと閉じる', () => {
+    const { container } = render(<MapScreen {...props()} />);
+    const listButton = () => container.querySelector<HTMLButtonElement>('button[aria-label="一覧"]')!;
+
+    click(listButton());
+    expect(card(container)?.querySelector('h2')?.textContent).toBe('一覧');
+    expect(listButton().getAttribute('aria-pressed')).toBe('true');
+
+    click(listButton());
+    expect(card(container)).toBeNull();
+  });
+
+  it('一覧から選んだカードには、一覧に戻るボタンを出す', () => {
+    const { container } = render(<MapScreen {...props()} />);
+
+    click(container.querySelector('button[aria-label="一覧"]')!);
+    click(container.querySelector('[data-row="AGV-1"]')!);
+    expect(card(container)?.querySelector('h2')?.textContent).toBe('AGV-1');
+
+    click(card(container)!.querySelector('button[aria-label="一覧に戻る"]')!);
+    expect(card(container)?.querySelector('h2')?.textContent).toBe('一覧');
+  });
+
+  it('マップから選んだカードには、一覧に戻るボタンを出さない', () => {
+    const { container } = render(<MapScreen {...props()} />);
+
+    click(marker(container, 'AGV-1'));
+
+    expect(card(container)!.querySelector('button[aria-label="一覧に戻る"]')).toBeNull();
+  });
+
+  it('一覧の行にマウスを乗せると、マップの上のそのものを目立たせる', () => {
+    const { container } = render(<MapScreen {...props()} />);
+    click(container.querySelector('button[aria-label="一覧"]')!);
+
+    hover(container.querySelector('[data-row="AGV-3"]')!, true);
+
+    expect(marker(container, 'AGV-3').getAttribute('data-emphasis')).toBe('highlighted');
+  });
+
+  it('消耗品を選ぶと、消耗品のカードを出し、ある場所をマップで目立たせる', () => {
+    const onOpenConsumable = vi.fn();
+    const { container } = render(<MapScreen {...props({ onOpenConsumable })} />);
+    click(container.querySelector('button[aria-label="一覧"]')!);
+    click([...container.querySelectorAll('[role="tab"]')].find((t) => t.textContent === '消耗品')!);
+    change(container.querySelector<HTMLInputElement>('input[type="search"]')!, 'T-0101');
+
+    click(container.querySelector('[data-row="T-0101"]')!);
+
+    expect(card(container)?.querySelector('h2')?.textContent).toBe('T-0101');
+    expect(card(container)?.textContent).toContain('DEV-1 のストッカー1・スロット1');
+    expect(container.querySelector('[data-equipment="DEV-1"]')?.getAttribute('data-emphasis')).toBe('highlighted');
+
+    click([...card(container)!.querySelectorAll('button')].find((b) => b.textContent === 'これまでの動きと手入力を開く')!);
+    expect(onOpenConsumable).toHaveBeenCalledWith('T-0101');
   });
 
   it('「すべて見たことにする」を知らせる', () => {

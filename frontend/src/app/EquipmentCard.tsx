@@ -1,4 +1,5 @@
 import { attentionNote, type AttentionKind, type EquipmentId, type EquipmentOnMap } from '../map/equipment';
+import { CardHeader } from './CardHeader';
 import type { Permissions } from './permissions';
 import type { ScreenKey } from './screens';
 
@@ -38,6 +39,8 @@ export interface EquipmentCardProps {
   readonly onClose: () => void;
   /** その装置やステーションを、詳しい画面で開く。 */
   readonly onOpen: (screen: ScreenKey, id: EquipmentId) => void;
+  /** 一覧から開いたときだけ渡す（一覧に戻るボタンを出す）。 */
+  readonly onBack?: (() => void) | undefined;
 }
 
 const action =
@@ -45,7 +48,7 @@ const action =
 const th = 'border-b border-line px-1 py-1.5 text-left font-bold text-ink-muted';
 
 /** 装置かステーションのカード。気をつけることと数を出し、詳しい画面への入り口を置く。 */
-export function EquipmentCard({ equipment: e, permissions, onClose, onOpen }: EquipmentCardProps) {
+export function EquipmentCard({ equipment: e, permissions, onClose, onOpen, onBack }: EquipmentCardProps) {
   const device = e.kind === 'device';
   const screen: ScreenKey = device ? 'devices' : 'station';
   const primary = device
@@ -54,26 +57,14 @@ export function EquipmentCard({ equipment: e, permissions, onClose, onOpen }: Eq
 
   return (
     <section aria-labelledby={`equipment-${e.id}`} className="flex flex-col bg-paper text-graphite">
-      <div className="sticky top-0 z-1 flex items-center justify-between gap-2 bg-graphite px-5 py-4 text-white">
-        <div className="flex flex-col gap-1">
-          <h2 id={`equipment-${e.id}`} className="m-0 font-number text-3xl leading-none font-bold">
-            {e.id}
-          </h2>
-          <span className="text-[13px] text-header-muted">
-            {device ? '装置' : 'ステーション'}（受け渡しパネル {e.panel}）
-          </span>
-        </div>
-        <button
-          type="button"
-          aria-label="閉じる"
-          onClick={onClose}
-          className="flex size-11 items-center justify-center rounded-lg border border-control-border text-white focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
-        </button>
+      <div className="sticky top-0 z-1">
+        <CardHeader
+          titleId={`equipment-${e.id}`}
+          title={e.id}
+          subtitle={`${device ? '装置' : 'ステーション'}（受け渡しパネル ${e.panel}）`}
+          onClose={onClose}
+          onBack={onBack}
+        />
       </div>
 
       {e.attentions.length > 0 ? (

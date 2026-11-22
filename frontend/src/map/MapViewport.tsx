@@ -45,6 +45,8 @@ export interface MapViewportProps extends Omit<MapCanvasProps, 'viewBox'> {
   readonly focus?: { readonly x: number; readonly y: number } | null;
   /** 画面のうち、カードなどに覆われているところ。 */
   readonly covered?: Obstruction;
+  /** 右端のボタンの列の一番上に足すボタン（一覧のボタンなど）。 */
+  readonly controls?: ReactNode;
 }
 
 interface RevealMemory {
@@ -66,7 +68,7 @@ interface Gesture {
  * マップを、ドラッグで動かし、ホイール・つまむ操作・ボタンで拡大・縮小して見せる。
  * 見え方の計算は viewport.ts の関数が行い、ここでは操作をその関数に渡すだけにする。
  */
-export function MapViewport({ size: fixedSize, focus = null, covered = NOT_COVERED, ...canvas }: MapViewportProps) {
+export function MapViewport({ size: fixedSize, focus = null, covered = NOT_COVERED, controls, ...canvas }: MapViewportProps) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const size = useMeasuredSize(surfaceRef, fixedSize);
   const drawing = useMemo(() => drawMap(canvas.layout), [canvas.layout]);
@@ -220,7 +222,9 @@ export function MapViewport({ size: fixedSize, focus = null, covered = NOT_COVER
       >
         {current && size && <MapCanvas {...canvas} viewBox={viewBoxOf(current, size)} />}
       </div>
-      <div className="absolute top-1/2 right-3 flex -translate-y-1/2 flex-col items-center gap-2">
+      <div data-map-controls="" className="absolute top-1/2 right-3 flex -translate-y-1/2 flex-col items-center gap-2">
+        {controls}
+        {controls && <div aria-hidden="true" className="h-px w-7 bg-control-border" />}
         <ZoomButton label="拡大する" onClick={() => zoomFromCenter(BUTTON_ZOOM)}>
           <path d="M12 5v14" />
           <path d="M5 12h14" />

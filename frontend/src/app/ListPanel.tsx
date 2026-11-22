@@ -3,6 +3,7 @@ import { indicatorLight, lightLabel, type AgvId } from '../map/agv';
 import { attentionTag, type EquipmentId } from '../map/equipment';
 import type { PanelId } from '../map/model';
 import type { AgvDetail } from './AgvCard';
+import { CardHeader } from './CardHeader';
 import { controlStatusLabel } from './controlStatus';
 import type { EquipmentDetail } from './EquipmentCard';
 import { byIdNumber, matchesQuery, needsAttention, sortForList } from './listing';
@@ -125,22 +126,7 @@ export function ListPanel({ agvs, equipment, searchConsumables, isChargingPanel 
   return (
     <section aria-labelledby="list-title" className="flex flex-col bg-paper text-graphite">
       <div className="sticky top-0 z-1 bg-paper">
-        <div className="flex items-center justify-between gap-2 bg-graphite px-5 py-4 text-white">
-          <h2 id="list-title" className="m-0 text-xl leading-tight font-bold">
-            一覧
-          </h2>
-          <button
-            type="button"
-            aria-label="閉じる"
-            onClick={onClose}
-            className="flex size-11 items-center justify-center rounded-lg border border-control-border text-white focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
-          </button>
-        </div>
+        <CardHeader titleId="list-title" title="一覧" numeric={false} onClose={onClose} />
         <div role="tablist" aria-label="一覧の種類" className="grid grid-cols-4 border-b border-line">
           {TABS.map(([key, name]) => (
             <button

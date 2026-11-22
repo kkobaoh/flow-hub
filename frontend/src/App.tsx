@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { demoAgvs, demoDestinations, demoEquipment, demoMessages, demoReserved, demoRoutes } from './app/demo';
+import { demoAgvs, demoConsumables, demoDestinations, demoEquipment, demoMessages, demoReserved, demoRoutes } from './app/demo';
+import { matchesQuery } from './app/listing';
 import { MapScreen } from './app/MapScreen';
 import { initialRoles } from './app/permissions';
 import { sampleLayout } from './map/sampleLayout';
@@ -25,6 +26,8 @@ export function App() {
         agvs={agvs}
         equipment={demoEquipment}
         onOpenEquipment={() => {}}
+        searchConsumables={(query) => demoConsumables.filter((c) => matchesQuery(c.id, query))}
+        onOpenConsumable={() => {}}
         reservedPanels={demoReserved}
         routes={demoRoutes}
         messages={messages}

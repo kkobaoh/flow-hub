@@ -3,6 +3,7 @@ import { indicatorLight, lightLabel, type AgvId, type AgvOnMap } from '../map/ag
 import type { Heading } from '../map/model';
 import { controlOptions, controlStatusLabel, type AgvOperation, type ControlStatus } from './controlStatus';
 import type { ManualActivity } from './manual';
+import { CardHeader } from './CardHeader';
 import type { Permissions } from './permissions';
 
 /** カードに出す AGV の詳細。 */
@@ -30,6 +31,8 @@ export interface AgvCardProps {
   readonly onPositionReset: (id: AgvId) => void;
   /** マニュアル操作の欄（ManualPanel）。保守のロールで、AGV がマニュアルのときだけ出す。 */
   readonly manual?: ReactNode;
+  /** 一覧から開いたときだけ渡す（一覧に戻るボタンを出す）。 */
+  readonly onBack?: (() => void) | undefined;
 }
 
 const LIGHT_BG = {
@@ -70,6 +73,7 @@ export function AgvCard({
   onAlarmClear,
   onPositionReset,
   manual,
+  onBack,
 }: AgvCardProps) {
   const light = indicatorLight(agv.status, onChargingPin);
   const stateText = agv.operation === 'idle' ? lightLabel(light.color) : OPERATION_LABEL[agv.operation];
@@ -88,22 +92,7 @@ export function AgvCard({
   return (
     <section aria-labelledby={`agv-${agv.id}`} className="flex flex-col bg-paper text-graphite">
       <div className="sticky top-0 z-1">
-        <div className="flex items-center justify-between gap-2 bg-graphite px-5 py-4 text-white">
-          <h2 id={`agv-${agv.id}`} className="m-0 font-number text-3xl leading-none font-bold">
-            {agv.id}
-          </h2>
-          <button
-            type="button"
-            aria-label="閉じる"
-            onClick={onClose}
-            className="flex size-11 items-center justify-center rounded-lg border border-control-border text-white focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
-          </button>
-        </div>
+        <CardHeader titleId={`agv-${agv.id}`} title={agv.id} onClose={onClose} onBack={onBack} />
         <div className="border-b border-line bg-paper px-5 py-3">
           <button
             type="button"
