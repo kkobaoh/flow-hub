@@ -84,6 +84,8 @@
 | vite、@vitejs/plugin-react（npm） | 画面の開発用のサーバーとビルド | MIT |
 | storybook、@storybook/react-vite（npm） | 画面の部品を1つずつ確かめる | MIT |
 | @types/react、@types/react-dom（npm） | React の型 | MIT |
+| tailwindcss、@tailwindcss/vite（npm） | 画面の見た目（CSS） | MIT |
+| vitest（npm） | 画面のテスト | MIT |
 
 - npm のパッケージは、依存しているものも含めてライセンスを確かめています。vite が CSS の処理に使う **lightningcss は MPL-2.0** です（ファイル単位の弱いコピーレフト）。ビルドの道具の中でだけ動き、配る成果物には入らず、手を加えずに使うので、使ってよいことにしています。
 
@@ -208,7 +210,7 @@ tests/
   FlowHub.Simulator.Tests/
   FlowHub.IntegrationTests/
   FlowHub.ArchitectureTests/
-frontend/            （画面。React + TypeScript + Vite + Storybook）
+frontend/            （画面。React + TypeScript + Vite + Tailwind CSS + Vitest + Storybook）
 ```
 
 - テストフレームワークは **xUnit v3** を使います。テストの実行基盤は **Microsoft Testing Platform** です（`global.json` で指定）。`dotnet test` で全テストを実行します。
@@ -217,7 +219,7 @@ frontend/            （画面。React + TypeScript + Vite + Storybook）
 - NuGet パッケージのバージョンは、`Directory.Packages.props` で **一元管理** します。各プロジェクトには、バージョンを書きません。
 - コンテキストの間の依存の向きは、`tests/FlowHub.ArchitectureTests` で守らせます。コンテキストを追加したり、依存の向きの表を変えたりしたときは、このテストの表も合わせて更新します。
 - フロントエンドは React + TypeScript で作り、ほかのサードパーティーのライブラリは基本的に使いません（サーバー側と同じ方針）。画面のリアルタイム更新には SignalR を使います。画面の仕様は docs/screens.md にまとめます。
-  - フロントエンドは **`frontend/`** に置きます。ビルドは **Vite**、部品の確かめは **Storybook** です。使い方は `frontend/README.md` にあります。
+  - フロントエンドは **`frontend/`** に置きます。ビルドは **Vite**、見た目は **Tailwind CSS**、テストは **Vitest**、部品の確かめは **Storybook** です。使い方は `frontend/README.md` にあります。
   - 画面のデザインの試作は、Artifact の「FlowHub 画面デザイン」にあります（https://claude.ai/artifact/WCtJNB5UUes8dXfkJBKxXf）。実装は、この試作をもとに進めます。
 
 ## 技術スタック

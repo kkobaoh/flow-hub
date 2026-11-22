@@ -146,4 +146,4 @@ SB ─ P1 ─ P2 ─ P3 ─ P4 ─ SB2         SB, SB2：待機パネル（SB2 �
 | 項目 | 内容 |
 |---|---|
 | やることリスト | [backlog.md](backlog.md) の項目（ログと画面の警告、DB への保存、デッドロックの防止など）。それぞれ、関係する部分に取りかかるときに実装する |
-| 画面 | 画面の仕様は [screens.md](screens.md)、デザインの試作は Artifact「FlowHub 画面デザイン」。FE-1 環境構築（`frontend/`、React + TypeScript + Vite + Storybook）は **済み**。次は、テストの仕組みを決めてから、部品と画面を作る |
+| 画面 | 画面の仕様は [screens.md](screens.md)、デザインの試作は Artifact「FlowHub 画面デザイン」。FE-1 環境構築（`frontend/`、React + TypeScript + Vite + Tailwind CSS + Vitest + Storybook）は **済み**。次は、部品と画面を作る |

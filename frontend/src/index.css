@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+/*
+ * デザインの試作（Artifact「FlowHub 画面デザイン」）の色と字。
+ * 色は状態を表すときにだけ使う（標示灯、経路、緊急停止）。
+ */
+@theme {
+  /* 床と面 */
+  --color-floor: #bdbdb6;
+  --color-ground: #e4e4df;
+  --color-paper: #f2f2ee;
+  --color-graphite: #23262b;
+  --color-ink-muted: #4f545b;
+  --color-line: #c9c9c2;
+  --color-panel: #000000;
+
+  /* 状態 */
+  --color-route: #f97316;
+  --color-attention: #c2410c;
+  --color-selection: #38bdf8;
+  --color-estop: #c8102e;
+  --color-estop-plate: #f5c400;
+
+  /* AGV の標示灯 */
+  --color-light-moving: #2563eb;
+  --color-light-waiting: #facc15;
+  --color-light-charging: #16a34a;
+  --color-light-charge-failed: #9333ea;
+
+  /* 字：本文はユニバーサルデザインの BIZ UDPGothic、番号は標識のような Barlow Semi Condensed */
+  --font-sans: "BIZ UDPGothic", system-ui, sans-serif;
+  --font-number: "Barlow Semi Condensed", "BIZ UDPGothic", sans-serif;
+}
