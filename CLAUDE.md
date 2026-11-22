@@ -79,6 +79,13 @@
 | Npgsql.EntityFrameworkCore.PostgreSQL | 本番の DB（PostgreSQL）とのやり取り（EF Core） | PostgreSQL |
 | Npgsql | PostgreSQL のドライバー（上の部品が使う） | PostgreSQL |
 | @microsoft/signalr（npm） | 画面のリアルタイム更新（SignalR のブラウザ側のクライアント。Microsoft 公式） | MIT |
+| react、react-dom（npm） | 画面を作る | MIT |
+| typescript（npm） | 画面の型の確かめ | Apache-2.0 |
+| vite、@vitejs/plugin-react（npm） | 画面の開発用のサーバーとビルド | MIT |
+| storybook、@storybook/react-vite（npm） | 画面の部品を1つずつ確かめる | MIT |
+| @types/react、@types/react-dom（npm） | React の型 | MIT |
+
+- npm のパッケージは、依存しているものも含めてライセンスを確かめています。vite が CSS の処理に使う **lightningcss は MPL-2.0** です（ファイル単位の弱いコピーレフト）。ビルドの道具の中でだけ動き、配る成果物には入らず、手を加えずに使うので、使ってよいことにしています。
 
 ### プロジェクトの構成（モジュラモノリス）
 
@@ -201,6 +208,7 @@ tests/
   FlowHub.Simulator.Tests/
   FlowHub.IntegrationTests/
   FlowHub.ArchitectureTests/
+frontend/            （画面。React + TypeScript + Vite + Storybook）
 ```
 
 - テストフレームワークは **xUnit v3** を使います。テストの実行基盤は **Microsoft Testing Platform** です（`global.json` で指定）。`dotnet test` で全テストを実行します。
@@ -208,7 +216,9 @@ tests/
 - 共通のビルド設定は `Directory.Build.props` に置きます（**警告はエラーとして扱います**）。テストプロジェクトの共通設定は `tests/Directory.Build.props` に置きます。
 - NuGet パッケージのバージョンは、`Directory.Packages.props` で **一元管理** します。各プロジェクトには、バージョンを書きません。
 - コンテキストの間の依存の向きは、`tests/FlowHub.ArchitectureTests` で守らせます。コンテキストを追加したり、依存の向きの表を変えたりしたときは、このテストの表も合わせて更新します。
-- フロントエンドは React + TypeScript で作り、ほかのサードパーティーのライブラリは基本的に使いません（サーバー側と同じ方針）。画面のリアルタイム更新には SignalR を使います。画面の仕様は docs/screens.md にまとめます。画面の実装は、デザインと一緒に別に作ります。
+- フロントエンドは React + TypeScript で作り、ほかのサードパーティーのライブラリは基本的に使いません（サーバー側と同じ方針）。画面のリアルタイム更新には SignalR を使います。画面の仕様は docs/screens.md にまとめます。
+  - フロントエンドは **`frontend/`** に置きます。ビルドは **Vite**、部品の確かめは **Storybook** です。使い方は `frontend/README.md` にあります。
+  - 画面のデザインの試作は、Artifact の「FlowHub 画面デザイン」にあります（https://claude.ai/artifact/WCtJNB5UUes8dXfkJBKxXf）。実装は、この試作をもとに進めます。
 
 ## 技術スタック
 
