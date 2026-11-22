@@ -13,6 +13,9 @@
   --color-ink-muted: #4f545b;
   --color-line: #c9c9c2;
   --color-control-border: #8b9097;
+  --color-disabled-border: #d4d4ce;
+  --color-disabled-text: #5e636a;
+  --color-track: #d4d4ce;
   --color-header-muted: #d4d6d9;
   --color-header-border: #5e636a;
   --color-running: #1e7b45;
