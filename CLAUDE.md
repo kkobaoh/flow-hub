@@ -16,6 +16,7 @@
 | [docs/backlog.md](docs/backlog.md) | やることリスト（仕様は決まっているが、まだ実装していないもの） |
 | [docs/plan.md](docs/plan.md) | 作業計画（実装を進める順番と、それぞれの状態） |
 | [docs/agv-protocol.md](docs/agv-protocol.md) | AGV との通信の仕様（URL、JSON の形式） |
+| [docs/screens.md](docs/screens.md) | 画面仕様（画面の一覧、権限、画面ごとの中身） |
 
 - 設計の検討や仕様に関わる作業の前に、**docs/domain.md と docs/open-issues.md を読みます**。
 - 仕様が決まったら、docs/domain.md に反映し、docs/open-issues.md から該当する項目を削除します。
@@ -23,6 +24,7 @@
 - 未決事項を追加・削除したときは、**番号を連番に振り直します**。
 - 作業を始めるときは docs/plan.md で次の作業を確かめ、小ステップを終えたら状態を更新します。
 - ドキュメントは日本語で書きます。
+- ユーザーへの回答も、**日本語** で書きます。
 
 ## 現在のフェーズ
 
@@ -76,6 +78,7 @@
 | xunit.v3 | テスト | Apache-2.0 |
 | Npgsql.EntityFrameworkCore.PostgreSQL | 本番の DB（PostgreSQL）とのやり取り（EF Core） | PostgreSQL |
 | Npgsql | PostgreSQL のドライバー（上の部品が使う） | PostgreSQL |
+| @microsoft/signalr（npm） | 画面のリアルタイム更新（SignalR のブラウザ側のクライアント。Microsoft 公式） | MIT |
 
 ### プロジェクトの構成（モジュラモノリス）
 
@@ -205,7 +208,7 @@ tests/
 - 共通のビルド設定は `Directory.Build.props` に置きます（**警告はエラーとして扱います**）。テストプロジェクトの共通設定は `tests/Directory.Build.props` に置きます。
 - NuGet パッケージのバージョンは、`Directory.Packages.props` で **一元管理** します。各プロジェクトには、バージョンを書きません。
 - コンテキストの間の依存の向きは、`tests/FlowHub.ArchitectureTests` で守らせます。コンテキストを追加したり、依存の向きの表を変えたりしたときは、このテストの表も合わせて更新します。
-- フロントエンドの構成は、画面に取りかかるときに決めます。
+- フロントエンドは React + TypeScript で作り、ほかのサードパーティーのライブラリは基本的に使いません（サーバー側と同じ方針）。画面のリアルタイム更新には SignalR を使います。画面の仕様は docs/screens.md にまとめます。画面の実装は、デザインと一緒に別に作ります。
 
 ## 技術スタック
 
