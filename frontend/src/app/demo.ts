@@ -7,6 +7,7 @@ import type { EquipmentDetail } from './EquipmentCard';
 import type { ConsumableHit } from './ListPanel';
 import type { DestinationOption } from './ManualPanel';
 import type { Message } from './MessageRail';
+import type { Transport } from './transports';
 
 /**
  * 見本のデータ（サーバーとつながるまで、画面を動かして見るため）。
@@ -100,3 +101,65 @@ export const demoEquipment: readonly EquipmentDetail[] = sampleEquipment.map((e)
   const extra = byDevice[e.id] ?? { details: {}, stocker: [{ variety: '[品種C]', target: 1, have: 1 }], slots: { total: 2, free: 1, delivering: 0 } };
   return { ...e, kind: 'device', ...extra };
 });
+
+const today = (hhmm: string) => {
+  const [h, m] = hhmm.split(':').map(Number);
+  const d = new Date();
+  d.setHours(h ?? 0, m ?? 0, 0, 0);
+  return d;
+};
+
+export const demoTransports: readonly Transport[] = [
+  {
+    number: 14,
+    status: { stage: 'queued' },
+    kind: '届ける',
+    from: 'ST-1',
+    to: 'DEV-2',
+    cargo: '[品種A] 2個',
+    neededBy: today('10:20'),
+    requestedAt: today('09:55'),
+    agv: null,
+    step: '割り当て待ち',
+    stepNote: '割り当てられる AGV がいません',
+  },
+  {
+    number: 15,
+    status: { stage: 'queued' },
+    kind: '回収する',
+    from: 'DEV-1',
+    to: 'ST-1',
+    cargo: '[品種B] 1個（設定にない品種）',
+    neededBy: today('10:35'),
+    requestedAt: today('10:01'),
+    agv: null,
+    step: '割り当て待ち',
+    stepNote: '',
+  },
+  {
+    number: 12,
+    status: { stage: 'running' },
+    kind: '届ける',
+    from: 'ST-1',
+    to: 'DEV-1',
+    cargo: '[品種A] 1個、[品種B] 1個',
+    neededBy: today('10:02'),
+    requestedAt: today('09:30'),
+    agv: agvId('AGV-1'),
+    step: '搬送先へ移動',
+    stepNote: '積み込み済み',
+  },
+  {
+    number: 11,
+    status: { stage: 'suspended', positionResetDone: false },
+    kind: '回収する',
+    from: 'DEV-1',
+    to: 'ST-1',
+    cargo: '不明な消耗品 1個（ID の食い違い）',
+    neededBy: today('09:40'),
+    requestedAt: today('09:05'),
+    agv: agvId('AGV-3'),
+    step: '中断',
+    stepNote: 'AGV の異常で止まりました',
+  },
+];

@@ -18,6 +18,7 @@ describe('App', () => {
     click(container.querySelector('[data-screen="transports"]')!);
 
     expect(container.querySelector('h1')?.textContent).toBe('搬送の一覧');
+    expect(container.querySelector('[role="tablist"][aria-label="搬送の段階"]')).not.toBeNull();
     expect(window.location.hash).toBe('#/transports');
 
     click(container.querySelector('button[aria-controls="main-menu"]')!);
