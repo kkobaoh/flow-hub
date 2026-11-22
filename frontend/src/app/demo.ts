@@ -1,6 +1,8 @@
 import { agvId } from '../map/agv';
 import { heading, panelId } from '../map/model';
+import { sampleEquipment } from '../map/sampleLayout';
 import type { AgvDetail } from './AgvCard';
+import type { EquipmentDetail } from './EquipmentCard';
 import type { DestinationOption } from './ManualPanel';
 import type { Message } from './MessageRail';
 
@@ -43,3 +45,46 @@ export const demoDestinations: readonly DestinationOption[] = [
   { id: panelId('D1'), label: 'D1（DEV-1 の受け渡しパネル）' },
   { id: panelId('P1'), label: 'P1' },
 ];
+
+/** 見本の装置とステーション（マップの外形は map/sampleLayout.ts と同じ）。 */
+export const demoEquipment: readonly EquipmentDetail[] = sampleEquipment.map((e): EquipmentDetail => {
+  if (e.kind === 'station') {
+    return {
+      ...e,
+      kind: 'station',
+      details: {
+        needsCheck: 'X-9001 が登録されていない ID として入ってきました。現物を確かめて直してください。',
+        replenishWaiting: '[品種A] を上位システムに頼んでいます。',
+      },
+      stock: [
+        { variety: '[品種A]', available: 1, replenishWaiting: 2 },
+        { variety: '[品種B]', available: 0, replenishWaiting: 0 },
+        { variety: '[品種C]', available: 1, replenishWaiting: 0 },
+      ],
+    };
+  }
+  const byDevice: Record<string, Pick<Extract<EquipmentDetail, { kind: 'device' }>, 'details' | 'stocker' | 'slots'>> = {
+    'DEV-1': {
+      details: {
+        collectWaiting: 'T-0203（中古品・廃棄）と T-0410（設定にない品種）の回収を頼んでいます。',
+        idMismatch: 'ストッカー2・スロット3 の ID が記録と合いませんでした。回収を頼んでいます。',
+      },
+      stocker: [
+        { variety: '[品種A]', target: 2, have: 2 },
+        { variety: '[品種B]', target: 1, have: 1 },
+        { variety: '[品種D]', target: 0, have: 1 },
+      ],
+      slots: { total: 6, free: 1, delivering: 1 },
+    },
+    'DEV-2': {
+      details: { setupError: '[品種C] がストッカーの設定にありません。設定を変えるか、装置の段取りを確かめてください。' },
+      stocker: [
+        { variety: '[品種A]', target: 2, have: 2 },
+        { variety: '[品種B]', target: 2, have: 2 },
+      ],
+      slots: { total: 4, free: 0, delivering: 0 },
+    },
+  };
+  const extra = byDevice[e.id] ?? { details: {}, stocker: [{ variety: '[品種C]', target: 1, have: 1 }], slots: { total: 2, free: 1, delivering: 0 } };
+  return { ...e, kind: 'device', ...extra };
+});

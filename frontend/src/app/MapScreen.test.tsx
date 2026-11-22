@@ -4,6 +4,7 @@ import { heading, panelId } from '../map/model';
 import { sampleLayout } from '../map/sampleLayout';
 import { click, render } from '../test/render';
 import type { AgvDetail } from './AgvCard';
+import { demoEquipment } from './demo';
 import { MapScreen, type MapScreenProps } from './MapScreen';
 import type { Message } from './MessageRail';
 import { initialRoles } from './permissions';
@@ -53,6 +54,8 @@ function props(overrides: Partial<MapScreenProps> = {}): MapScreenProps {
     onManualMove: accepted,
     onManualStep: accepted,
     onManualCarrier: accepted,
+    equipment: demoEquipment,
+    onOpenEquipment: () => {},
     ...overrides,
   };
 }
@@ -143,6 +146,28 @@ describe('MapScreen', () => {
 
     click(card(container)!.querySelector('button[aria-label="閉じる"]')!);
     expect(viewBox()).toBe(before);
+  });
+
+  it('装置やステーションを押すと、そのカードを出す。AGV を押すと、AGV のカードに切り替える', () => {
+    const { container } = render(<MapScreen {...props()} />);
+
+    click(container.querySelector('[data-equipment="DEV-1"]')!);
+    expect(card(container)?.querySelector('h2')?.textContent).toBe('DEV-1');
+    expect(container.querySelector('[data-equipment="DEV-1"]')?.getAttribute('aria-pressed')).toBe('true');
+
+    click(marker(container, 'AGV-1'));
+    expect(card(container)?.querySelector('h2')?.textContent).toBe('AGV-1');
+    expect(container.querySelector('[data-equipment="DEV-1"]')?.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('装置のカードから、詳しい画面を開くことを知らせる', () => {
+    const onOpenEquipment = vi.fn();
+    const { container } = render(<MapScreen {...props({ onOpenEquipment })} />);
+
+    click(container.querySelector('[data-equipment="DEV-1"]')!);
+    click([...card(container)!.querySelectorAll('button')].find((b) => b.textContent === '装置とストッカーを開く')!);
+
+    expect(onOpenEquipment).toHaveBeenCalledWith('devices', 'DEV-1');
   });
 
   it('「すべて見たことにする」を知らせる', () => {

@@ -4,7 +4,9 @@ import { crossPoint, panelOf } from '../map/drawing';
 import { MapViewport } from '../map/MapViewport';
 import type { Heading, MapLayout, PanelId } from '../map/model';
 import type { Obstruction, Size } from '../map/viewport';
+import type { EquipmentId } from '../map/equipment';
 import { AgvCard, type AgvDetail } from './AgvCard';
+import { EquipmentCard, type EquipmentDetail } from './EquipmentCard';
 import { AppHeader, type SignedInUser } from './AppHeader';
 import type { ControlStatus } from './controlStatus';
 import type { ManualOutcome } from './manual';
@@ -17,6 +19,7 @@ import type { ScreenKey } from './screens';
 export interface MapScreenProps {
   readonly layout: MapLayout;
   readonly agvs: readonly AgvDetail[];
+  readonly equipment: readonly EquipmentDetail[];
   readonly reservedPanels: readonly PanelId[];
   readonly routes: readonly (readonly PanelId[])[];
   readonly messages: readonly Message[];
@@ -41,10 +44,15 @@ export interface MapScreenProps {
   readonly onManualMove: (id: AgvId, destination: PanelId, arrival: Heading | null) => Promise<ManualOutcome>;
   readonly onManualStep: (id: AgvId, step: ManualStepCommand) => Promise<ManualOutcome>;
   readonly onManualCarrier: (id: AgvId, action: 'raise' | 'lower') => Promise<ManualOutcome>;
+  /** 装置やステーションを、詳しい画面で開く。 */
+  readonly onOpenEquipment: (screen: ScreenKey, id: EquipmentId) => void;
 }
 
+/** カードを開いているもの。AGV か、装置かステーション。 */
+type Selection = { readonly kind: 'agv'; readonly id: AgvId } | { readonly kind: 'equipment'; readonly id: EquipmentId } | null;
+
 /** 押してもカードを閉じない場所（カード、マップの AGV、マップの上のボタン、メッセージの列）。 */
-const KEEP_CARD = '[data-agv-card], [data-agv], [data-keep-card]';
+const KEEP_CARD = '[data-agv-card], [data-agv], [data-equipment], [data-keep-card]';
 
 function isNarrow(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches;
@@ -63,27 +71,32 @@ function cardCovers(): Obstruction {
  * サーバーとのやり取りはしない（受け取ったものを描き、操作を知らせる）。
  */
 export function MapScreen(props: MapScreenProps) {
-  const { layout, agvs, messages, permissions } = props;
-  const [selected, setSelected] = useState<AgvId | null>(null);
+  const { layout, agvs, equipment, messages, permissions } = props;
+  const [selection, setSelection] = useState<Selection>(null);
   const [highlighted, setHighlighted] = useState<AgvId | null>(null);
+  const [highlightedEquipment, setHighlightedEquipment] = useState<EquipmentId | null>(null);
+  const selected = selection?.kind === 'agv' ? selection.id : null;
+  const selectedEquipment = selection?.kind === 'equipment' ? selection.id : null;
   const unreadCount = messages.filter((m) => m.unread).length;
   // null のあいだは、まだ見ていないメッセージがあれば開いておく（スマートフォンでは、たたんでおく）
   const [railChoice, setRailChoice] = useState<boolean | null>(null);
   const railOpen = railChoice ?? (unreadCount > 0 && !isNarrow());
   const agv = agvs.find((a) => a.id === selected) ?? null;
+  const chosenEquipment = equipment.find((e) => e.id === selectedEquipment) ?? null;
+  const focusPanel = agv?.panel ?? chosenEquipment?.panel ?? null;
 
   useEffect(() => {
-    if (!selected) {
+    if (!selection) {
       return undefined;
     }
     const closeOutside = (e: MouseEvent) => {
       if (e.target instanceof Element && !e.target.closest(KEEP_CARD)) {
-        setSelected(null);
+        setSelection(null);
       }
     };
     document.addEventListener('click', closeOutside);
     return () => document.removeEventListener('click', closeOutside);
-  }, [selected]);
+  }, [selection]);
 
   return (
     <div className="flex min-h-screen flex-col bg-ground font-sans text-graphite">
@@ -106,9 +119,14 @@ export function MapScreen(props: MapScreenProps) {
               routes={props.routes}
               selectedAgv={selected}
               highlightedAgv={highlighted}
-              onSelectAgv={setSelected}
+              onSelectAgv={(id) => setSelection({ kind: 'agv', id })}
               onHighlightAgv={setHighlighted}
-              focus={agv ? crossPoint(panelOf(layout, agv.panel), layout.panelSizeMm) : null}
+              equipment={equipment}
+              selectedEquipment={selectedEquipment}
+              highlightedEquipment={highlightedEquipment}
+              onSelectEquipment={(id) => setSelection({ kind: 'equipment', id })}
+              onHighlightEquipment={setHighlightedEquipment}
+              focus={focusPanel ? crossPoint(panelOf(layout, focusPanel), layout.panelSizeMm) : null}
               covered={cardCovers()}
               {...(props.mapViewportSize ? { size: props.mapViewportSize } : {})}
             />
@@ -130,16 +148,17 @@ export function MapScreen(props: MapScreenProps) {
           </aside>
         )}
       </main>
-      {agv && (
+      {(agv || chosenEquipment) && (
         <div
           data-agv-card=""
           className="fixed inset-y-0 left-0 z-25 w-[380px] max-w-[calc(100vw-32px)] animate-drawer-in overflow-y-auto border-r border-line bg-paper shadow-[6px_0_20px_rgba(35,38,43,0.18)] motion-reduce:animate-none max-sm:top-auto max-sm:right-0 max-sm:h-[55vh] max-sm:w-auto max-sm:max-w-none max-sm:animate-sheet-in max-sm:rounded-t-2xl max-sm:border-t max-sm:border-r-0"
         >
+          {agv ? (
           <AgvCard
             agv={agv}
             onChargingPin={panelOf(layout, agv.panel).hasChargingPin}
             permissions={permissions}
-            onClose={() => setSelected(null)}
+            onClose={() => setSelection(null)}
             onEmergencyStop={props.onEmergencyStop}
             onChangeControl={props.onChangeControl}
             onAlarmClear={props.onAlarmClear}
@@ -154,6 +173,14 @@ export function MapScreen(props: MapScreenProps) {
               />
             }
           />
+          ) : chosenEquipment ? (
+            <EquipmentCard
+              equipment={chosenEquipment}
+              permissions={permissions}
+              onClose={() => setSelection(null)}
+              onOpen={props.onOpenEquipment}
+            />
+          ) : null}
         </div>
       )}
     </div>

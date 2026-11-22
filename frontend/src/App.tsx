@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { demoAgvs, demoDestinations, demoMessages, demoReserved, demoRoutes } from './app/demo';
+import { demoAgvs, demoDestinations, demoEquipment, demoMessages, demoReserved, demoRoutes } from './app/demo';
 import { MapScreen } from './app/MapScreen';
 import { initialRoles } from './app/permissions';
 import { sampleLayout } from './map/sampleLayout';
@@ -23,6 +23,8 @@ export function App() {
       <MapScreen
         layout={sampleLayout}
         agvs={agvs}
+        equipment={demoEquipment}
+        onOpenEquipment={() => {}}
         reservedPanels={demoReserved}
         routes={demoRoutes}
         messages={messages}
