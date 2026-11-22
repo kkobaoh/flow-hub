@@ -86,6 +86,7 @@
 | @types/react、@types/react-dom（npm） | React の型 | MIT |
 | tailwindcss、@tailwindcss/vite（npm） | 画面の見た目（CSS） | MIT |
 | vitest（npm） | 画面のテスト | MIT |
+| jsdom（npm） | 画面のテストで、ブラウザーの代わりをする | MIT |
 
 - npm のパッケージは、依存しているものも含めてライセンスを確かめています。vite が CSS の処理に使う **lightningcss は MPL-2.0** です（ファイル単位の弱いコピーレフト）。ビルドの道具の中でだけ動き、配る成果物には入らず、手を加えずに使うので、使ってよいことにしています。
 

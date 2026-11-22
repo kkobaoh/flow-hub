@@ -22,4 +22,6 @@ React + TypeScript で作り、Vite でビルドします。見た目は Tailwin
 - パッケージのバージョンは、`package.json` に **決まった版** で書きます（`^` や `~` を付けません）。
 - Storybook のテレメトリ（利用状況の送信）は止めています（`.storybook/main.ts`）。
 - テストを先に書きます（TDD）。テストのファイルは、テストする部品の隣に `*.test.tsx` で置きます。
+  - テストは jsdom（ブラウザーの代わり）の中で動きます。部品を描いて押すときは、`src/test/render.tsx` の `render`、`click`、`pressKey`、`hover` を使います（Testing Library は入れていません）。
+  - 描く位置や状態の判断（標示灯の色など）は、部品から切り離した関数にして、そちらを細かくテストします。
 - 色と字は、デザインの試作の値を `src/index.css` の `@theme` にまとめています。部品の中に色の値（`#23262B` など）を直接書かず、`bg-paper`、`text-graphite` のように名前で使います。

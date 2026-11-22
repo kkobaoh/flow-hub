@@ -146,4 +146,4 @@ SB ─ P1 ─ P2 ─ P3 ─ P4 ─ SB2         SB, SB2：待機パネル（SB2 �
 | 項目 | 内容 |
 |---|---|
 | やることリスト | [backlog.md](backlog.md) の項目（ログと画面の警告、DB への保存、デッドロックの防止など）。それぞれ、関係する部分に取りかかるときに実装する |
-| 画面 | 画面の仕様は [screens.md](screens.md)、デザインの試作は Artifact「FlowHub 画面デザイン」。FE-1 環境構築（`frontend/`、React + TypeScript + Vite + Tailwind CSS + Vitest + Storybook）は **済み**。FE-2 マップの描画（パネル、ライン、停止ライン、穴、充電ピン、下ろす角度を、格子の位置と十字のずれから描く `MapCanvas`）は **済み**。位置を持たせるサーバー側はやることリスト #21。次は、AGV の描画と、マップの移動・拡大縮小 |
+| 画面 | 画面の仕様は [screens.md](screens.md)、デザインの試作は Artifact「FlowHub 画面デザイン」。FE-1 環境構築（`frontend/`、React + TypeScript + Vite + Tailwind CSS + Vitest + Storybook）は **済み**。FE-2 マップの描画（パネル、ライン、停止ライン、穴、充電ピン、下ろす角度を、格子の位置と十字のずれから描く `MapCanvas`）は **済み**。位置を持たせるサーバー側はやることリスト #21。FE-3 AGV の描画（向き、標示灯、選ぶ・マウスを乗せる）と、予約しているパネル・走る予定の経路の描画は **済み**。次は FE-4 マップの移動・拡大縮小 |

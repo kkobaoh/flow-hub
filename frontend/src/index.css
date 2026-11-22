@@ -19,6 +19,14 @@
   --color-pin: #c88a3a;
   --color-pin-charging: #3fd07a;
   --color-lowering: #fbbf24;
+  --color-agv-body: #3f4650;
+
+  /* 標示灯の点滅（標示灯の状態を表すので、動きを減らす設定でも止めない） */
+  --animate-agv-blink: agv-blink 1s ease-in-out infinite;
+  @keyframes agv-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
 
   /* 状態 */
   --color-route: #f97316;

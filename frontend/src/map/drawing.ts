@@ -83,17 +83,33 @@ function unit(from: Point, to: Point): Point {
   return length === 0 ? { x: 0, y: 0 } : { x: dx / length, y: dy / length };
 }
 
+const indexes = new WeakMap<MapLayout, ReadonlyMap<PanelId, Panel>>();
+
+/** ID からパネルを引く。マップにないパネルは、呼び出す側の誤りとして例外にする。 */
+export function panelOf(layout: MapLayout, id: PanelId): Panel {
+  let byId = indexes.get(layout);
+  if (!byId) {
+    byId = new Map(layout.panels.map((p) => [p.id, p] as const));
+    indexes.set(layout, byId);
+  }
+  const found = byId.get(id);
+  if (!found) {
+    throw new Error(`マップにないパネル（${id}）を指しています。`);
+  }
+  return found;
+}
+
+/** 経路（通るパネルの順）を、十字と十字を結ぶ線にする。 */
+export function routeSegments(layout: MapLayout, route: readonly PanelId[]): Segment[] {
+  const size = layout.panelSizeMm;
+  const points = route.map((id) => crossPoint(panelOf(layout, id), size));
+  return points.slice(1).map((to, i) => ({ from: points[i]!, to }));
+}
+
 export function drawMap(layout: MapLayout): MapDrawing {
   const size = layout.panelSizeMm;
-  const byId = new Map(layout.panels.map((p) => [p.id, p] as const));
-  const panelOf = (id: PanelId): Panel => {
-    const found = byId.get(id);
-    if (!found) {
-      throw new Error(`つながりが、マップにないパネル（${id}）を指しています。`);
-    }
-    return found;
-  };
-  const connections = layout.connections.map((c) => ({ from: panelOf(c.from), to: panelOf(c.to) }));
+  const panelOfId = (id: PanelId): Panel => panelOf(layout, id);
+  const connections = layout.connections.map((c) => ({ from: panelOfId(c.from), to: panelOfId(c.to) }));
 
   const tiles: Tile[] = [];
   const lines: Segment[] = [];
