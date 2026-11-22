@@ -44,14 +44,14 @@ const FIT_MARGIN_PX = 24;
 /** 拡大したとき、パネル1枚をここまで大きく描く（px）。 */
 const MAX_PANEL_PX = 200;
 
-/** マップの全体が、余白を残して画面に収まる見え方。マップの真ん中を、画面の真ん中に置く。 */
-export function fitView(map: { readonly widthMm: number; readonly heightMm: number }, screen: Size): View {
+/** 描くものの全体（bounds。mm）が、余白を残して画面に収まる見え方。その真ん中を、画面の真ん中に置く。 */
+export function fitView(bounds: ViewBox, screen: Size): View {
   const width = Math.max(screen.width - FIT_MARGIN_PX * 2, 1);
   const height = Math.max(screen.height - FIT_MARGIN_PX * 2, 1);
   return {
-    scale: Math.min(width / map.widthMm, height / map.heightMm),
-    centerX: map.widthMm / 2,
-    centerY: map.heightMm / 2,
+    scale: Math.min(width / bounds.width, height / bounds.height),
+    centerX: bounds.x + bounds.width / 2,
+    centerY: bounds.y + bounds.height / 2,
   };
 }
 

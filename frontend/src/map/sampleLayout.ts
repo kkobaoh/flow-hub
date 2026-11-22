@@ -1,3 +1,4 @@
+import { equipmentId, type EquipmentOnMap } from './equipment';
 import { heading, panelId, type Connection, type MapLayout, type Panel, type PanelType } from './model';
 
 /** デザインの試作と同じ並びの、見本のマップ（Storybook とテストで使う）。 */
@@ -26,3 +27,27 @@ export const sampleLayout: MapLayout = {
     c('P2', 'ST', 0), c('P7', 'D2', 180), c('P6', 'D1', 180), c('P5', 'SP', 180),
   ],
 };
+
+/** 見本の装置とステーション（外形は仮の大きさ）。受け渡しパネルの真下（床の下）にある。 */
+export const sampleEquipment: readonly EquipmentOnMap[] = [
+  {
+    id: equipmentId('ST-1'), kind: 'station', panel: panelId('ST'),
+    outlineMm: { x: 1500, y: -750, width: 2000, height: 1650 },
+    attentions: [{ kind: 'needsCheck', count: 1 }, { kind: 'replenishWaiting', count: 2 }],
+  },
+  {
+    id: equipmentId('DEV-2'), kind: 'device', panel: panelId('D2'),
+    outlineMm: { x: 1100, y: 2900, width: 1850, height: 1750 },
+    attentions: [{ kind: 'setupError', count: 1 }],
+  },
+  {
+    id: equipmentId('DEV-1'), kind: 'device', panel: panelId('D1'),
+    outlineMm: { x: 3050, y: 2900, width: 900, height: 2100 },
+    attentions: [{ kind: 'collectWaiting', count: 2 }, { kind: 'idMismatch', count: 1 }],
+  },
+  {
+    id: equipmentId('DEV-3'), kind: 'device', panel: panelId('SP'),
+    outlineMm: { x: 4050, y: 2900, width: 1700, height: 1600 },
+    attentions: [],
+  },
+];

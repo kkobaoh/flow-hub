@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { agvId, type AgvId, type AgvOnMap } from './agv';
 import { MapViewport } from './MapViewport';
 import { heading, panelId } from './model';
-import { sampleLayout } from './sampleLayout';
+import { sampleEquipment, sampleLayout } from './sampleLayout';
 
 const meta = {
   title: 'マップ/MapViewport',
@@ -36,6 +36,7 @@ function Interactive() {
       agvs={agvs}
       reservedPanels={[panelId('P3'), panelId('P4')]}
       routes={[[panelId('P3'), panelId('P4'), panelId('P5'), panelId('P6'), panelId('D1')]]}
+      equipment={sampleEquipment}
       selectedAgv={selected}
       highlightedAgv={highlighted}
       onSelectAgv={setSelected}

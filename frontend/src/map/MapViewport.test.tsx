@@ -3,7 +3,7 @@ import { click, pointer, render, wheel } from '../test/render';
 import { agvId, type AgvOnMap } from './agv';
 import { MapViewport } from './MapViewport';
 import { heading, panelId } from './model';
-import { sampleLayout } from './sampleLayout';
+import { sampleEquipment, sampleLayout } from './sampleLayout';
 
 // 見本のマップは 6000 x 4000 mm。余白 24px を除いた 1000 x 600 px に収めると、0.15 px/mm
 const size = { width: 1048, height: 648 };
@@ -40,6 +40,15 @@ describe('MapViewport', () => {
     expect(h).toBeCloseTo(648 / 0.15);
     expect(x! + w! / 2).toBeCloseTo(3000);
     expect(y! + h! / 2).toBeCloseTo(2000);
+  });
+
+  it('装置とステーションがあれば、その外形まで含めて全体を収める', () => {
+    const { container } = render(<MapViewport layout={sampleLayout} size={size} equipment={sampleEquipment} />);
+    const [x, y, w, h] = viewBox(container);
+
+    // 外形まで含めると、x は 0〜6000、y は -750〜5000（真ん中は 3000, 2125）
+    expect(x! + w! / 2).toBeCloseTo(3000);
+    expect(y! + h! / 2).toBeCloseTo(2125);
   });
 
   it('「拡大する」「縮小する」で、画面の真ん中を中心に大きさを変える', () => {

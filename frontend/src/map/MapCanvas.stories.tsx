@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { agvId, type AgvId, type AgvOnMap } from './agv';
 import { MapCanvas } from './MapCanvas';
 import { heading, panelId } from './model';
-import { sampleLayout } from './sampleLayout';
+import { sampleEquipment, sampleLayout } from './sampleLayout';
 
 const meta = {
   title: 'マップ/MapCanvas',
@@ -41,6 +41,7 @@ export const WithAgvs: Story = {
     agvs: sampleAgvs,
     reservedPanels: [panelId('P3'), panelId('P4')],
     routes: [sampleRoute],
+    equipment: sampleEquipment,
   },
 };
 

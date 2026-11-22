@@ -10,6 +10,7 @@ import {
   type RefObject,
 } from 'react';
 import { drawMap } from './drawing';
+import { contentBounds } from './equipment';
 import { MapCanvas, type MapCanvasProps } from './MapCanvas';
 import {
   fitView,
@@ -69,7 +70,8 @@ export function MapViewport({ size: fixedSize, focus = null, covered = NOT_COVER
   const surfaceRef = useRef<HTMLDivElement>(null);
   const size = useMeasuredSize(surfaceRef, fixedSize);
   const drawing = useMemo(() => drawMap(canvas.layout), [canvas.layout]);
-  const fit = size ? fitView(drawing, size) : null;
+  const bounds = useMemo(() => contentBounds(drawing, canvas.equipment ?? []), [drawing, canvas.equipment]);
+  const fit = size ? fitView(bounds, size) : null;
   const limits = fit ? zoomLimits(fit.scale, canvas.layout.panelSizeMm) : null;
   // null のあいだは「全体が収まる大きさ」。画面の大きさが変わっても、合わせて収め直す。
   const [view, setView] = useState<View | null>(null);

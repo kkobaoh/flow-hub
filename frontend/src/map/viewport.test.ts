@@ -3,11 +3,15 @@ import { fitView, panBy, pinchView, reveal, toMap, viewBoxOf, zoomAt, zoomLimits
 
 const screen: Size = { width: 1048, height: 648 };
 // 6000 x 4000 mm のマップ。余白 24px を除いた 1000 x 600 px に収めると、0.15 px/mm
-const map = { widthMm: 6000, heightMm: 4000 };
+const map = { x: 0, y: 0, width: 6000, height: 4000 };
 
 describe('fitView', () => {
-  it('マップの全体が、余白を残して画面に収まる大きさにし、真ん中に置く', () => {
+  it('描くものの全体が、余白を残して画面に収まる大きさにし、真ん中に置く', () => {
     expect(fitView(map, screen)).toEqual({ scale: 0.15, centerX: 3000, centerY: 2000 });
+  });
+
+  it('描くものがマップの外にはみ出していても、その範囲の真ん中に置く', () => {
+    expect(fitView({ x: -1000, y: -500, width: 6000, height: 4000 }, screen)).toEqual({ scale: 0.15, centerX: 2000, centerY: 1500 });
   });
 });
 
