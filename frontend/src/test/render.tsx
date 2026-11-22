@@ -64,6 +64,15 @@ export function wheel(element: Element, deltaY: number, at: { x: number; y: numb
   });
 }
 
+/** 入力欄や選択欄の値を変える（React が変化に気づくように、ブラウザーと同じ手順で値を入れて知らせる）。 */
+export function change(element: HTMLInputElement | HTMLSelectElement, value: string): void {
+  act(() => {
+    const proto = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(element, value);
+    element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
+  });
+}
+
 export function hover(element: Element, on: boolean): void {
   act(() => {
     element.dispatchEvent(new MouseEvent(on ? 'mouseover' : 'mouseout', { bubbles: true }));

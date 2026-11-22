@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { indicatorLight, lightLabel, type AgvId, type AgvOnMap } from '../map/agv';
 import type { Heading } from '../map/model';
 import { controlOptions, controlStatusLabel, type AgvOperation, type ControlStatus } from './controlStatus';
@@ -24,6 +25,8 @@ export interface AgvCardProps {
   readonly onChangeControl: (id: AgvId, status: ControlStatus, needsPosition: boolean) => void;
   readonly onAlarmClear: (id: AgvId) => void;
   readonly onPositionReset: (id: AgvId) => void;
+  /** マニュアル操作の欄（ManualPanel）。保守のロールで、AGV がマニュアルのときだけ出す。 */
+  readonly manual?: ReactNode;
 }
 
 const LIGHT_BG = {
@@ -63,6 +66,7 @@ export function AgvCard({
   onChangeControl,
   onAlarmClear,
   onPositionReset,
+  manual,
 }: AgvCardProps) {
   const light = indicatorLight(agv.status, onChargingPin);
   const stateText = agv.operation === 'idle' ? lightLabel(light.color) : OPERATION_LABEL[agv.operation];
@@ -187,7 +191,15 @@ export function AgvCard({
           {agv.control === 'locked' && <p className="m-0 text-xs text-ink-muted">ロック中は、アラームクリアを送れません（AGV が続きを走り出すため）。</p>}
           {detached && <p className="m-0 text-xs text-ink-muted">{NO_COMMAND}</p>}
         </div>
-      ) : (
+      ) : null}
+      {canRecover && permissions.has('manual') ? (
+        agv.control === 'manual' ? (
+          manual
+        ) : (
+          <p className="m-0 border-t border-line px-5 pt-3.5 pb-6 text-[13px] text-ink-muted">マニュアルに切り替えると、ここから行き先や1つずつの動作を送れます。</p>
+        )
+      ) : null}
+      {canRecover ? null : (
         <p className="m-0 border-t border-line px-5 pt-3.5 pb-6 text-[13px] text-ink-muted">
           アラームクリア、位置リセット、マニュアル操作は、保守以上のロールで使えます。
         </p>

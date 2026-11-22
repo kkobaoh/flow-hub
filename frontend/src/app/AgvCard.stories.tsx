@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { agvId } from '../map/agv';
 import { heading, panelId } from '../map/model';
 import { AgvCard, type AgvDetail } from './AgvCard';
+import { ManualPanel } from './ManualPanel';
 import { initialRoles } from './permissions';
 
 const agv: AgvDetail = {
@@ -58,6 +59,27 @@ export const Charging: Story = {
   args: {
     onChargingPin: true,
     agv: { ...agv, panel: panelId('SB2'), status: { activity: 'idle', charging: true, carrierMoving: false }, operation: 'idle', transport: null, batteryPercent: 35 },
+  },
+};
+
+/** 保守のロールで、マニュアルの AGV。カードからマニュアル操作を送る。 */
+export const MaintainerManual: Story = {
+  args: {
+    permissions: initialRoles.保守,
+    agv: { ...agv, control: 'manual', status: { ...agv.status, activity: 'idle' }, operation: 'idle', transport: null },
+    manual: (
+      <ManualPanel
+        input={{ operation: 'idle', activity: 'none', heading: heading(90) }}
+        destinations={[
+          { id: panelId('SB'), label: 'SB（待機パネル）' },
+          { id: panelId('SB2'), label: 'SB2（待機パネル・充電ピンあり）' },
+          { id: panelId('D1'), label: 'D1（DEV-1 の受け渡しパネル）' },
+        ]}
+        onMove={() => Promise.resolve('blocked')}
+        onStep={() => Promise.resolve('accepted')}
+        onCarrier={() => Promise.resolve('accepted')}
+      />
+    ),
   },
 };
 

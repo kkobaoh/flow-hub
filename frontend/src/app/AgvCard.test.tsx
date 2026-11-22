@@ -132,6 +132,20 @@ describe('AgvCard', () => {
     expect(container.textContent).toContain('アラームクリア、位置リセット、マニュアル操作は、保守以上のロールで使えます。');
   });
 
+  it('保守のロールで、AGV がマニュアルのときだけ、マニュアル操作の欄を出す', () => {
+    const manual = <div data-testid="manual">マニュアル操作の欄</div>;
+
+    const auto = render(<AgvCard {...props({ manual })} />);
+    expect(auto.container.querySelector('[data-testid="manual"]')).toBeNull();
+    expect(auto.container.textContent).toContain('マニュアルに切り替えると、ここから行き先や1つずつの動作を送れます。');
+
+    const manualAgv = render(<AgvCard {...props({ manual, agv: { ...agv, control: 'manual' } })} />);
+    expect(manualAgv.container.querySelector('[data-testid="manual"]')).not.toBeNull();
+
+    const operator = render(<AgvCard {...props({ manual, permissions: initialRoles.運用, agv: { ...agv, control: 'manual' } })} />);
+    expect(operator.container.querySelector('[data-testid="manual"]')).toBeNull();
+  });
+
   it('閲覧のみのロールは、緊急停止を押せない', () => {
     const { container } = render(<AgvCard {...props({ permissions: initialRoles.閲覧のみ })} />);
 
