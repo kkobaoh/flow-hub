@@ -38,8 +38,13 @@ export interface ControlOption {
   readonly needsPosition: boolean;
 }
 
+/** 保守の操作になる切り替えか（マニュアル・ロック・切り離しへ、またはそこから）。確かめる画面を出し、保守以上のロールに限る。 */
+export function isMaintenanceChange(current: ControlStatus, target: ControlStatus): boolean {
+  return ADVANCED.has(target) || ADVANCED.has(current);
+}
+
 function denialReason(target: ControlStatus, input: ControlInput): string | null {
-  const advanced = ADVANCED.has(target) || ADVANCED.has(input.current);
+  const advanced = isMaintenanceChange(input.current, target);
   if (advanced ? !input.permissions.has('controlAdvanced') : !input.permissions.has('controlBasic')) {
     return advanced ? '保守以上のロールで切り替えられます。' : '運用以上のロールで切り替えられます。';
   }

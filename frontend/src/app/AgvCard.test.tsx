@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { agvId } from '../map/agv';
 import { heading, panelId } from '../map/model';
+import { act } from 'react';
 import { click, render } from '../test/render';
 import { AgvCard, type AgvCardProps, type AgvDetail } from './AgvCard';
 import { initialRoles } from './permissions';
@@ -26,6 +27,13 @@ function props(overrides: Partial<AgvCardProps> = {}): AgvCardProps {
     onChangeControl: () => {},
     onAlarmClear: () => {},
     onPositionReset: () => {},
+    panels: [
+      { id: panelId('SB'), label: 'SB（待機パネル）' },
+      { id: panelId('P3'), label: 'P3' },
+    ],
+    offline: false,
+    sending: false,
+    notice: null,
     ...overrides,
   };
 }
@@ -36,6 +44,15 @@ function byText(root: ParentNode, text: string): HTMLButtonElement {
     throw new Error(`「${text}」のボタンがありません`);
   }
   return found;
+}
+
+const dialog = (c: HTMLElement) => c.querySelector<HTMLElement>('[role="alertdialog"]');
+
+function choose(el: HTMLSelectElement, value: string) {
+  act(() => {
+    el.value = value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
 }
 
 describe('AgvCard', () => {
@@ -102,19 +119,72 @@ describe('AgvCard', () => {
     expect(container.textContent).toContain('走っているあいだは切り替えられません。');
 
     click(byText(container, '割り当て停止'));
-    expect(onChangeControl).toHaveBeenCalledWith('AGV-1', 'assignmentPaused', false);
+    expect(onChangeControl).toHaveBeenCalledWith('AGV-1', 'assignmentPaused', null); // オートと割り当て停止の間は、確かめずに送る
+    expect(dialog(container)).toBeNull();
   });
 
-  it('保守は、アラームクリアと位置リセットを使える', () => {
+  it('保守の操作になる切り替えは、確かめる画面を出してから送る', () => {
+    const onChangeControl = vi.fn();
+    const { container } = render(<AgvCard {...props({ onChangeControl })} />);
+
+    click(byText(container, 'マニュアル'));
+    expect(onChangeControl).not.toHaveBeenCalled();
+    expect(dialog(container)?.textContent).toContain('AGV-1 を「マニュアル」に切り替えますか');
+
+    click(byText(dialog(container)!, 'マニュアルに切り替える'));
+    expect(onChangeControl).toHaveBeenCalledWith('AGV-1', 'manual', null);
+    expect(dialog(container)).toBeNull();
+  });
+
+  it('切り離しから戻すときは、位置を選ぶ画面を出し、選んだ位置を付けて送る', () => {
+    const onChangeControl = vi.fn();
+    const { container } = render(<AgvCard {...props({ onChangeControl, agv: { ...agv, control: 'detached', position: { kind: 'unknown' }, operation: 'positionUnknown' } })} />);
+
+    click(byText(container, 'オート'));
+    const d = dialog(container)!;
+    expect(d.textContent).toContain('AGV-1 を「オート」に戻しますか');
+    choose(d.querySelector<HTMLSelectElement>('select[aria-label="パネル"]')!, 'SB');
+    click(byText(d, 'オートに戻す'));
+
+    expect(onChangeControl).toHaveBeenCalledWith('AGV-1', 'auto', { panel: 'SB', heading: 0 });
+  });
+
+  it('アラームクリアは確かめてから送り、位置リセットは位置を選んでから送る（今の位置を最初から選んでおく）', () => {
     const onAlarmClear = vi.fn();
     const onPositionReset = vi.fn();
     const { container } = render(<AgvCard {...props({ onAlarmClear, onPositionReset })} />);
 
     click(byText(container, 'アラームクリア'));
-    click(byText(container, '位置リセット'));
-
+    expect(dialog(container)?.textContent).toContain('続きを走り出します');
+    click(byText(dialog(container)!, 'アラームクリアする'));
     expect(onAlarmClear).toHaveBeenCalledWith('AGV-1');
-    expect(onPositionReset).toHaveBeenCalledWith('AGV-1');
+
+    click(byText(container, '位置リセット'));
+    click(byText(dialog(container)!, '位置リセットする'));
+    expect(onPositionReset).toHaveBeenCalledWith('AGV-1', { panel: 'P3', heading: 90 });
+  });
+
+  it('送っている途中は、緊急停止のほかの操作を押せない。緊急停止は押せる', () => {
+    const { container } = render(<AgvCard {...props({ sending: true })} />);
+
+    expect(byText(container, '緊急停止').disabled).toBe(false);
+    expect(byText(container, '割り当て停止').disabled).toBe(true);
+    expect(byText(container, 'アラームクリア').disabled).toBe(true);
+    expect(byText(container, '位置リセット').disabled).toBe(true);
+  });
+
+  it('サーバーとつながっていないときは、緊急停止も含めて押せない', () => {
+    const { container } = render(<AgvCard {...props({ offline: true })} />);
+
+    expect(byText(container, '緊急停止').disabled).toBe(true);
+    expect(byText(container, '割り当て停止').disabled).toBe(true);
+    expect(byText(container, 'アラームクリア').disabled).toBe(true);
+  });
+
+  it('操作が受け付けられなかったときの知らせを、カードの中に出す', () => {
+    const { container } = render(<AgvCard {...props({ notice: 'そのパネルは、ほかの AGV が予約しています。' })} />);
+
+    expect(container.querySelector('[role="status"][data-agv-notice]')?.textContent).toBe('そのパネルは、ほかの AGV が予約しています。');
   });
 
   it('ロック中は、アラームクリアを送らない（位置リセットは送れる）', () => {

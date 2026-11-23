@@ -3,7 +3,8 @@ import { defineConfig, devices } from '@playwright/test';
 // 開発で使う 5173 や、ほかの確かめで起こすサーバー（5174、5175 など）と重ならないポートにする
 const port = 5190;
 const apiPort = 5199;
-const api = `http://localhost:${apiPort}`;
+/** E2E で起こす Api（テストから AGV の役をするときにも使う）。 */
+export const api = `http://localhost:${apiPort}`;
 
 /** E2E 用の DB（SQLite）のフォルダー（Api のフォルダーから見た場所）。開発用の DB とは分ける。空なら、開発用の初期データが入る。 */
 const database = '../../frontend/.e2e-data';
@@ -24,7 +25,8 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'dotnet run --no-launch-profile',
+      // 前の回の状態（コントロールステータスなど）が残らないように、E2E 用の DB を消してから起こす
+      command: `node -e "require('fs').rmSync('${database}', { recursive: true, force: true })" && dotnet run --no-launch-profile`,
       cwd: '../src/FlowHub.Api',
       url: `${api}/system/status`,
       timeout: 180_000,

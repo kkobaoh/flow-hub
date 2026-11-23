@@ -1,4 +1,6 @@
 import type { CommandResult, ConnectionState, ServerHandlers, ServerLink } from './link';
+import type { AgvId } from '../map/agv';
+import type { AgvCommand, AgvCommandResult } from './agvCommands';
 import type { AgvsSnapshot } from './agvs';
 import type { SystemStatusSnapshot } from './systemStatus';
 
@@ -8,6 +10,10 @@ type Command = 'start' | 'stop';
 export interface FakeLink extends ServerLink {
   /** 送られた操作。 */
   readonly sent: readonly Command[];
+  /** AGV へ送られた操作。 */
+  readonly agvCommands: readonly { readonly id: AgvId; readonly command: AgvCommand }[];
+  /** AGV への操作の結果を決める（既定は accepted）。holdResponses で止めておける。 */
+  respondToAgv(result: AgvCommandResult): void;
   /** 今つないでいるか。 */
   readonly connected: boolean;
   /** 操作の結果を決める（既定は ok）。 */
@@ -35,6 +41,8 @@ export function createFakeLink(initial?: {
   let holding = false;
   let held: (() => void)[] = [];
   const sent: Command[] = [];
+  const agvCommands: { id: AgvId; command: AgvCommand }[] = [];
+  let agvResult: AgvCommandResult = 'accepted';
 
   const send = (command: Command): Promise<CommandResult> => {
     sent.push(command);
@@ -45,8 +53,22 @@ export function createFakeLink(initial?: {
     return new Promise((resolve) => held.push(() => resolve(answer)));
   };
 
+  const operate = (id: AgvId, command: AgvCommand): Promise<AgvCommandResult> => {
+    agvCommands.push({ id, command });
+    const answer = agvResult;
+    if (!holding) {
+      return Promise.resolve(answer);
+    }
+    return new Promise((resolve) => held.push(() => resolve(answer)));
+  };
+
   return {
     sent,
+    agvCommands,
+    respondToAgv(next) {
+      agvResult = next;
+    },
+    operateAgv: operate,
     get connected() {
       return handlers !== null;
     },

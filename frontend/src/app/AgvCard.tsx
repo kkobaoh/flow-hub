@@ -1,7 +1,11 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { indicatorLight, lightLabel, type AgvId, type AgvPosition, type AgvStatus } from '../map/agv';
 import type { Heading } from '../map/model';
-import { controlOptions, controlStatusLabel, type AgvOperation, type ControlStatus } from './controlStatus';
+import type { AgvPose } from '../server/agvCommands';
+import { ConfirmDialog } from './ConfirmDialog';
+import { controlOptions, controlStatusLabel, isMaintenanceChange, type AgvOperation, type ControlStatus } from './controlStatus';
+import type { DestinationOption } from './ManualPanel';
+import { PositionDialog } from './PositionDialog';
 import type { ManualActivity } from './manual';
 import { CardHeader } from './CardHeader';
 import type { Permissions } from './permissions';
@@ -29,11 +33,20 @@ export interface AgvCardProps {
   readonly onChargingPin: boolean;
   readonly permissions: Permissions;
   readonly onClose: () => void;
+  /** 緊急停止を送る（確かめずに、すぐ送る）。 */
   readonly onEmergencyStop: (id: AgvId) => void;
-  /** needsPosition は、切り離しから戻すので、位置の指定が要るか。 */
-  readonly onChangeControl: (id: AgvId, status: ControlStatus, needsPosition: boolean) => void;
+  /** コントロールステータスを切り替える。position は、切り離しから戻すときに選んだ位置（ほかは null）。 */
+  readonly onChangeControl: (id: AgvId, status: ControlStatus, position: AgvPose | null) => void;
   readonly onAlarmClear: (id: AgvId) => void;
-  readonly onPositionReset: (id: AgvId) => void;
+  readonly onPositionReset: (id: AgvId, position: AgvPose) => void;
+  /** 位置リセットと、切り離しから戻すときに選べるパネル。 */
+  readonly panels: readonly DestinationOption[];
+  /** サーバーとつながっていないか（緊急停止も含めて、操作を押せなくする）。 */
+  readonly offline: boolean;
+  /** この AGV への操作を送っていて、結果を待っているか（緊急停止のほかの操作を押せなくする）。 */
+  readonly sending: boolean;
+  /** 操作が受け付けられなかったときの知らせ（なければ null）。 */
+  readonly notice: string | null;
   /** マニュアル操作の欄（ManualPanel）。保守のロールで、AGV がマニュアルのときだけ出す。 */
   readonly manual?: ReactNode;
   /** 一覧から開いたときだけ渡す（一覧に戻るボタンを出す）。 */
@@ -77,6 +90,28 @@ function positionText(position: AgvPosition): string {
 
 const NO_COMMAND = '切り離し中の AGV には、コマンドを送りません。';
 
+/** 保守の操作になる切り替えで、確かめる画面に出す説明（切り替えた先ごと）。 */
+const CONTROL_CONFIRM: Record<ControlStatus, string> = {
+  auto: 'システムの判断で動かし、搬送を割り当てるようになります。',
+  assignmentPaused: 'システムの判断で動かしますが、新しい搬送は割り当てません。',
+  manual: 'システムの判断では動かさなくなり、行き先と残りの経路を捨てます。このカードから、マニュアル操作を送れるようになります。',
+  locked: '緊急停止と位置リセットのほかは、コマンドを受け付けなくなります。行き先と残りの経路を捨てます。',
+  detached: 'どのコマンドも送らず、全台の計画からも外して、予約を外します。戻すときは、位置を指定します。',
+};
+
+/** 確かめている操作。 */
+type Asking =
+  | { readonly kind: 'control'; readonly status: ControlStatus }
+  | { readonly kind: 'leaveDetached'; readonly status: ControlStatus }
+  | { readonly kind: 'alarmClear' }
+  | { readonly kind: 'positionReset' }
+  | null;
+
+/** 今わかっている位置（位置を選ぶ画面で、最初から選んでおく）。 */
+function knownPose(position: AgvPosition): AgvPose | null {
+  return position.kind === 'unknown' ? null : { panel: position.panel, heading: position.heading };
+}
+
 const optionButton =
   'min-h-11 rounded-lg text-sm font-bold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed';
 const plainButton = `${optionButton} border border-control-border bg-white text-graphite disabled:border-disabled-border disabled:bg-ground disabled:text-disabled-text`;
@@ -91,9 +126,14 @@ export function AgvCard({
   onChangeControl,
   onAlarmClear,
   onPositionReset,
+  panels,
+  offline,
+  sending,
+  notice,
   manual,
   onBack,
 }: AgvCardProps) {
+  const [asking, setAsking] = useState<Asking>(null);
   const light = indicatorLight(agv.status, onChargingPin);
   const stateText = agv.operation === 'idle' ? lightLabel(light.color) : OPERATION_LABEL[agv.operation];
   const options = controlOptions({
@@ -104,7 +144,22 @@ export function AgvCard({
   });
   const reasons = [...new Set(options.flatMap((o) => (o.reason ? [`${o.label}：${o.reason}`] : [])))];
   const detached = agv.control === 'detached';
-  const canStop = permissions.has('emergencyStop') && !detached;
+  const canStop = permissions.has('emergencyStop') && !detached && !offline;
+  // 緊急停止のほかの操作は、つながっていないときと、送って結果を待っているあいだは押せない
+  const locked = offline || sending;
+  // 押せなくなったら（つながりが切れたなど）、確かめる画面も閉じる
+  if (locked && asking !== null) {
+    setAsking(null);
+  }
+  const chooseControl = (status: ControlStatus) => {
+    if (agv.control === 'detached') {
+      setAsking({ kind: 'leaveDetached', status });
+    } else if (isMaintenanceChange(agv.control, status)) {
+      setAsking({ kind: 'control', status });
+    } else {
+      onChangeControl(agv.id, status, null);
+    }
+  };
   const stopNote = detached ? NO_COMMAND : permissions.has('emergencyStop') ? null : '緊急停止は、運用以上のロールで使えます。';
   const canRecover = permissions.has('recovery');
 
@@ -123,6 +178,11 @@ export function AgvCard({
             緊急停止
           </button>
           {stopNote && <p className="m-0 mt-2 text-xs text-ink-muted">{stopNote}</p>}
+          {notice && (
+            <p role="status" data-agv-notice="" className="m-0 mt-2 rounded-lg border border-attention bg-white p-2.5 text-[13px] font-bold text-attention">
+              {notice}
+            </p>
+          )}
         </div>
       </div>
 
@@ -164,9 +224,9 @@ export function AgvCard({
               key={o.status}
               type="button"
               aria-pressed={o.current}
-              disabled={!o.current && !o.allowed}
+              disabled={!o.current && (!o.allowed || locked)}
               title={o.reason ?? undefined}
-              onClick={() => o.allowed && onChangeControl(agv.id, o.status, o.needsPosition)}
+              onClick={() => o.allowed && !locked && chooseControl(o.status)}
               className={o.current ? `${optionButton} border-2 border-graphite bg-graphite text-white` : plainButton}
             >
               {o.label}
@@ -188,14 +248,14 @@ export function AgvCard({
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              disabled={detached || agv.control === 'locked'}
+              disabled={detached || agv.control === 'locked' || locked}
               title={agv.control === 'locked' ? 'ロック中は、アラームクリアを送れません（AGV が続きを走り出すため）。' : undefined}
-              onClick={() => onAlarmClear(agv.id)}
+              onClick={() => setAsking({ kind: 'alarmClear' })}
               className={plainButton}
             >
               アラームクリア
             </button>
-            <button type="button" disabled={detached} onClick={() => onPositionReset(agv.id)} className={plainButton}>
+            <button type="button" disabled={detached || locked} onClick={() => setAsking({ kind: 'positionReset' })} className={plainButton}>
               位置リセット
             </button>
           </div>
@@ -214,6 +274,58 @@ export function AgvCard({
         <p className="m-0 border-t border-line px-5 pt-3.5 pb-6 text-[13px] text-ink-muted">
           アラームクリア、位置リセット、マニュアル操作は、保守以上のロールで使えます。
         </p>
+      )}
+      {asking?.kind === 'control' && (
+        <ConfirmDialog
+          title={`${agv.id} を「${controlStatusLabel[asking.status]}」に切り替えますか`}
+          body={CONTROL_CONFIRM[asking.status]}
+          confirmLabel={`${controlStatusLabel[asking.status]}に切り替える`}
+          tone="neutral"
+          onCancel={() => setAsking(null)}
+          onConfirm={() => {
+            setAsking(null);
+            onChangeControl(agv.id, asking.status, null);
+          }}
+        />
+      )}
+      {asking?.kind === 'leaveDetached' && (
+        <PositionDialog
+          title={`${agv.id} を「${controlStatusLabel[asking.status]}」に戻しますか`}
+          confirmLabel={`${controlStatusLabel[asking.status]}に戻す`}
+          panels={panels}
+          initial={knownPose(agv.position)}
+          onCancel={() => setAsking(null)}
+          onConfirm={(position) => {
+            setAsking(null);
+            onChangeControl(agv.id, asking.status, position);
+          }}
+        />
+      )}
+      {asking?.kind === 'alarmClear' && (
+        <ConfirmDialog
+          title={`${agv.id} にアラームクリアを送りますか`}
+          body="AGV は、止まる前の続きを走り出します。周りに人や物がないことを確かめてから送ってください。"
+          confirmLabel="アラームクリアする"
+          tone="neutral"
+          onCancel={() => setAsking(null)}
+          onConfirm={() => {
+            setAsking(null);
+            onAlarmClear(agv.id);
+          }}
+        />
+      )}
+      {asking?.kind === 'positionReset' && (
+        <PositionDialog
+          title={`${agv.id} を位置リセットしますか`}
+          confirmLabel="位置リセットする"
+          panels={panels}
+          initial={knownPose(agv.position)}
+          onCancel={() => setAsking(null)}
+          onConfirm={(position) => {
+            setAsking(null);
+            onPositionReset(agv.id, position);
+          }}
+        />
       )}
     </section>
   );

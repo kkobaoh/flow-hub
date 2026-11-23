@@ -7,7 +7,6 @@ import {
   demoConfigVarieties,
   demoConsumables,
   demoDeviceConfigs,
-  demoDestinations,
   demoDevices,
   demoHeights,
   demoMapDraft,
@@ -42,15 +41,16 @@ import { screens, type ScreenKey } from './app/screens';
 import { StationScreen } from './app/StationScreen';
 import { TransportsScreen } from './app/TransportsScreen';
 import { UsersScreen } from './app/UsersScreen';
-import { agvId } from './map/agv';
+import { agvId, type AgvId } from './map/agv';
+import { panelOptions } from './app/panelOptions';
 import type { Message } from './app/MessageRail';
 import type { CommandResult, ServerLink } from './server/link';
+import { commandNotice, toManualOutcome, type AgvCommand, type AgvCommandResult } from './server/agvCommands';
 import { toAgvDetails } from './server/agvs';
 import { runIndicator } from './server/systemStatus';
 import { useServer } from './server/useServer';
 import { sampleLayout } from './map/sampleLayout';
 
-const accepted = () => Promise.resolve('accepted' as const);
 const user = { name: '[ユーザー名]', role: '管理者' } as const;
 const permissions = initialRoles.管理者;
 
@@ -83,6 +83,10 @@ export function App({ link }: AppProps) {
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<readonly Message[]>(demoMessages);
   const messageCount = useRef(0);
+  // AGV ごとの、送って結果を待っている操作の数と、受け付けられなかったときの知らせ
+  const [sendingAgvs, setSendingAgvs] = useState<ReadonlyMap<AgvId, number>>(new Map());
+  const [agvNotices, setAgvNotices] = useState<ReadonlyMap<AgvId, string>>(new Map());
+  const offline = server.connection !== 'connected';
   const [transports, setTransports] = useState(demoTransports);
   const [devices, setDevices] = useState(demoDevices);
   const [stations, setStations] = useState(demoStations);
@@ -98,6 +102,7 @@ export function App({ link }: AppProps) {
   const [mapDraft, setMapDraft] = useState(demoMapDraft);
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [published, setPublished] = useState({ version: 3, layout: sampleLayout });
+  const destinations = useMemo(() => panelOptions(published.layout), [published.layout]);
   // AGV は、サーバーから届いた様子を、描いているマップに合わせて使う（まだ届いていなければ、いない）
   const agvs = useMemo(
     () => (server.agvs.kind === 'waiting' ? [] : toAgvDetails(server.agvs.snapshot.agvs, published.layout)),
@@ -114,6 +119,41 @@ export function App({ link }: AppProps) {
     navigate(screen, target);
   };
   const updateRecord = (id: string, change: (c: ConsumableRecord) => ConsumableRecord) => setRecords((rs) => rs.map((c) => (c.id === id ? change(c) : c)));
+  /** AGV へ操作を送る。結果が返るまでは、その AGV の操作を押せなくする（緊急停止のほかは）。 */
+  const operate = async (id: AgvId, command: AgvCommand): Promise<AgvCommandResult> => {
+    const count = (delta: number) =>
+      setSendingAgvs((m) => {
+        const next = new Map(m);
+        const n = (next.get(id) ?? 0) + delta;
+        if (n > 0) {
+          next.set(id, n);
+        } else {
+          next.delete(id);
+        }
+        return next;
+      });
+    count(1);
+    setAgvNotices((m) => {
+      const next = new Map(m);
+      next.delete(id);
+      return next;
+    });
+    try {
+      return await link.operateAgv(id, command);
+    } finally {
+      count(-1);
+    }
+  };
+  /** AGV へ操作を送り、受け付けられなかったら、カードの中に知らせる（やり直さない）。 */
+  const operateWithNotice = (id: AgvId, command: AgvCommand) => {
+    void operate(id, command).then((result) => {
+      const notice = commandNotice(result);
+      if (notice !== null) {
+        setAgvNotices((m) => new Map(m).set(id, notice));
+      }
+    });
+  };
+
   /** 運転の切り替えを送る。表示は、サーバーから届いた様子で変える。送れなかったら知らせる（やり直さない）。 */
   const sendRun = async (kind: 'start' | 'stop') => {
     setSending(true);
@@ -325,20 +365,23 @@ export function App({ link }: AppProps) {
           equipment={demoEquipment.filter((e) => published.layout.panels.some((p) => p.id === e.panel))}
           reservedPanels={demoReserved}
           routes={demoRoutes}
-          destinations={demoDestinations}
+          destinations={destinations}
           searchConsumables={(query) => demoConsumables.filter((c) => matchesQuery(c.id, query))}
           onOpenEquipment={(screen, id) => navigate(screen, id)}
           onOpenConsumable={(id) => navigate('consumables', id)}
           runSwitchDisabled={server.connection !== 'connected' || sending}
           onStart={() => void sendRun('start')}
           onStop={() => void sendRun('stop')}
-          onEmergencyStop={() => {}}
-          onChangeControl={() => {}} // AGV への操作は、次の小ステップでサーバーとつなぐ
-          onAlarmClear={() => {}}
-          onPositionReset={() => {}}
-          onManualMove={accepted}
-          onManualStep={accepted}
-          onManualCarrier={accepted}
+          offline={offline}
+          agvSending={(id) => (sendingAgvs.get(id) ?? 0) > 0}
+          agvNotice={(id) => agvNotices.get(id) ?? null}
+          onEmergencyStop={(id) => operateWithNotice(id, { kind: 'emergencyStop' })}
+          onChangeControl={(id, status, position) => operateWithNotice(id, { kind: 'control', status, position })}
+          onAlarmClear={(id) => operateWithNotice(id, { kind: 'alarmClear' })}
+          onPositionReset={(id, position) => operateWithNotice(id, { kind: 'positionReset', position })}
+          onManualMove={(id, destination, arrival) => operate(id, { kind: 'manualMove', destination, arrival }).then(toManualOutcome)}
+          onManualStep={(id, step) => operate(id, { kind: 'manualStep', step }).then(toManualOutcome)}
+          onManualCarrier={(id, action) => operate(id, { kind: 'manualCarrier', action }).then(toManualOutcome)}
         />
       ) : (
         <ScreenFrame {...frame} current={route.screen} title={screens.find((s) => s.key === route.screen)?.title ?? ''}>

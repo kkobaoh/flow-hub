@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { controlOptions, type ControlInput } from './controlStatus';
+import { controlOptions, isMaintenanceChange, type ControlInput } from './controlStatus';
 import { initialRoles } from './permissions';
 
 const base: ControlInput = {
@@ -85,5 +85,18 @@ describe('controlOptions（コントロールステータスの切り替え）',
 
   it('今のステータスは、選べるものとして扱わない（押しても何もしない）', () => {
     expect(option(base, 'auto')).toMatchObject({ current: true, allowed: false });
+  });
+});
+
+describe('isMaintenanceChange（保守の操作になる切り替え）', () => {
+  it('マニュアル・ロック・切り離しへの切り替えと、そこからの切り替えは保守の操作', () => {
+    expect(isMaintenanceChange('auto', 'manual')).toBe(true);
+    expect(isMaintenanceChange('locked', 'auto')).toBe(true);
+    expect(isMaintenanceChange('detached', 'assignmentPaused')).toBe(true);
+  });
+
+  it('オートと割り当て停止の間の切り替えは、保守の操作でない', () => {
+    expect(isMaintenanceChange('auto', 'assignmentPaused')).toBe(false);
+    expect(isMaintenanceChange('assignmentPaused', 'auto')).toBe(false);
   });
 });

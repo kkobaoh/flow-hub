@@ -6,6 +6,7 @@ import type { EquipmentId } from '../map/equipment';
 import { MapViewport } from '../map/MapViewport';
 import type { Heading, MapLayout, PanelId } from '../map/model';
 import type { Obstruction, Size } from '../map/viewport';
+import type { AgvPose } from '../server/agvCommands';
 import { AgvCard, type AgvDetail } from './AgvCard';
 import { placedAgvs, unplacedAgvs } from './agvPlacement';
 import { AppHeader, type SignedInUser } from './AppHeader';
@@ -47,9 +48,16 @@ export interface MapScreenProps {
   readonly onStop: () => void;
   readonly onMarkAllSeen: () => void;
   readonly onEmergencyStop: (id: AgvId) => void;
-  readonly onChangeControl: (id: AgvId, status: ControlStatus, needsPosition: boolean) => void;
+  /** position は、切り離しから戻すときに選んだ位置（ほかは null）。 */
+  readonly onChangeControl: (id: AgvId, status: ControlStatus, position: AgvPose | null) => void;
   readonly onAlarmClear: (id: AgvId) => void;
-  readonly onPositionReset: (id: AgvId) => void;
+  readonly onPositionReset: (id: AgvId, position: AgvPose) => void;
+  /** サーバーとつながっていないか（AGV への操作を押せなくする）。 */
+  readonly offline: boolean;
+  /** その AGV への操作を送って、結果を待っているか。 */
+  readonly agvSending: (id: AgvId) => boolean;
+  /** その AGV への操作が受け付けられなかったときの知らせ（なければ null）。 */
+  readonly agvNotice: (id: AgvId) => string | null;
   readonly onManualMove: (id: AgvId, destination: PanelId, arrival: Heading | null) => Promise<ManualOutcome>;
   readonly onManualStep: (id: AgvId, step: ManualStepCommand) => Promise<ManualOutcome>;
   readonly onManualCarrier: (id: AgvId, action: 'raise' | 'lower') => Promise<ManualOutcome>;
@@ -247,6 +255,10 @@ export function MapScreen(props: MapScreenProps) {
               onChangeControl={props.onChangeControl}
               onAlarmClear={props.onAlarmClear}
               onPositionReset={props.onPositionReset}
+              panels={props.destinations}
+              offline={props.offline}
+              sending={props.agvSending(agv.id)}
+              notice={props.agvNotice(agv.id)}
               manual={
                 <ManualPanel
                   input={{ operation: agv.operation, activity: agv.manualActivity ?? 'none', heading: agv.position.kind === 'unknown' ? 'unknown' : agv.position.heading }}
@@ -254,6 +266,7 @@ export function MapScreen(props: MapScreenProps) {
                   onMove={(destination, arrival) => props.onManualMove(agv.id, destination, arrival)}
                   onStep={(step) => props.onManualStep(agv.id, step)}
                   onCarrier={(action) => props.onManualCarrier(agv.id, action)}
+                  offline={props.offline}
                 />
               }
             />

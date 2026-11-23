@@ -209,4 +209,87 @@ describe('App', () => {
 
     expect(link.connected).toBe(false);
   });
+
+  // ---- AGV への操作 ----
+
+  /** AGV-1 が P3 にいて、AGV-1 のカードを開いた形。 */
+  function openAgv1(control: 'auto' | 'manual' = 'auto') {
+    const link = createFakeLink({
+      connection: 'connected',
+      status: { version: 1, state: 'started' },
+      agvs: { version: 1, agvs: [{ id: 'AGV-1', panel: 'P3', heading: 90, state: 'idle', control, carrierMoving: false, batteryPercent: 72 }] },
+    });
+    const rendered = render(<App link={link} />);
+    click(rendered.container.querySelector('[data-agv="AGV-1"]')!);
+    const card = () => rendered.container.querySelector<HTMLElement>('[data-agv-card]')!;
+    return { link, card, ...rendered };
+  }
+
+  const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+  it('緊急停止は、確かめずにすぐサーバーへ送る', async () => {
+    const { link, card } = openAgv1();
+
+    click(buttonByText(card(), '緊急停止'));
+    await flush();
+
+    expect(link.agvCommands).toEqual([{ id: 'AGV-1', command: { kind: 'emergencyStop' } }]);
+  });
+
+  it('アラームクリアは、確かめてから送る', async () => {
+    const { link, card, container } = openAgv1();
+
+    click(buttonByText(card(), 'アラームクリア'));
+    expect(link.agvCommands).toEqual([]);
+    click(buttonByText(container.querySelector('[role="alertdialog"]')!, 'アラームクリアする'));
+    await flush();
+
+    expect(link.agvCommands).toEqual([{ id: 'AGV-1', command: { kind: 'alarmClear' } }]);
+  });
+
+  it('受け付けられなかったときは、カードの中に理由を出す', async () => {
+    const { link, card } = openAgv1();
+    link.respondToAgv('refused');
+
+    click(buttonByText(card(), '緊急停止'));
+    await flush();
+
+    expect(card().querySelector('[data-agv-notice]')?.textContent).toContain('今の AGV の状態では、受け付けられませんでした');
+  });
+
+  it('送って結果が返るまでは、緊急停止のほかの操作を押せない', async () => {
+    const { link, card } = openAgv1();
+    link.holdResponses();
+
+    click(buttonByText(card(), '割り当て停止'));
+    await flush();
+    expect(buttonByText(card(), 'アラームクリア').disabled).toBe(true);
+    expect(buttonByText(card(), '緊急停止').disabled).toBe(false);
+
+    await act(async () => {
+      link.release();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(buttonByText(card(), 'アラームクリア').disabled).toBe(false);
+  });
+
+  it('つながりが切れたら、緊急停止も押せない', () => {
+    const { link, card } = openAgv1();
+
+    act(() => link.emitConnection('reconnecting'));
+
+    expect(buttonByText(card(), '緊急停止').disabled).toBe(true);
+  });
+
+  it('マニュアルの行き先を、マップのパネルから選んで送る', async () => {
+    const { link, card } = openAgv1('manual');
+
+    await act(async () => {
+      click(buttonByText(card(), 'この行き先へ動かす'));
+      await Promise.resolve();
+    });
+
+    expect(link.agvCommands).toEqual([{ id: 'AGV-1', command: { kind: 'manualMove', destination: 'D1', arrival: null } }]); // ID の順で最初のパネル
+  });
 });

@@ -1,5 +1,6 @@
 import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { COMMAND_TIMEOUT_MS, postCommand, retryDelayMs, type ServerHandlers, type ServerLink } from './link';
+import { sendAgvCommand } from './agvCommands';
 import { parseAgvs } from './agvs';
 import { parseSystemStatus } from './systemStatus';
 
@@ -19,6 +20,7 @@ export function createSignalRLink(baseUrl = ''): ServerLink {
     connect: (handlers) => connect(baseUrl, handlers),
     startSystem: () => postCommand(baseUrl, '/system/start', COMMAND_TIMEOUT_MS),
     stopSystem: () => postCommand(baseUrl, '/system/stop', COMMAND_TIMEOUT_MS),
+    operateAgv: (id, command) => sendAgvCommand(baseUrl, id, command, COMMAND_TIMEOUT_MS),
   };
 }
 

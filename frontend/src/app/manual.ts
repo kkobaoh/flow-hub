@@ -66,7 +66,18 @@ export function manualAvailability(input: ManualInput): ManualAvailability {
 }
 
 /** サーバーが返した、送った結果。 */
-export type ManualOutcome = 'accepted' | 'alreadyThere' | 'noRoute' | 'blocked' | 'notAllowed';
+export type ManualOutcome =
+  | 'accepted'
+  | 'alreadyThere'
+  | 'noRoute'
+  | 'blocked'
+  | 'notAllowed'
+  /** 特殊消耗品受け渡しパネルで、キャリアを下ろす角度と違う「着いたときの向き」を指定した。 */
+  | 'arrivalHeadingNotAllowed'
+  /** 今の AGV の状態では、受け付けられなかった。 */
+  | 'refused'
+  /** 応答がなく、届いたかわからない。 */
+  | 'failed';
 
 /** 送った結果を、ユーザーにわかる言葉にする（受け付けたときは null）。 */
 export function outcomeMessage(kind: 'move' | 'step' | 'carrier', outcome: ManualOutcome): string | null {
@@ -81,5 +92,11 @@ export function outcomeMessage(kind: 'move' | 'step' | 'carrier', outcome: Manua
       return kind === 'move' ? 'ほかの AGV に塞がれていて、今は行けません。' : '動く先のパネルを予約できないので、送りませんでした。';
     case 'notAllowed':
       return 'マップの決まりを守れない動作なので、送りませんでした。';
+    case 'arrivalHeadingNotAllowed':
+      return 'このパネルでは、着いたらキャリアを下ろす角度を向きます。ほかの向きは指定できません。';
+    case 'refused':
+      return '今の AGV の状態では、受け付けられませんでした。AGV の様子を確かめてください。';
+    case 'failed':
+      return 'サーバーから応答がなく、届いたかわかりません。AGV の様子を確かめてください。';
   }
 }

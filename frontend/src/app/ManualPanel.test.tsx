@@ -18,6 +18,7 @@ function props(overrides: Partial<ManualPanelProps> = {}): ManualPanelProps {
     onMove: accepted,
     onStep: accepted,
     onCarrier: accepted,
+    offline: false,
     ...overrides,
   };
 }
@@ -131,5 +132,27 @@ describe('ManualPanel', () => {
     await act(async () => byText(container, 'キャリアを下げる').click());
 
     expect(onCarrier.mock.calls).toEqual([['raise'], ['lower']]);
+  });
+
+  it('サーバーとつながっていないときは、どれも送れない', () => {
+    const { container } = render(<ManualPanel {...props({ offline: true })} />);
+
+    expect(byText(container, 'この行き先へ動かす').disabled).toBe(true);
+    expect(byText(container, 'キャリアを上げる').disabled).toBe(true);
+  });
+
+  it('着いたときの向きが決まっているパネル（特殊消耗品受け渡しパネル）を選んだら、向きは選ばせず、決まった向きを伝える', async () => {
+    const onMove = vi.fn(accepted);
+    const { container } = render(
+      <ManualPanel {...props({ onMove, destinations: [{ id: panelId('SP'), label: 'SP（特殊消耗品受け渡しパネル）', fixedArrival: heading(45) }] })} />,
+    );
+
+    expect(field<HTMLSelectElement>(container, '着いたときの向き').disabled).toBe(true);
+    expect(container.textContent).toContain('着いたら、キャリアを下ろす角度（45°）を向きます。');
+    await act(async () => {
+      click(byText(container, 'この行き先へ動かす'));
+      await Promise.resolve();
+    });
+    expect(onMove).toHaveBeenCalledWith('SP', null);
   });
 });

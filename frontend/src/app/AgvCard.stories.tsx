@@ -28,6 +28,13 @@ const meta = {
     onChangeControl: () => {},
     onAlarmClear: () => {},
     onPositionReset: () => {},
+    panels: [
+      { id: panelId('SB'), label: 'SB（待機パネル）' },
+      { id: panelId('P3'), label: 'P3' },
+    ],
+    offline: false,
+    sending: false,
+    notice: null,
   },
   decorators: [
     (Story) => (
@@ -77,6 +84,7 @@ export const MaintainerManual: Story = {
         onMove={() => Promise.resolve('blocked')}
         onStep={() => Promise.resolve('accepted')}
         onCarrier={() => Promise.resolve('accepted')}
+        offline={false}
       />
     ),
   },
@@ -88,4 +96,14 @@ export const Detached: Story = {
     permissions: initialRoles.保守,
     agv: { ...agv, control: 'detached', operation: 'idle', transport: null, batteryPercent: null },
   },
+};
+
+/** 操作が受け付けられなかったときは、カードの中に理由を出す。 */
+export const Notice: Story = {
+  args: { permissions: initialRoles.保守, notice: 'そのパネルは、ほかの AGV が予約しています。別のパネルを選ぶか、空くのを待ってください。' },
+};
+
+/** 操作を送って結果を待っているあいだは、緊急停止のほかは押せない。 */
+export const Sending: Story = {
+  args: { permissions: initialRoles.保守, sending: true },
 };

@@ -13,6 +13,8 @@ export type ManualStepCommand =
 export interface DestinationOption {
   readonly id: PanelId;
   readonly label: string;
+  /** 着いたときの向きが決まっているパネル（特殊消耗品受け渡しパネル。キャリアを下ろす角度）なら、その向き。 */
+  readonly fixedArrival?: Heading;
 }
 
 export interface ManualPanelProps {
@@ -22,6 +24,8 @@ export interface ManualPanelProps {
   readonly onMove: (destination: PanelId, arrival: Heading | null) => Promise<ManualOutcome>;
   readonly onStep: (step: ManualStepCommand) => Promise<ManualOutcome>;
   readonly onCarrier: (action: 'raise' | 'lower') => Promise<ManualOutcome>;
+  /** サーバーとつながっていないか（どれも送れなくする）。 */
+  readonly offline: boolean;
 }
 
 const CARDINALS = [
@@ -43,7 +47,7 @@ function parseFreeHeading(text: string): Heading | null {
 }
 
 /** マニュアル操作の欄（AGV のカードの中に出す）。送れないものは押せなくし、理由を出す。 */
-export function ManualPanel({ input, destinations, onMove, onStep, onCarrier }: ManualPanelProps) {
+export function ManualPanel({ input, destinations, onMove, onStep, onCarrier, offline }: ManualPanelProps) {
   const ids = { destination: useId(), arrival: useId(), free: useId() };
   const [mode, setMode] = useState<'destination' | 'steps'>('destination');
   const [destination, setDestination] = useState<string>(destinations[0]?.id ?? '');
@@ -54,6 +58,9 @@ export function ManualPanel({ input, destinations, onMove, onStep, onCarrier }: 
   const [message, setMessage] = useState<string | null>(null);
 
   const a = manualAvailability(input);
+  // 送ってから結果が返るまでと、つながっていないあいだは、どれも送れない
+  const blocked = pending || offline;
+  const fixedArrival = destinations.find((d) => d.id === destination)?.fixedArrival;
   const freeHeading = parseFreeHeading(freeText);
 
   // 送ってから結果が返るまでは、続けて送らない（ボタンの連打を防ぐ）
@@ -117,7 +124,13 @@ export function ManualPanel({ input, destinations, onMove, onStep, onCarrier }: 
           <label htmlFor={ids.arrival} className="text-[13px] font-bold">
             着いたときの向き
           </label>
-          <select id={ids.arrival} value={arrival} onChange={(e) => setArrival(e.target.value)} className={select}>
+          <select
+            id={ids.arrival}
+            value={fixedArrival === undefined ? arrival : ''}
+            disabled={fixedArrival !== undefined}
+            onChange={(e) => setArrival(e.target.value)}
+            className={`${select} disabled:bg-ground disabled:text-disabled-text`}
+          >
             <option value="">指定しない</option>
             {CARDINALS.map(([deg, dir]) => (
               <option key={deg} value={deg}>
@@ -125,13 +138,16 @@ export function ManualPanel({ input, destinations, onMove, onStep, onCarrier }: 
               </option>
             ))}
           </select>
+          {fixedArrival !== undefined && <p className="m-0 text-xs text-ink-muted">着いたら、キャリアを下ろす角度（{fixedArrival}°）を向きます。</p>}
           <button
             type="button"
-            disabled={pending || !a.destination.allowed || destination === ''}
+            disabled={blocked || !a.destination.allowed || destination === ''}
             onClick={() => {
               const target = destinations.find((d) => d.id === destination);
               if (target) {
-                void send('move', () => onMove(target.id, arrival === '' ? null : toHeading(Number(arrival))));
+                // 向きが決まっているパネルでは、向きを送らない（サーバーが決まった向きにする）
+                const chosen = target.fixedArrival === undefined && arrival !== '' ? toHeading(Number(arrival)) : null;
+                void send('move', () => onMove(target.id, chosen));
               }
             }}
             className="min-h-11 rounded-lg bg-graphite px-4 text-sm font-bold text-white focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:bg-disabled-border disabled:text-disabled-text"
@@ -143,10 +159,10 @@ export function ManualPanel({ input, destinations, onMove, onStep, onCarrier }: 
       ) : (
         <div className="flex flex-col gap-2.5">
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" disabled={pending || !a.forwardBackward.allowed} onClick={() => void send('step', () => onStep({ kind: 'forward' }))} className={button}>
+            <button type="button" disabled={blocked || !a.forwardBackward.allowed} onClick={() => void send('step', () => onStep({ kind: 'forward' }))} className={button}>
               前進
             </button>
-            <button type="button" disabled={pending || !a.forwardBackward.allowed} onClick={() => void send('step', () => onStep({ kind: 'backward' }))} className={button}>
+            <button type="button" disabled={blocked || !a.forwardBackward.allowed} onClick={() => void send('step', () => onStep({ kind: 'backward' }))} className={button}>
               後退
             </button>
           </div>
@@ -156,7 +172,7 @@ export function ManualPanel({ input, destinations, onMove, onStep, onCarrier }: 
               <button
                 key={deg}
                 type="button"
-                disabled={pending || !a.step.allowed}
+                disabled={blocked || !a.step.allowed}
                 onClick={() => void send('step', () => onStep({ kind: 'rotate', heading: toHeading(deg) }))}
                 className={button}
               >
@@ -179,7 +195,7 @@ export function ManualPanel({ input, destinations, onMove, onStep, onCarrier }: 
             />
             <button
               type="button"
-              disabled={pending || !a.step.allowed || freeHeading === null}
+              disabled={blocked || !a.step.allowed || freeHeading === null}
               onClick={() => {
                 if (freeHeading !== null) {
                   void send('step', () => onStep({ kind: 'freeRotate', heading: freeHeading }));
@@ -196,10 +212,10 @@ export function ManualPanel({ input, destinations, onMove, onStep, onCarrier }: 
       )}
 
       <div className="grid grid-cols-2 gap-2">
-        <button type="button" disabled={pending || !a.carrier.allowed} onClick={() => void send('carrier', () => onCarrier('raise'))} className={button}>
+        <button type="button" disabled={blocked || !a.carrier.allowed} onClick={() => void send('carrier', () => onCarrier('raise'))} className={button}>
           キャリアを上げる
         </button>
-        <button type="button" disabled={pending || !a.carrier.allowed} onClick={() => void send('carrier', () => onCarrier('lower'))} className={button}>
+        <button type="button" disabled={blocked || !a.carrier.allowed} onClick={() => void send('carrier', () => onCarrier('lower'))} className={button}>
           キャリアを下げる
         </button>
       </div>

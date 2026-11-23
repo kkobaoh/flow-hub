@@ -1,3 +1,5 @@
+import type { AgvId } from '../map/agv';
+import type { AgvCommand, AgvCommandResult } from './agvCommands';
 import type { AgvsSnapshot } from './agvs';
 import type { SystemStatusSnapshot } from './systemStatus';
 
@@ -31,6 +33,8 @@ export interface ServerLink {
   startSystem(): Promise<CommandResult>;
   /** 運転状態を停止にする。 */
   stopSystem(): Promise<CommandResult>;
+  /** AGV へ操作を送る（応答がなければ、あきらめて failed。やり直さない）。 */
+  operateAgv(id: AgvId, command: AgvCommand): Promise<AgvCommandResult>;
 }
 
 /** 操作を送って、応答を待つ長さ。 */
