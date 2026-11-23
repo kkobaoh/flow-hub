@@ -45,6 +45,14 @@ describe('ScreenFrame（マップ以外の画面の枠）', () => {
     expect(container.querySelector('#message-rail')).toBeNull();
   });
 
+  it('開いたメッセージの列は、中身が短くても下の画面が透けないよう、列の全体に背景を塗る', () => {
+    const { container } = render(<ScreenFrame {...props({ messages: [] })} />);
+
+    click(tab(container));
+
+    expect(container.querySelector('#message-rail')?.classList.contains('bg-paper')).toBe(true);
+  });
+
   it('開いたメッセージの列は、外を押すと閉じる', () => {
     const { container } = render(<ScreenFrame {...props()} />);
 

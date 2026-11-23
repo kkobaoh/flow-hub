@@ -82,6 +82,12 @@ describe('MapScreen', () => {
     expect(none.container.querySelector('#message-rail')).toBeNull();
   });
 
+  it('メッセージの列は、中身が短くても下の画面が透けないよう、列の全体に背景を塗る', () => {
+    const { container } = render(<MapScreen {...props()} />);
+
+    expect(container.querySelector('#message-rail')?.classList.contains('bg-paper')).toBe(true);
+  });
+
   it('タブで、メッセージの列を開け閉めする', () => {
     const { container } = render(<MapScreen {...props()} />);
     const tab = () => container.querySelector<HTMLButtonElement>('button[aria-controls="message-rail"]')!;

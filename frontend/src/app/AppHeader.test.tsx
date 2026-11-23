@@ -33,6 +33,15 @@ describe('AppHeader', () => {
     expect(q(container, '[role="status"]').textContent).toBe('停止中');
   });
 
+  it('名前を押すと、マップの画面へ移る', () => {
+    const onNavigate = vi.fn();
+    const { container } = render(<AppHeader {...base} current="agvs" onNavigate={onNavigate} />);
+
+    click(q<HTMLButtonElement>(container, 'button[data-home]'));
+
+    expect(onNavigate).toHaveBeenCalledWith('map');
+  });
+
   it('メニューは閉じていて、押すと開く', () => {
     const { container } = render(<AppHeader {...base} />);
 

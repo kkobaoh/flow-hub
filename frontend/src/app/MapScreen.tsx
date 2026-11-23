@@ -191,7 +191,7 @@ export function MapScreen(props: MapScreenProps) {
           <aside
             id="message-rail"
             data-keep-card=""
-            className="w-[300px] shrink-0 overflow-y-auto border-l border-line max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-24 max-sm:h-[55vh] max-sm:w-auto max-sm:animate-sheet-in max-sm:rounded-t-2xl max-sm:border-t max-sm:border-l-0 max-sm:shadow-[0_-6px_20px_rgba(35,38,43,0.18)]"
+            className="w-[300px] shrink-0 overflow-y-auto bg-paper border-l border-line max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-24 max-sm:h-[55vh] max-sm:w-auto max-sm:animate-sheet-in max-sm:rounded-t-2xl max-sm:border-t max-sm:border-l-0 max-sm:shadow-[0_-6px_20px_rgba(35,38,43,0.18)]"
           >
             <MessageRail messages={messages} onMarkAllSeen={props.onMarkAllSeen} onClose={() => setRailChoice(false)} />
           </aside>

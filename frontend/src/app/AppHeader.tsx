@@ -25,7 +25,7 @@ const menuItem =
 const smallButton =
   'min-h-11 rounded-lg border border-control-border bg-white px-2.5 text-[13px] font-bold text-graphite focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus';
 
-/** どの画面にも出す上の帯。左に名前と運転状態、右にユーザーとメニュー。 */
+/** どの画面にも出す上の帯。左に名前と運転状態、右にユーザーとメニュー。名前を押すと、マップの画面へ移る。 */
 export function AppHeader({ running, user, current, mapVersion, onNavigate, onChangePassword, onLogout }: AppHeaderProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -66,7 +66,15 @@ export function AppHeader({ running, user, current, mapVersion, onNavigate, onCh
 
   return (
     <header className="relative z-15 flex flex-wrap items-center gap-x-5 gap-y-3 bg-graphite px-3 py-2 text-white sm:px-5 sm:py-2.5">
-      <span className="font-number text-2xl leading-none font-bold">FlowHub</span>
+      <button
+        type="button"
+        data-home=""
+        aria-label="FlowHub（マップの画面へ）"
+        onClick={() => choose('map')}
+        className="-mx-1 rounded-md px-1 font-number text-2xl leading-none font-bold text-white focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus"
+      >
+        FlowHub
+      </button>
       <div
         role="status"
         className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-bold ${running ? 'bg-running text-white' : 'bg-paper text-graphite'}`}

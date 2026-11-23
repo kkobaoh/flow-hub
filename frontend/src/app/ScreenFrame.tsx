@@ -69,7 +69,7 @@ export function ScreenFrame(props: ScreenFrameProps) {
         {open && (
           <aside
             id="message-rail"
-            className="fixed inset-y-0 right-0 z-30 w-[340px] overflow-y-auto border-l border-line shadow-[-6px_0_20px_rgba(35,38,43,0.18)] max-sm:top-auto max-sm:left-0 max-sm:h-[55vh] max-sm:w-auto max-sm:animate-sheet-in max-sm:rounded-t-2xl max-sm:border-t max-sm:border-l-0"
+            className="fixed inset-y-0 right-0 z-30 w-[340px] overflow-y-auto bg-paper border-l border-line shadow-[-6px_0_20px_rgba(35,38,43,0.18)] max-sm:top-auto max-sm:left-0 max-sm:h-[55vh] max-sm:w-auto max-sm:animate-sheet-in max-sm:rounded-t-2xl max-sm:border-t max-sm:border-l-0"
           >
             <MessageRail messages={props.messages} onMarkAllSeen={props.onMarkAllSeen} onClose={() => setOpen(false)} />
           </aside>
