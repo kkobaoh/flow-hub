@@ -10,6 +10,8 @@ import {
   demoDeviceConfigs,
   demoDestinations,
   demoDevices,
+  demoHeights,
+  demoMapDraft,
   demoEquipment,
   demoMessages,
   demoProcessKinds,
@@ -21,19 +23,22 @@ import {
   demoStations,
   demoTransports,
   demoUsers,
+  demoValidate,
   demoVarieties,
 } from './app/demo';
 import { AgvsScreen } from './app/AgvsScreen';
 import { ConfigScreen } from './app/ConfigScreen';
 import type { ConsumableRecord } from './app/consumables';
 import { ConsumablesScreen } from './app/ConsumablesScreen';
+import { ConfirmDialog } from './app/ConfirmDialog';
 import { DevicesScreen } from './app/DevicesScreen';
 import { matchesQuery } from './app/listing';
+import { MapEditScreen } from './app/MapEditScreen';
 import { MapScreen } from './app/MapScreen';
 import { useRoute, type Route } from './app/navigation';
 import { initialRoles } from './app/permissions';
 import { ScreenFrame } from './app/ScreenFrame';
-import { screens } from './app/screens';
+import { screens, type ScreenKey } from './app/screens';
 import { StationScreen } from './app/StationScreen';
 import { TransportsScreen } from './app/TransportsScreen';
 import { UsersScreen } from './app/UsersScreen';
@@ -49,7 +54,6 @@ function demoPassword(): string {
   const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
   return Array.from(crypto.getRandomValues(new Uint32Array(12)), (n) => letters[n % letters.length]).join('');
 }
-const mapVersion = 'マップ 版3（公開済み）';
 const transferPanels = sampleLayout.panels.filter((p) => p.type === 'Transfer' || p.type === 'SpecialTransfer').map((p): string => p.id);
 
 /**
@@ -73,15 +77,28 @@ export function App() {
   const [stationConfigs, setStationConfigs] = useState(demoStationConfigs);
   const [users, setUsers] = useState(demoUsers);
   const [roles, setRoles] = useState(demoRoles);
+  const [mapDraft, setMapDraft] = useState(demoMapDraft);
+  const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
+  const [published, setPublished] = useState({ version: 3, layout: sampleLayout });
+  const [heights, setHeights] = useState(demoHeights);
+  const [mapDirty, setMapDirty] = useState(false);
+  const [leaving, setLeaving] = useState<{ readonly screen: ScreenKey; readonly target: string | undefined } | null>(null);
+  const go = (screen: ScreenKey, target?: string) => {
+    if (route.screen === 'mapEdit' && mapDirty && screen !== 'mapEdit') {
+      setLeaving({ screen, target });
+      return;
+    }
+    navigate(screen, target);
+  };
   const updateRecord = (id: string, change: (c: ConsumableRecord) => ConsumableRecord) => setRecords((rs) => rs.map((c) => (c.id === id ? change(c) : c)));
   const frame = {
     running,
     user,
     permissions,
-    mapVersion,
+    mapVersion: `マップ 版${published.version}（公開済み）`,
     messages,
     onMarkAllSeen: () => setMessages((ms) => ms.map((m) => ({ ...m, unread: false }))),
-    onNavigate: navigate,
+    onNavigate: go,
     onChangePassword: () => {},
     onLogout: () => {},
   };
@@ -225,6 +242,32 @@ export function App() {
             onSavePermissions={(saved) => setRoles((rs) => rs.map((r) => ({ ...r, permissions: saved.get(r.id) ?? r.permissions })))}
           />
         );
+      case 'mapEdit':
+        return (
+          <MapEditScreen
+            saved={mapDraft}
+            draftVersion={published.version + 1}
+            savedAt={draftSavedAt}
+            publishedVersion={published.version}
+            equipment={[...deviceConfigs, ...stationConfigs]}
+            heights={heights}
+            running={running}
+            travelingAgvs={agvs.filter((a) => a.operation === 'traveling').map((a) => a.id)}
+            permissions={permissions}
+            onSaveDraft={(d) => {
+              setMapDraft(d);
+              setDraftSavedAt(new Date());
+            }}
+            onValidate={(d) => Promise.resolve(demoValidate(d))}
+            onPublish={(d) => {
+              setPublished((p) => ({ version: p.version + 1, layout: d.layout }));
+              setMapDraft(d);
+              setDraftSavedAt(null);
+            }}
+            onSaveHeight={(panel, mm) => setHeights((hs) => ({ ...hs, [panel]: mm === null ? null : { heightMm: mm, source: 'manual', at: new Date() } }))}
+            onDirtyChange={setMapDirty}
+          />
+        );
       default:
         return <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">この画面は、これから作ります。</p>;
     }
@@ -238,9 +281,9 @@ export function App() {
       {route.screen === 'map' ? (
         <MapScreen
           {...frame}
-          layout={sampleLayout}
+          layout={published.layout}
           agvs={agvs}
-          equipment={demoEquipment}
+          equipment={demoEquipment.filter((e) => published.layout.panels.some((p) => p.id === e.panel))}
           reservedPanels={demoReserved}
           routes={demoRoutes}
           destinations={demoDestinations}
@@ -261,6 +304,20 @@ export function App() {
         <ScreenFrame {...frame} current={route.screen} title={screens.find((s) => s.key === route.screen)?.title ?? ''}>
           {content(route)}
         </ScreenFrame>
+      )}
+      {leaving !== null && (
+        <ConfirmDialog
+          title="保存していない変更を捨てて移りますか？"
+          body="マップの編集で、下書きに保存していない変更があります。移ると、その変更は消えます。"
+          confirmLabel="変更を捨てて移る"
+          tone="danger"
+          onConfirm={() => {
+            setMapDirty(false);
+            setLeaving(null);
+            navigate(leaving.screen, leaving.target);
+          }}
+          onCancel={() => setLeaving(null)}
+        />
       )}
     </>
   );

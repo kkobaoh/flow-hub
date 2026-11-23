@@ -34,6 +34,22 @@ describe('App', () => {
     window.location.hash = '';
   });
 
+  it('マップの編集で保存していない変更があれば、ほかの画面へ移る前に確かめる', () => {
+    window.location.hash = '#/mapEdit';
+    const { container } = render(<App />);
+
+    click(container.querySelector('[aria-label="置くもの"] button[data-tool="Normal"]')!);
+    click(container.querySelector('[data-cell]')!);
+    click(container.querySelector('button[aria-controls="main-menu"]')!);
+    click(container.querySelector('[data-screen="transports"]')!);
+
+    const dialog = container.querySelector('[role="alertdialog"]')!;
+    expect(dialog.textContent).toContain('保存していない変更を捨てて移りますか？');
+    click([...dialog.querySelectorAll('button')].find((b) => b.textContent === '変更を捨てて移る')!);
+    expect(container.querySelector('h1')?.textContent).toBe('搬送の一覧');
+    window.location.hash = '';
+  });
+
   it('サーバーとつながるまでは、見本のデータで動かしていることを知らせる', () => {
     const { container } = render(<App />);
 

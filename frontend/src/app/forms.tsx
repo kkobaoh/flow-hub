@@ -117,7 +117,7 @@ export function TextField({
   readonly onChange: (v: string) => void;
   readonly numeric?: boolean;
   /** 見出しに添える単位（mm/s など）。 */
-  readonly unit?: string;
+  readonly unit?: string | undefined;
   readonly placeholder?: string | undefined;
 }) {
   return (

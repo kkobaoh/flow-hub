@@ -1,6 +1,6 @@
 import { agvId } from '../map/agv';
 import { heading, panelId } from '../map/model';
-import { sampleEquipment } from '../map/sampleLayout';
+import { sampleEquipment, sampleLayout } from '../map/sampleLayout';
 import type { AgvDetail } from './AgvCard';
 import { equipmentId } from '../map/equipment';
 import type { EquipmentDetail } from './EquipmentCard';
@@ -11,6 +11,8 @@ import { initialRoles } from './permissions';
 import type { Role, UserAccount } from './users';
 import type { StationInventory } from './station';
 import type { Transport } from './transports';
+import type { MapDraft } from './mapEdit';
+import type { CarrierHeight } from './MapEditScreen';
 import type { AgvEntry, AgvType } from './agvs';
 import type { DeviceConfig, ProcessKind, StationConfig, Variety } from './config';
 import type { ConsumableLocation, ConsumableRecord } from './consumables';
@@ -390,3 +392,35 @@ export const demoUsers: readonly UserAccount[] = [
   { id: 'line-display', role: 'viewer', lastLogin: onDay(7, '06:00'), state: { kind: 'active' } },
   { id: 'ops02', role: 'viewer', lastLogin: null, state: { kind: 'mustChangePassword' } },
 ];
+
+/** 見本の下書き（公開中の版の写し。外形は map/sampleLayout.ts の装置とステーション）。 */
+export const demoMapDraft: MapDraft = {
+  layout: sampleLayout,
+  outlines: Object.fromEntries(sampleEquipment.map((e) => [e.id, e.outlineMm])),
+};
+
+/** 見本のキャリアの高さ（公開中の版の受け渡しパネル）。 */
+export const demoHeights: Readonly<Record<string, CarrierHeight | null>> = {
+  D1: { heightMm: 320, source: 'measured', at: onDay(1, '09:00') },
+  D2: { heightMm: 300, source: 'manual', at: onDay(3, '15:20') },
+  SP: null,
+  ST: { heightMm: 280, source: 'manual', at: onDay(5, '11:05') },
+};
+
+/**
+ * 見本の画面で、下書きを確かめる（本物は、サーバーのマップのコンテキストが検証する）。
+ * 見本では、特殊消耗品受け渡しパネルの下ろす角度と、行き止まりのパネルのつながりの数だけ確かめる。
+ */
+export function demoValidate(draft: MapDraft): readonly string[] {
+  const problems: string[] = [];
+  for (const p of draft.layout.panels) {
+    if (p.type === 'SpecialTransfer' && p.carrierLoweringHeading === undefined) {
+      problems.push(`${p.id} に、キャリアを下ろす角度が入っていません。`);
+    }
+    const links = draft.layout.connections.filter((c) => c.from === p.id || c.to === p.id).length;
+    if ((p.type === 'Transfer' || p.type === 'Standby') && links !== 1) {
+      problems.push(`${p.id} は行き止まりのパネルなので、つながりを1本だけにしてください（いまは ${links}本）。`);
+    }
+  }
+  return problems;
+}
