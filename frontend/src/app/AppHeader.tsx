@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { RunIndicator } from '../server/systemStatus';
 import { screens, type ScreenKey } from './screens';
 
 export interface SignedInUser {
@@ -8,8 +9,8 @@ export interface SignedInUser {
 }
 
 export interface AppHeaderProps {
-  /** 運転状態がスタートか。 */
-  readonly running: boolean;
+  /** 運転状態。サーバーから届くまでは、わからない。 */
+  readonly run: RunIndicator;
   readonly user: SignedInUser;
   /** 今いる画面。 */
   readonly current: ScreenKey;
@@ -20,13 +21,16 @@ export interface AppHeaderProps {
   readonly onLogout: () => void;
 }
 
+/** 帯に出す運転状態の言葉。 */
+const runLabels: Record<RunIndicator, string> = { running: '運転中', stopped: '停止中', unknown: '運転状態を確かめています' };
+
 const menuItem =
   'flex min-h-11 w-full items-center rounded-md px-3 text-left text-[15px] text-graphite hover:bg-ground focus-visible:outline-3 focus-visible:outline-focus';
 const smallButton =
   'min-h-11 rounded-lg border border-control-border bg-white px-2.5 text-[13px] font-bold text-graphite focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus';
 
 /** どの画面にも出す上の帯。左に名前と運転状態、右にユーザーとメニュー。名前を押すと、マップの画面へ移る。 */
-export function AppHeader({ running, user, current, mapVersion, onNavigate, onChangePassword, onLogout }: AppHeaderProps) {
+export function AppHeader({ run, user, current, mapVersion, onNavigate, onChangePassword, onLogout }: AppHeaderProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -77,10 +81,10 @@ export function AppHeader({ running, user, current, mapVersion, onNavigate, onCh
       </button>
       <div
         role="status"
-        className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-bold ${running ? 'bg-running text-white' : 'bg-paper text-graphite'}`}
+        className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-bold ${run === 'running' ? 'bg-running text-white' : 'bg-paper text-graphite'}`}
       >
-        <span aria-hidden="true" className={`size-2.5 rounded-full ${running ? 'bg-running-dot' : 'bg-stopped-dot'}`} />
-        {running ? '運転中' : '停止中'}
+        {run !== 'unknown' && <span aria-hidden="true" className={`size-2.5 rounded-full ${run === 'running' ? 'bg-running-dot' : 'bg-stopped-dot'}`} />}
+        {runLabels[run]}
       </div>
       <div className="flex-1" />
       <span className="hidden text-sm text-header-muted sm:inline">

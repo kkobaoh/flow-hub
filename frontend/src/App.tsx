@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
   applyDemoSetting,
   demoAgvEntries,
@@ -27,6 +27,7 @@ import {
   demoVarieties,
 } from './app/demo';
 import { AgvsScreen } from './app/AgvsScreen';
+import { ConnectionBanner } from './app/ConnectionBanner';
 import { ConfigScreen } from './app/ConfigScreen';
 import type { ConsumableRecord } from './app/consumables';
 import { ConsumablesScreen } from './app/ConsumablesScreen';
@@ -43,6 +44,10 @@ import { StationScreen } from './app/StationScreen';
 import { TransportsScreen } from './app/TransportsScreen';
 import { UsersScreen } from './app/UsersScreen';
 import { agvId } from './map/agv';
+import type { Message } from './app/MessageRail';
+import type { CommandResult, ServerLink } from './server/link';
+import { runIndicator } from './server/systemStatus';
+import { useServer } from './server/useServer';
 import { sampleLayout } from './map/sampleLayout';
 
 const accepted = () => Promise.resolve('accepted' as const);
@@ -56,14 +61,28 @@ function demoPassword(): string {
 }
 const transferPanels = sampleLayout.panels.filter((p) => p.type === 'Transfer' || p.type === 'SpecialTransfer').map((p): string => p.id);
 
+/** 運転の切り替えを送れなかったときに出すメッセージ。 */
+const commandFailed = {
+  start: { title: 'スタートできたかわかりません', detail: 'サーバーから応答がなかったか、受け付けられませんでした。表示の運転状態を確かめてください。' },
+  stop: { title: '停止できたかわかりません', detail: 'サーバーから応答がなかったか、受け付けられませんでした。表示の運転状態を確かめてください。' },
+} as const;
+
+export interface AppProps {
+  /** サーバーとのつながり（本物は main.tsx で作る。テストと Storybook は偽物）。 */
+  readonly link: ServerLink;
+}
+
 /**
- * 画面の入り口。サーバーとつながるまでは、見本のデータで画面を動かす。
- * 操作した結果は、この中で覚えて、画面が切り替わるようにしている。
+ * 画面の入り口。運転状態はサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
+ * 見本のデータを操作した結果は、この中で覚えて、画面が切り替わるようにしている。
  */
-export function App() {
+export function App({ link }: AppProps) {
   const [route, navigate] = useRoute();
-  const [running, setRunning] = useState(true);
-  const [messages, setMessages] = useState(demoMessages);
+  const server = useServer(link);
+  const run = runIndicator(server.status);
+  const [sending, setSending] = useState(false);
+  const [messages, setMessages] = useState<readonly Message[]>(demoMessages);
+  const messageCount = useRef(0);
   const [agvs, setAgvs] = useState(demoAgvs);
   const [transports, setTransports] = useState(demoTransports);
   const [devices, setDevices] = useState(demoDevices);
@@ -91,8 +110,23 @@ export function App() {
     navigate(screen, target);
   };
   const updateRecord = (id: string, change: (c: ConsumableRecord) => ConsumableRecord) => setRecords((rs) => rs.map((c) => (c.id === id ? change(c) : c)));
+  /** 運転の切り替えを送る。表示は、サーバーから届いた様子で変える。送れなかったら知らせる（やり直さない）。 */
+  const sendRun = async (kind: 'start' | 'stop') => {
+    setSending(true);
+    let result: CommandResult;
+    try {
+      result = await (kind === 'start' ? link.startSystem() : link.stopSystem());
+    } finally {
+      setSending(false);
+    }
+    if (result === 'failed') {
+      messageCount.current += 1;
+      const time = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+      setMessages((ms) => [{ id: `run-${messageCount.current}`, time, ...commandFailed[kind], unread: true }, ...ms]);
+    }
+  };
   const frame = {
-    running,
+    run,
     user,
     permissions,
     mapVersion: `マップ 版${published.version}（公開済み）`,
@@ -251,7 +285,7 @@ export function App() {
             publishedVersion={published.version}
             equipment={[...deviceConfigs, ...stationConfigs]}
             heights={heights}
-            running={running}
+            running={run !== 'stopped'} // わからないときは、運転中として扱う（公開の決まりが厳しい側）
             travelingAgvs={agvs.filter((a) => a.operation === 'traveling').map((a) => a.id)}
             permissions={permissions}
             onSaveDraft={(d) => {
@@ -275,8 +309,9 @@ export function App() {
 
   return (
     <>
+      <ConnectionBanner connection={server.connection} />
       <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">
-        見本のデータで表示しています（サーバーとは、まだつながっていません）
+        運転状態のほかは、見本のデータです
       </p>
       {route.screen === 'map' ? (
         <MapScreen
@@ -290,8 +325,9 @@ export function App() {
           searchConsumables={(query) => demoConsumables.filter((c) => matchesQuery(c.id, query))}
           onOpenEquipment={(screen, id) => navigate(screen, id)}
           onOpenConsumable={(id) => navigate('consumables', id)}
-          onStart={() => setRunning(true)}
-          onStop={() => setRunning(false)}
+          runSwitchDisabled={server.connection !== 'connected' || sending}
+          onStart={() => void sendRun('start')}
+          onStop={() => void sendRun('stop')}
           onEmergencyStop={() => {}}
           onChangeControl={(id, control) => setAgvs((as) => as.map((a) => (a.id === id ? { ...a, control } : a)))}
           onAlarmClear={() => {}}

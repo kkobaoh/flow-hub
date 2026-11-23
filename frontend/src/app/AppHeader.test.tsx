@@ -3,7 +3,7 @@ import { click, pressKey, render } from '../test/render';
 import { AppHeader, type AppHeaderProps } from './AppHeader';
 
 const base: AppHeaderProps = {
-  running: true,
+  run: 'running',
   user: { name: '[ユーザー名]', role: '運用' },
   current: 'map',
   mapVersion: 'マップ 版3（公開済み）',
@@ -29,8 +29,11 @@ describe('AppHeader', () => {
     expect(container.textContent).toContain('FlowHub');
     expect(q(container, '[role="status"]').textContent).toBe('運転中');
 
-    rerender(<AppHeader {...base} running={false} />);
+    rerender(<AppHeader {...base} run="stopped" />);
     expect(q(container, '[role="status"]').textContent).toBe('停止中');
+
+    rerender(<AppHeader {...base} run="unknown" />);
+    expect(q(container, '[role="status"]').textContent).toBe('運転状態を確かめています'); // サーバーから届くまでは、停止中とも運転中とも出さない
   });
 
   it('名前を押すと、マップの画面へ移る', () => {

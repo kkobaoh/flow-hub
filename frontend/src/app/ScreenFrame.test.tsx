@@ -8,7 +8,7 @@ function props(overrides: Partial<ScreenFrameProps> = {}): ScreenFrameProps {
   return {
     current: 'transports',
     title: '搬送の一覧',
-    running: true,
+    run: 'running',
     user: { name: '[ユーザー名]', role: '運用' },
     permissions: initialRoles.運用,
     mapVersion: 'マップ 版3（公開済み）',

@@ -10,13 +10,22 @@ React + TypeScript で作り、Vite でビルドします。見た目は Tailwin
 |---|---|
 | 初めに、パッケージを入れる | `npm ci` |
 | E2E テストのブラウザー（Chromium）を入れる（初めてのときだけ） | `npx playwright install chromium` |
-| 開発用のサーバーで画面を開く | `npm run dev` |
+| 開発用のサーバーで画面を開く（先に、サーバーの Api を起こしておく。下の「サーバーとのつながり」） | `npm run dev` |
 | 型を確かめる | `npm run typecheck` |
 | テストを流す | `npm test`（変更を見張って流し続けるときは `npm run test:watch`） |
-| E2E テストを流す（開発用のサーバーは、テストが自分で起こす） | `npm run e2e` |
+| E2E テストを流す（サーバーの Api と開発用のサーバーは、テストが自分で起こす。.NET が要る） | `npm run e2e` |
 | ビルドする（`dist/` に出る） | `npm run build` |
 | Storybook を開く（http://localhost:6006） | `npm run storybook` |
 | Storybook をビルドする（`storybook-static/` に出る） | `npm run build-storybook` |
+
+## サーバーとのつながり
+
+画面は、サーバー（`src/FlowHub.Api`）と SignalR と HTTP でつながります（決まりは [docs/screens.md](../docs/screens.md) の「画面とサーバーの通信」）。
+
+- 開発のときは、リポジトリの一番上で `dotnet run --project src/FlowHub.Api` を起こしてから、`npm run dev` で画面を開きます。開発用のサーバー（Vite）が、`/hubs`、`/system`、`/transports` を Api（既定は `http://localhost:5020`）へ渡します。つなぐ先は、環境変数 `FLOWHUB_API_URL` で変えられます。
+- Api を起こしていないときは、画面の下に「サーバーとつないでいます」の帯が出て、運転の切り替えは押せません。
+- 通信の部品は `src/server/` にあります。部品やテストは、本物のつながり（`createSignalRLink`）の代わりに、偽物（`createFakeLink`）を渡して動かします。
+- E2E テストは、Api をポート 5199、開発用のサーバーを 5190 で起こします。Api の DB（SQLite）は `frontend/.e2e-data/` に置きます（開発用の DB とは分けている。git には入れない）。
 
 ## 決まりごと
 

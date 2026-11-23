@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import type { RunIndicator } from '../server/systemStatus';
 import { AppHeader, type SignedInUser } from './AppHeader';
 import { MessageRail, MessageTab, type Message } from './MessageRail';
 import type { Permissions } from './permissions';
@@ -9,7 +10,7 @@ export interface ScreenFrameProps {
   readonly current: ScreenKey;
   /** 画面の見出し。 */
   readonly title: string;
-  readonly running: boolean;
+  readonly run: RunIndicator;
   readonly user: SignedInUser;
   readonly permissions: Permissions;
   readonly mapVersion: string;
@@ -47,7 +48,7 @@ export function ScreenFrame(props: ScreenFrameProps) {
   return (
     <div className="flex min-h-screen flex-col bg-ground font-sans text-graphite">
       <AppHeader
-        running={props.running}
+        run={props.run}
         user={props.user}
         current={props.current}
         mapVersion={props.mapVersion}

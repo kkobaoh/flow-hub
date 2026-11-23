@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { RunIndicator } from '../server/systemStatus';
 import type { AgvId } from '../map/agv';
 import { crossPoint, panelOf } from '../map/drawing';
 import type { EquipmentId } from '../map/equipment';
@@ -26,7 +27,9 @@ export interface MapScreenProps {
   readonly reservedPanels: readonly PanelId[];
   readonly routes: readonly (readonly PanelId[])[];
   readonly messages: readonly Message[];
-  readonly running: boolean;
+  readonly run: RunIndicator;
+  /** 運転の切り替えを押せないようにするか（サーバーとつながっていない、送っている途中など）。 */
+  readonly runSwitchDisabled: boolean;
   readonly user: SignedInUser;
   readonly permissions: Permissions;
   readonly mapVersion: string;
@@ -131,7 +134,7 @@ export function MapScreen(props: MapScreenProps) {
   return (
     <div className="flex min-h-screen flex-col bg-ground font-sans text-graphite">
       <AppHeader
-        running={props.running}
+        run={props.run}
         user={props.user}
         current="map"
         mapVersion={props.mapVersion}
@@ -184,7 +187,7 @@ export function MapScreen(props: MapScreenProps) {
             <MessageTab open={railOpen} unreadCount={unreadCount} onToggle={() => setRailChoice(!railOpen)} />
           </div>
           <div data-keep-card="" className="absolute right-3 bottom-3 max-sm:bottom-14">
-            <RunSwitch running={props.running} onStart={props.onStart} onStop={props.onStop} />
+            <RunSwitch run={props.run} disabled={props.runSwitchDisabled} onStart={props.onStart} onStop={props.onStop} />
           </div>
         </section>
         {railOpen && (

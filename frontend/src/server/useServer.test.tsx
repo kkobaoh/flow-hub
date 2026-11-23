@@ -1,0 +1,78 @@
+import { act } from 'react';
+import { describe, expect, it } from 'vitest';
+import { render } from '../test/render';
+import { createFakeLink } from './fakeLink';
+import { useServer, type ServerView } from './useServer';
+import type { ServerLink } from './link';
+
+function Probe({ link, onView }: { readonly link: ServerLink; readonly onView: (view: ServerView) => void }) {
+  onView(useServer(link));
+  return null;
+}
+
+function watch(link: ServerLink) {
+  const views: ServerView[] = [];
+  const rendered = render(<Probe link={link} onView={(v) => views.push(v)} />);
+  return { latest: () => views[views.length - 1]!, rendered };
+}
+
+describe('useServer', () => {
+  it('描いたらつなぎ、つながるまでは「つないでいる」で、運転状態はわからない', () => {
+    const link = createFakeLink();
+    const { latest } = watch(link);
+
+    expect(link.connected).toBe(true);
+    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' } });
+  });
+
+  it('届いた運転状態の様子と、つながりの様子を持つ', () => {
+    const link = createFakeLink();
+    const { latest } = watch(link);
+
+    act(() => {
+      link.emitConnection('connected');
+      link.emitSystemStatus({ version: 1, state: 'started' });
+    });
+
+    expect(latest()).toEqual({ connection: 'connected', status: { kind: 'live', snapshot: { version: 1, state: 'started' } } });
+  });
+
+  it('古い番号の様子は捨てる', () => {
+    const link = createFakeLink();
+    const { latest } = watch(link);
+
+    act(() => {
+      link.emitSystemStatus({ version: 3, state: 'stopped' });
+      link.emitSystemStatus({ version: 2, state: 'started' });
+    });
+
+    expect(latest().status).toEqual({ kind: 'live', snapshot: { version: 3, state: 'stopped' } });
+  });
+
+  it('切れたら、最後の様子を古いものにし、つなぎ直したら届いた様子を番号にかかわらず使う', () => {
+    const link = createFakeLink();
+    const { latest } = watch(link);
+    act(() => {
+      link.emitConnection('connected');
+      link.emitSystemStatus({ version: 7, state: 'started' });
+    });
+
+    act(() => link.emitConnection('reconnecting'));
+    expect(latest()).toEqual({ connection: 'reconnecting', status: { kind: 'stale', snapshot: { version: 7, state: 'started' } } });
+
+    act(() => {
+      link.emitConnection('connected');
+      link.emitSystemStatus({ version: 1, state: 'stopped' }); // サーバーが起動し直した
+    });
+    expect(latest().status).toEqual({ kind: 'live', snapshot: { version: 1, state: 'stopped' } });
+  });
+
+  it('消したら切る', () => {
+    const link = createFakeLink();
+    const { rendered } = watch(link);
+
+    rendered.rerender(null);
+
+    expect(link.connected).toBe(false);
+  });
+});

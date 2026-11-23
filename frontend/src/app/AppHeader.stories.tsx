@@ -5,7 +5,7 @@ const meta = {
   title: '画面の枠/AppHeader',
   component: AppHeader,
   args: {
-    running: true,
+    run: 'running',
     user: { name: '[ユーザー名]', role: '運用' },
     current: 'map',
     mapVersion: 'マップ 版3（公開済み）',
@@ -31,5 +31,10 @@ export const Running: Story = {};
 
 /** 停止中。 */
 export const Stopped: Story = {
-  args: { running: false },
+  args: { run: 'stopped' },
+};
+
+/** サーバーから運転状態が届く前。 */
+export const Unknown: Story = {
+  args: { run: 'unknown' },
 };

@@ -1,9 +1,12 @@
 import { useState } from 'react';
+import type { RunIndicator } from '../server/systemStatus';
 import { ConfirmDialog } from './ConfirmDialog';
 
 export interface RunSwitchProps {
-  /** 運転状態がスタートか。 */
-  readonly running: boolean;
+  /** 運転状態。わからないときは、どちらも押されていない形にして、押せなくする。 */
+  readonly run: RunIndicator;
+  /** 押せなくするか（サーバーとつながっていない、送っている途中など）。 */
+  readonly disabled: boolean;
   /** 確かめたうえで、スタートにする。 */
   readonly onStart: () => void;
   /** 確かめたうえで、停止にする。 */
@@ -27,12 +30,18 @@ const confirmTexts = {
   },
 } as const;
 
-const side = 'min-h-11 rounded-md px-4 text-[15px] font-bold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus';
+const side = 'min-h-11 rounded-md px-4 disabled:cursor-not-allowed disabled:opacity-60 text-[15px] font-bold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus';
 
 /** 運転のスタート・停止の切り替え。システム全体に効くので、確かめる画面を出してから切り替える。 */
-export function RunSwitch({ running, onStart, onStop }: RunSwitchProps) {
+export function RunSwitch({ run, disabled, onStart, onStop }: RunSwitchProps) {
   const [asking, setAsking] = useState<Asking>(null);
+  const locked = disabled || run === 'unknown';
+  // 確かめている途中で押せなくなったら（つながりが切れたなど）、確かめる画面も閉じる
+  if (locked && asking !== null) {
+    setAsking(null);
+  }
   const texts = asking ? confirmTexts[asking] : null;
+  const running = run === 'running';
 
   return (
     <>
@@ -41,16 +50,18 @@ export function RunSwitch({ running, onStart, onStop }: RunSwitchProps) {
         <button
           type="button"
           aria-pressed={running}
-          onClick={() => !running && setAsking('start')}
+          disabled={locked}
+          onClick={() => run === 'stopped' && setAsking('start')}
           className={`${side} ${running ? 'bg-running text-white' : 'bg-transparent text-header-muted'}`}
         >
           スタート
         </button>
         <button
           type="button"
-          aria-pressed={!running}
+          aria-pressed={run === 'stopped'}
+          disabled={locked}
           onClick={() => running && setAsking('stop')}
-          className={`${side} ${running ? 'bg-transparent text-header-muted' : 'bg-paper text-graphite'}`}
+          className={`${side} ${run === 'stopped' ? 'bg-paper text-graphite' : 'bg-transparent text-header-muted'}`}
         >
           停止
         </button>

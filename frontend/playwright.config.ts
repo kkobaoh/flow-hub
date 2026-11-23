@@ -1,10 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const port = 5174;
+// 開発で使う 5173 や、ほかの確かめで起こすサーバー（5174、5175 など）と重ならないポートにする
+const port = 5190;
+const apiPort = 5199;
+const api = `http://localhost:${apiPort}`;
+
+/** E2E 用の DB（SQLite）のフォルダー（Api のフォルダーから見た場所）。開発用の DB とは分ける。空なら、開発用の初期データが入る。 */
+const database = '../../frontend/.e2e-data';
 
 /**
  * 画面を本物のブラウザーで開いて確かめる E2E テスト（npm run e2e）。
- * ふだんの npm test（Vitest）には含めない。開発用のサーバーは、テストが自分で起こす。
+ * ふだんの npm test（Vitest）には含めない。サーバー（FlowHub.Api）と開発用のサーバーは、テストが自分で起こす。
  * PC の幅（chromium）と、スマートフォンの幅（phone。phone.spec.ts だけ）で流す。
  */
 export default defineConfig({
@@ -16,9 +22,25 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /phone\.spec\.ts/ },
     { name: 'phone', use: { ...devices['Pixel 7'] }, testMatch: /phone\.spec\.ts/ },
   ],
-  webServer: {
-    command: `npm run dev -- --port ${port} --strictPort`,
-    url: `http://localhost:${port}`,
-    reuseExistingServer: true,
-  },
+  webServer: [
+    {
+      command: 'dotnet run --no-launch-profile',
+      cwd: '../src/FlowHub.Api',
+      url: `${api}/system/status`,
+      timeout: 180_000,
+      // いつも、この設定で起こし直す（起こしたままの別のサーバーを使うと、つなぐ先や DB が違ってしまう）
+      reuseExistingServer: false,
+      env: {
+        ASPNETCORE_ENVIRONMENT: 'Development',
+        ASPNETCORE_URLS: api,
+        Database__SqliteDirectory: database,
+      },
+    },
+    {
+      command: `npm run dev -- --port ${port} --strictPort`,
+      url: `http://localhost:${port}`,
+      reuseExistingServer: false,
+      env: { FLOWHUB_API_URL: api },
+    },
+  ],
 });
