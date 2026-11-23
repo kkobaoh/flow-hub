@@ -1,8 +1,21 @@
-import { useState } from 'react';
-import { demoAgvs, demoConsumables, demoDestinations, demoEquipment, demoMessages, demoReserved, demoRoutes, demoTransports } from './app/demo';
+import { useState, type ReactNode } from 'react';
+import {
+  applyDemoSetting,
+  demoAgvs,
+  demoConsumables,
+  demoDestinations,
+  demoDevices,
+  demoEquipment,
+  demoMessages,
+  demoReserved,
+  demoRoutes,
+  demoTransports,
+  demoVarieties,
+} from './app/demo';
+import { DevicesScreen } from './app/DevicesScreen';
 import { matchesQuery } from './app/listing';
 import { MapScreen } from './app/MapScreen';
-import { useScreen } from './app/navigation';
+import { useRoute, type Route } from './app/navigation';
 import { initialRoles } from './app/permissions';
 import { ScreenFrame } from './app/ScreenFrame';
 import { screens } from './app/screens';
@@ -16,25 +29,52 @@ const mapVersion = 'マップ 版3（公開済み）';
 
 /**
  * 画面の入り口。サーバーとつながるまでは、見本のデータで画面を動かす。
- * 運転状態、見たメッセージ、コントロールステータスだけは、この中で覚えて切り替わるようにしている。
+ * 操作した結果は、この中で覚えて、画面が切り替わるようにしている。
  */
 export function App() {
-  const [screen, navigate] = useScreen();
+  const [route, navigate] = useRoute();
   const [running, setRunning] = useState(true);
   const [messages, setMessages] = useState(demoMessages);
   const [agvs, setAgvs] = useState(demoAgvs);
   const [transports, setTransports] = useState(demoTransports);
-  const markAllSeen = () => setMessages((ms) => ms.map((m) => ({ ...m, unread: false })));
+  const [devices, setDevices] = useState(demoDevices);
   const frame = {
     running,
     user,
     permissions,
     mapVersion,
     messages,
-    onMarkAllSeen: markAllSeen,
+    onMarkAllSeen: () => setMessages((ms) => ms.map((m) => ({ ...m, unread: false }))),
     onNavigate: navigate,
     onChangePassword: () => {},
     onLogout: () => {},
+  };
+
+  const content = (r: Route): ReactNode => {
+    switch (r.screen) {
+      case 'transports':
+        return (
+          <TransportsScreen
+            transports={transports}
+            permissions={permissions}
+            onCancel={(n) => setTransports((ts) => ts.filter((t) => t.number !== n))}
+            onRetry={(n) => setTransports((ts) => ts.map((t) => (t.number === n ? { ...t, status: { stage: 'running' }, step: '搬送先へ移動', stepNote: 'やり直しました' } : t)))}
+          />
+        );
+      case 'devices':
+        return (
+          <DevicesScreen
+            devices={devices}
+            selected={r.target}
+            varieties={demoVarieties}
+            permissions={permissions}
+            onSelect={(id) => navigate('devices', id)}
+            onSaveSetting={(id, rows) => setDevices((ds) => ds.map((d) => (d.id === id ? applyDemoSetting(d, rows) : d)))}
+          />
+        );
+      default:
+        return <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">この画面は、これから作ります。</p>;
+    }
   };
 
   return (
@@ -42,7 +82,7 @@ export function App() {
       <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">
         見本のデータで表示しています（サーバーとは、まだつながっていません）
       </p>
-      {screen === 'map' ? (
+      {route.screen === 'map' ? (
         <MapScreen
           {...frame}
           layout={sampleLayout}
@@ -52,8 +92,8 @@ export function App() {
           routes={demoRoutes}
           destinations={demoDestinations}
           searchConsumables={(query) => demoConsumables.filter((c) => matchesQuery(c.id, query))}
-          onOpenEquipment={(target) => navigate(target)}
-          onOpenConsumable={() => navigate('consumables')}
+          onOpenEquipment={(screen, id) => navigate(screen, id)}
+          onOpenConsumable={(id) => navigate('consumables', id)}
           onStart={() => setRunning(true)}
           onStop={() => setRunning(false)}
           onEmergencyStop={() => {}}
@@ -65,17 +105,8 @@ export function App() {
           onManualCarrier={accepted}
         />
       ) : (
-        <ScreenFrame {...frame} current={screen} title={screens.find((s) => s.key === screen)?.title ?? ''}>
-          {screen === 'transports' ? (
-            <TransportsScreen
-              transports={transports}
-              permissions={permissions}
-              onCancel={(n) => setTransports((ts) => ts.filter((t) => t.number !== n))}
-              onRetry={(n) => setTransports((ts) => ts.map((t) => (t.number === n ? { ...t, status: { stage: 'running' }, step: '搬送先へ移動', stepNote: 'やり直しました' } : t)))}
-            />
-          ) : (
-            <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">この画面は、これから作ります。</p>
-          )}
+        <ScreenFrame {...frame} current={route.screen} title={screens.find((s) => s.key === route.screen)?.title ?? ''}>
+          {content(route)}
         </ScreenFrame>
       )}
     </>

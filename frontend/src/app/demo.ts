@@ -8,6 +8,7 @@ import type { ConsumableHit } from './ListPanel';
 import type { DestinationOption } from './ManualPanel';
 import type { Message } from './MessageRail';
 import type { Transport } from './transports';
+import type { DeviceInside, HeldConsumable, SavedRow, SettingRow } from './devices';
 
 /**
  * 見本のデータ（サーバーとつながるまで、画面を動かして見るため）。
@@ -163,3 +164,89 @@ export const demoTransports: readonly Transport[] = [
     stepNote: 'AGV の異常で止まりました',
   },
 ];
+
+const held = (id: string | null, variety: string, note: string, tone: HeldConsumable['tone'] = 'normal'): HeldConsumable => ({ id, variety, note, tone });
+
+/** 見本の装置の中（装置とストッカーの画面）。数はマップのカード（demoEquipment）とそろえている。 */
+export const demoDevices: readonly DeviceInside[] = [
+  {
+    id: equipmentId('DEV-1'),
+    panel: panelId('D1'),
+    processing: held('T-0100', '[品種A]', '中古品・取り込み中（元はストッカー1 のスロット2）'),
+    stockers: [
+      {
+        name: 'ストッカー1',
+        layout: 'slots',
+        slots: [
+          { number: 1, content: { kind: 'held', consumable: held('T-0101', '[品種A]', '新品') } },
+          { number: 2, content: { kind: 'reserved', consumable: held('T-0100', '[品種A]', '加工部に取り込み中') } },
+          { number: 3, content: { kind: 'reserved', consumable: held('T-0207', '[品種B]', '届ける途中（搬送 #12）') } },
+        ],
+      },
+      {
+        name: 'ストッカー2',
+        layout: 'slots',
+        slots: [
+          { number: 1, content: { kind: 'held', consumable: held('T-0203', '[品種B]', '中古品・回収を頼んだ（廃棄）', 'collect') } },
+          { number: 2, content: { kind: 'held', consumable: held('T-0410', '[品種D]', '新品・回収を頼んだ（設定にない）', 'collect') } },
+          { number: 3, content: { kind: 'held', consumable: held(null, '不明な消耗品', 'ID が食い違った。回収を頼んだ', 'blocked') } },
+        ],
+      },
+    ],
+    handover: null,
+    setting: [
+      { variety: '[品種A]', target: 2, have: 2, status: 'enough' },
+      { variety: '[品種B]', target: 1, have: 1, status: 'enough' },
+      { variety: '[品種D]', target: 0, have: 1, status: 'notInSetting' },
+    ],
+  },
+  {
+    id: equipmentId('DEV-2'),
+    panel: panelId('D2'),
+    processing: null,
+    stockers: [
+      {
+        name: 'ストッカー1',
+        layout: 'slots',
+        slots: [
+          { number: 1, content: { kind: 'held', consumable: held('T-0102', '[品種A]', '新品') } },
+          { number: 2, content: { kind: 'held', consumable: held('T-0103', '[品種A]', '新品') } },
+          { number: 3, content: { kind: 'held', consumable: held('T-0204', '[品種B]', '新品') } },
+          { number: 4, content: { kind: 'held', consumable: held('T-0205', '[品種B]', '新品') } },
+        ],
+      },
+    ],
+    handover: null,
+    setting: [
+      { variety: '[品種A]', target: 2, have: 2, status: 'enough' },
+      { variety: '[品種B]', target: 2, have: 2, status: 'enough' },
+    ],
+  },
+  {
+    id: equipmentId('DEV-3'),
+    panel: panelId('SP'),
+    processing: null,
+    stockers: [{ name: 'ストッカー1', layout: 'plate', items: [held('T-0301', '[品種C]', '新品')] }],
+    handover: held('T-0302', '[品種C]', '受け渡し待ち'),
+    setting: [{ variety: '[品種C]', target: 1, have: 1, status: 'enough' }],
+  },
+];
+
+/** 見本の品種。 */
+export const demoVarieties: readonly string[] = ['[品種A]', '[品種B]', '[品種C]', '[品種D]'];
+
+/**
+ * 見本の画面で、保存したストッカーの設定を装置に当てる（本物は、サーバーが判断して知らせる）。
+ * 設定から外した品種で、まだ装置にあるものは「設定にない」にする。
+ */
+export function applyDemoSetting(device: DeviceInside, saved: readonly SavedRow[]): DeviceInside {
+  const haveOf = (variety: string) => device.setting.find((r) => r.variety === variety)?.have ?? 0;
+  const inSetting: SettingRow[] = saved.map((r) => {
+    const have = haveOf(r.variety);
+    return { variety: r.variety, target: r.target, have, status: have < r.target ? 'short' : have > r.target ? 'excess' : 'enough' };
+  });
+  const leftOver: SettingRow[] = device.setting
+    .filter((r) => r.have > 0 && !saved.some((s) => s.variety === r.variety))
+    .map((r) => ({ variety: r.variety, target: 0, have: r.have, status: 'notInSetting' }));
+  return { ...device, setting: [...inSetting, ...leftOver] };
+}

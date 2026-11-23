@@ -26,6 +26,14 @@ describe('App', () => {
     expect(container.querySelector('svg[aria-label="マップ"]')).not.toBeNull();
   });
 
+  it('URL で指定した装置を、装置とストッカーの画面で開く', () => {
+    window.location.hash = '#/devices/DEV-2';
+    const { container } = render(<App />);
+
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="装置"]')?.value).toBe('DEV-2');
+    window.location.hash = '';
+  });
+
   it('サーバーとつながるまでは、見本のデータで動かしていることを知らせる', () => {
     const { container } = render(<App />);
 
