@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import {
   agvChangeBlockedReason,
   agvProblem,
@@ -17,6 +17,7 @@ import {
 } from './agvs';
 import { ConfirmDialog } from './ConfirmDialog';
 import { controlStatusLabel } from './controlStatus';
+import { Choice, darkButton, FormDialog, FormFooter, note, plainButton, RowActions, section, td, TextField, th } from './forms';
 import type { Permissions } from './permissions';
 
 export interface AgvsScreenProps {
@@ -36,17 +37,6 @@ export interface AgvsScreenProps {
   readonly onSaveType: (original: string | null, type: AgvType) => void;
   readonly onDeleteType: (name: string) => void;
 }
-
-const section = 'flex flex-col gap-3 rounded-[10px] border border-line bg-paper p-5';
-const th = 'border-b border-line px-3 py-2 text-left font-bold whitespace-nowrap text-ink-muted';
-const td = 'px-3 py-2.5 align-top';
-const button =
-  'min-h-11 rounded-lg px-3.5 text-sm font-bold whitespace-nowrap focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed';
-const plainButton = `${button} border border-control-border bg-white text-graphite disabled:border-disabled-border disabled:bg-ground disabled:text-disabled-text`;
-const darkButton = `${button} bg-graphite text-white disabled:bg-disabled-border disabled:text-disabled-text`;
-const field =
-  'min-h-11 rounded-lg border border-control-border bg-white px-2.5 text-[15px] font-normal text-graphite focus-visible:outline-3 focus-visible:outline-focus';
-const note = 'm-0 text-[13px] text-ink-muted';
 
 type Dialog =
   | { readonly kind: 'addAgv' }
@@ -111,7 +101,7 @@ export function AgvsScreen(props: AgvsScreenProps) {
                     <td className={td}>{e.control === null ? '－' : controlStatusLabel[e.control]}</td>
                     <td className={`${td} font-bold ${odd ? 'text-attention' : 'text-running'}`}>{registrationLabel[e.registration]}</td>
                     <td className="px-3 py-1.5">
-                      <Actions reason={blocked === null ? reason : null}>
+                      <RowActions reason={blocked === null ? reason : null}>
                         {odd ? (
                           <button type="button" disabled={reason !== null} onClick={() => setDialog({ kind: 'alignAgv', entry: e })} className={darkButton}>
                             登録をそろえる
@@ -124,7 +114,7 @@ export function AgvsScreen(props: AgvsScreenProps) {
                         <button type="button" disabled={reason !== null} onClick={() => setDialog({ kind: 'deleteAgv', entry: e })} className={plainButton}>
                           消す
                         </button>
-                      </Actions>
+                      </RowActions>
                     </td>
                   </tr>
                 );
@@ -171,14 +161,14 @@ export function AgvsScreen(props: AgvsScreenProps) {
                     <td className={`${td} font-number text-base font-semibold`}>{t.resumeAt}%</td>
                     <td className={td}>{t.special ? '走れる' : '走れない'}</td>
                     <td className="px-3 py-1.5">
-                      <Actions reason={blocked === null ? reason : null}>
+                      <RowActions reason={blocked === null ? reason : null}>
                         <button type="button" disabled={blocked !== null} onClick={() => setDialog({ kind: 'changeType', type: t })} className={plainButton}>
                           変える
                         </button>
                         <button type="button" disabled={reason !== null} onClick={() => setDialog({ kind: 'deleteType', type: t })} className={plainButton}>
                           消す
                         </button>
-                      </Actions>
+                      </RowActions>
                     </td>
                   </tr>
                 );
@@ -247,76 +237,6 @@ export function AgvsScreen(props: AgvsScreenProps) {
   );
 }
 
-function Actions({ reason, children }: { readonly reason: string | null; readonly children: ReactNode }) {
-  return (
-    <>
-      <div className="flex justify-end gap-2">{children}</div>
-      {reason !== null && <p className={`${note} mt-1 ml-auto max-w-64 text-right`}>{reason}</p>}
-    </>
-  );
-}
-
-function Modal({ title, onCancel, children }: { readonly title: string; readonly onCancel: () => void; readonly children: ReactNode }) {
-  const titleId = useId();
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current?.querySelector<HTMLElement>('input, select')?.focus();
-  }, []);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-graphite/55 p-4">
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            onCancel();
-          }
-        }}
-        className="flex max-h-full w-full max-w-[520px] flex-col gap-4 overflow-y-auto rounded-xl bg-paper p-6 text-graphite"
-      >
-        <h2 id={titleId} className="m-0 text-xl font-bold">
-          {title}
-        </h2>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Footer({ problem, saveLabel, onCancel, onSave }: { readonly problem: string | null; readonly saveLabel: string; readonly onCancel: () => void; readonly onSave: () => void }) {
-  return (
-    <>
-      {problem !== null && <p className="m-0 text-sm text-ink-muted">{problem}</p>}
-      <div className="flex flex-wrap justify-end gap-2">
-        <button type="button" onClick={onCancel} className={plainButton}>
-          やめる
-        </button>
-        <button type="button" disabled={problem !== null} onClick={onSave} className={darkButton}>
-          {saveLabel}
-        </button>
-      </div>
-    </>
-  );
-}
-
-function Choice({ label, value, options, onChange }: { readonly label: string; readonly value: string; readonly options: readonly string[]; readonly onChange: (v: string) => void }) {
-  return (
-    <label className="flex flex-col gap-1.5 text-sm font-bold">
-      {label}
-      <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={field}>
-        <option value="">選ぶ</option>
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 function AgvDialog({
   dialog,
   existingIds,
@@ -340,22 +260,19 @@ function AgvDialog({
   const title = entry === null ? 'AGV を加える' : dialog.kind === 'alignAgv' ? `${entry.id} の登録をそろえる` : `${entry.id} を変える`;
 
   return (
-    <Modal title={title} onCancel={onCancel}>
+    <FormDialog title={title} onCancel={onCancel}>
       <p className={note}>
         {dialog.kind === 'alignAgv'
           ? `${entry?.registration === 'trafficOnly' ? '配車' : '走行'}の側に足りない項目を入れて、両方に登録します。そろえた AGV は、切り離しから始めます。`
           : '保存した AGV は、切り離しのまま、両方（走行と配車）に登録します。'}
       </p>
       {entry === null && (
-        <label className="flex flex-col gap-1.5 text-sm font-bold">
-          AGV の番号
-          <input aria-label="AGV の番号" value={draft.id} onChange={(e) => setDraft((d) => ({ ...d, id: e.target.value }))} className={`${field} font-number text-[17px] font-semibold`} />
-        </label>
+        <TextField label="AGV の番号" value={draft.id} onChange={(id) => setDraft((d) => ({ ...d, id }))} />
       )}
       {showType && <Choice label="AGV の種類" value={draft.type} options={types} onChange={(type) => setDraft((d) => ({ ...d, type }))} />}
       {showCarrier && <Choice label="キャリアの種類" value={draft.carrier} options={carriers} onChange={(carrier) => setDraft((d) => ({ ...d, carrier }))} />}
-      <Footer problem={problem} saveLabel="AGV を保存する" onCancel={onCancel} onSave={() => onSave({ ...draft, id: draft.id.trim() })} />
-    </Modal>
+      <FormFooter problem={problem} saveLabel="AGV を保存する" onCancel={onCancel} onSave={() => onSave({ ...draft, id: draft.id.trim() })} />
+    </FormDialog>
   );
 }
 
@@ -387,36 +304,19 @@ function TypeDialog({
   const placeholder = (key: string) => (type === null && key === 'chargeAt' ? `既定値 ${defaults.chargeAt}` : type === null && key === 'resumeAt' ? `既定値 ${defaults.resumeAt}` : undefined);
 
   return (
-    <Modal title={type === null ? 'AGV の種類を加える' : `${type.name} を変える`} onCancel={onCancel}>
+    <FormDialog title={type === null ? 'AGV の種類を加える' : `${type.name} を変える`} onCancel={onCancel}>
       {type === null && <p className={note}>充電の値を空にすると、いまの既定値で埋めて保存します。あとで既定値を変えても、この種類の値は変わりません。</p>}
-      <label className="flex flex-col gap-1.5 text-sm font-bold">
-        種類の名前
-        <input aria-label="種類の名前" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} className={field} />
-      </label>
+      <TextField label="種類の名前" value={draft.name} onChange={(name) => setDraft((d) => ({ ...d, name }))} />
       <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         {TYPE_FIELDS.map(([key, label, unit]) => (
-          <label key={key} className="flex flex-col gap-1.5 text-sm font-bold">
-            {label}（{unit}）
-            <input
-              aria-label={label}
-              type="number"
-              inputMode="numeric"
-              step={1}
-              min={key === 'chargeAt' || key === 'resumeAt' ? 0 : 1}
-              max={key === 'chargeAt' || key === 'resumeAt' ? 100 : undefined}
-              placeholder={placeholder(key)}
-              value={draft[key]}
-              onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
-              className={`${field} font-number text-[17px] font-semibold`}
-            />
-          </label>
+          <TextField key={key} label={label} unit={unit} numeric placeholder={placeholder(key)} value={draft[key]} onChange={(v) => setDraft((d) => ({ ...d, [key]: v }))} />
         ))}
       </div>
       <label className="flex min-h-11 items-center gap-2 text-[15px]">
         <input type="checkbox" checked={draft.special} onChange={(e) => setDraft((d) => ({ ...d, special: e.target.checked }))} className="size-5 accent-graphite" />
         特殊消耗品受け渡しパネルを走れる
       </label>
-      <Footer problem={problem} saveLabel="種類を保存する" onCancel={onCancel} onSave={() => onSave(toAgvType(draft, defaults))} />
-    </Modal>
+      <FormFooter problem={problem} saveLabel="種類を保存する" onCancel={onCancel} onSave={() => onSave(toAgvType(draft, defaults))} />
+    </FormDialog>
   );
 }

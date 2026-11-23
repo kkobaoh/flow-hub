@@ -5,19 +5,24 @@ import {
   demoAgvs,
   demoAgvTypes,
   demoCarriers,
+  demoConfigVarieties,
   demoConsumables,
+  demoDeviceConfigs,
   demoDestinations,
   demoDevices,
   demoEquipment,
   demoMessages,
+  demoProcessKinds,
   demoRecords,
   demoReserved,
   demoRoutes,
+  demoStationConfigs,
   demoStations,
   demoTransports,
   demoVarieties,
 } from './app/demo';
 import { AgvsScreen } from './app/AgvsScreen';
+import { ConfigScreen } from './app/ConfigScreen';
 import type { ConsumableRecord } from './app/consumables';
 import { ConsumablesScreen } from './app/ConsumablesScreen';
 import { DevicesScreen } from './app/DevicesScreen';
@@ -36,6 +41,7 @@ const accepted = () => Promise.resolve('accepted' as const);
 const user = { name: '[ユーザー名]', role: '保守' } as const;
 const permissions = initialRoles.保守;
 const mapVersion = 'マップ 版3（公開済み）';
+const transferPanels = sampleLayout.panels.filter((p) => p.type === 'Transfer' || p.type === 'SpecialTransfer').map((p): string => p.id);
 
 /**
  * 画面の入り口。サーバーとつながるまでは、見本のデータで画面を動かす。
@@ -52,6 +58,10 @@ export function App() {
   const [records, setRecords] = useState(demoRecords);
   const [agvEntries, setAgvEntries] = useState(demoAgvEntries);
   const [agvTypes, setAgvTypes] = useState(demoAgvTypes);
+  const [processKinds, setProcessKinds] = useState(demoProcessKinds);
+  const [configVarieties, setConfigVarieties] = useState(demoConfigVarieties);
+  const [deviceConfigs, setDeviceConfigs] = useState(demoDeviceConfigs);
+  const [stationConfigs, setStationConfigs] = useState(demoStationConfigs);
   const updateRecord = (id: string, change: (c: ConsumableRecord) => ConsumableRecord) => setRecords((rs) => rs.map((c) => (c.id === id ? change(c) : c)));
   const frame = {
     running,
@@ -142,6 +152,38 @@ export function App() {
             onDeleteAgv={(id) => setAgvEntries((es) => es.filter((e) => e.id !== id))}
             onSaveType={(original, t) => setAgvTypes((ts) => (original === null ? [...ts, t] : ts.map((x) => (x.name === original ? t : x))))}
             onDeleteType={(name) => setAgvTypes((ts) => ts.filter((t) => t.name !== name))}
+          />
+        );
+      case 'consumableConfig':
+        return (
+          <ConfigScreen
+            processKinds={processKinds}
+            varieties={configVarieties}
+            devices={deviceConfigs}
+            stations={stationConfigs}
+            carriers={demoCarriers}
+            transferPanels={transferPanels}
+            permissions={permissions}
+            onSaveProcessKind={(original, k) => setProcessKinds((ks) => (original === null ? [...ks, k] : ks.map((x) => (x.name === original ? k : x))))}
+            onDeleteProcessKind={(name) => setProcessKinds((ks) => ks.filter((k) => k.name !== name))}
+            onSaveVariety={(original, v) =>
+              setConfigVarieties((vs) =>
+                original === null ? [...vs, { ...v, ids: [], stockedIds: [], inUse: false }] : vs.map((x) => (x.name === original ? { ...x, ...v } : x)),
+              )
+            }
+            onDeleteVariety={(name) => setConfigVarieties((vs) => vs.filter((v) => v.name !== name))}
+            onAddId={(name, id) => setConfigVarieties((vs) => vs.map((v) => (v.name === name ? { ...v, ids: [...v.ids, id] } : v)))}
+            onRemoveId={(name, id) => setConfigVarieties((vs) => vs.map((v) => (v.name === name ? { ...v, ids: v.ids.filter((i) => i !== id) } : v)))}
+            onSaveDevice={(original, d) =>
+              setDeviceConfigs((ds) =>
+                original === null ? [...ds, { ...d, occupied: [], busy: false }] : ds.map((x) => (x.id === original ? { ...x, ...d } : x)),
+              )
+            }
+            onDeleteDevice={(id) => setDeviceConfigs((ds) => ds.filter((d) => d.id !== id))}
+            onSaveStation={(original, s) =>
+              setStationConfigs((ss) => (original === null ? [...ss, { ...s, busy: false }] : ss.map((x) => (x.id === original ? { ...x, ...s } : x))))
+            }
+            onDeleteStation={(id) => setStationConfigs((ss) => ss.filter((s) => s.id !== id))}
           />
         );
       default:

@@ -10,6 +10,7 @@ import type { Message } from './MessageRail';
 import type { StationInventory } from './station';
 import type { Transport } from './transports';
 import type { AgvEntry, AgvType } from './agvs';
+import type { DeviceConfig, ProcessKind, StationConfig, Variety } from './config';
 import type { ConsumableLocation, ConsumableRecord } from './consumables';
 import type { DeviceInside, HeldConsumable, SavedRow, SettingRow } from './devices';
 
@@ -345,3 +346,28 @@ export const demoAgvTypes: readonly AgvType[] = [
 
 /** 見本のキャリアの種類。 */
 export const demoCarriers: readonly string[] = ['[キャリアの種類A]', '[キャリアの種類B]'];
+
+/** 見本の加工の種類。 */
+export const demoProcessKinds: readonly ProcessKind[] = [
+  { name: '[加工の種類A]', method: 'dedicated', carrier: '[キャリアの種類A]', capacity: 3 },
+  { name: '[加工の種類B]', method: 'plate', carrier: '[キャリアの種類B]', capacity: 4 },
+];
+
+/** 見本の品種と ID の対応（在庫と記録は demoRecords とそろえている）。 */
+export const demoConfigVarieties: readonly Variety[] = [
+  { name: '[品種A]', processKind: '[加工の種類A]', ids: ['T-0100', 'T-0101', 'T-0102', 'T-0103', 'T-0110', 'T-0111'], stockedIds: ['T-0100', 'T-0101', 'T-0110', 'T-0111'], inUse: true },
+  { name: '[品種B]', processKind: '[加工の種類A]', ids: ['T-0203', 'T-0204', 'T-0205', 'T-0207', 'T-0208'], stockedIds: ['T-0203', 'T-0207', 'T-0208'], inUse: true },
+  { name: '[品種C]', processKind: '[加工の種類B]', ids: ['T-0301', 'T-0302', 'T-0303'], stockedIds: ['T-0303'], inUse: true },
+  { name: '[品種D]', processKind: '[加工の種類A]', ids: ['T-0410'], stockedIds: ['T-0410'], inUse: true },
+  { name: '[品種E]', processKind: '[加工の種類A]', ids: [], stockedIds: [], inUse: false },
+];
+
+/** 見本の装置の構成（中身は demoDevices とそろえている）。 */
+export const demoDeviceConfigs: readonly DeviceConfig[] = [
+  { id: 'DEV-1', panel: 'D1', layout: { kind: 'slots', slots: [3, 3] }, occupied: [[1, 2, 3], [1, 2, 3]], busy: true },
+  { id: 'DEV-2', panel: 'D2', layout: { kind: 'slots', slots: [4] }, occupied: [[1, 2, 3, 4]], busy: true },
+  { id: 'DEV-3', panel: 'SP', layout: { kind: 'plate', stockers: 1 }, occupied: [[1]], busy: true },
+];
+
+/** 見本のステーションの構成。 */
+export const demoStationConfigs: readonly StationConfig[] = [{ id: 'ST-1', panel: 'ST', busy: true }];
