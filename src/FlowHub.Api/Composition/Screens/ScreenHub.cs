@@ -14,9 +14,9 @@ internal sealed class ScreenHub(ScreenFeed feed) : Hub
 {
     public override async Task OnConnectedAsync()
     {
-        if (feed.TryGetCurrent(out var current))
+        foreach (var message in feed.Current())
         {
-            await Clients.Caller.SendAsync(ScreenFeed.SystemStatusMethod, current, Context.ConnectionAborted).ConfigureAwait(false);
+            await Clients.Caller.SendAsync(message.Method, message.Payload, Context.ConnectionAborted).ConfigureAwait(false);
         }
 
         await base.OnConnectedAsync().ConfigureAwait(false);

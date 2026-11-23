@@ -159,7 +159,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ArgumentNullException.ThrowIfNull(app);
 
         var screen = app.Services.GetRequiredService<ScreenFeed>();
-        screen.Attach(() => Dispatching.IsRunning);
+        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, () => [.. Traffic.ListAgvs().Select(AgvSnapshot.From)]));
         _screen = screen;
 
         app.Use(async (context, next) =>

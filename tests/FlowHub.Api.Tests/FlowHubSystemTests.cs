@@ -261,7 +261,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         var system = await StartAsync(startOnLaunch: true);
         var client = await ServeAsync(system);
-        var received = new SnapshotQueue();
+        var received = new SnapshotQueue<SystemStatusSnapshot>();
         await using var screen = await ConnectScreenAsync(client, received);
 
         var first = await received.NextAsync();
@@ -275,8 +275,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         var system = await StartAsync(startOnLaunch: true);
         var client = await ServeAsync(system);
-        var receivedA = new SnapshotQueue();
-        var receivedB = new SnapshotQueue();
+        var receivedA = new SnapshotQueue<SystemStatusSnapshot>();
+        var receivedB = new SnapshotQueue<SystemStatusSnapshot>();
         await using var screenA = await ConnectScreenAsync(client, receivedA);
         await using var screenB = await ConnectScreenAsync(client, receivedB);
         var first = await receivedA.NextAsync();
@@ -291,22 +291,48 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(changedA, changedB);
     }
 
-    private static async Task<HubConnection> ConnectScreenAsync(HttpClient client, SnapshotQueue received)
+    [Fact]
+    public async Task 画面がつないだときにAGVの様子が届き充電残量が変わったら新しい番号で届く()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        var agvs = new SnapshotQueue<AgvsWire>();
+        await using var screen = await ConnectScreenAsync(client, new SnapshotQueue<SystemStatusSnapshot>(), agvs);
+
+        var first = await agvs.NextAsync();
+        using var notified = await client.PostAsync(
+            new Uri("/agv/AGV-1/notifications", UriKind.Relative),
+            new StringContent("""{ "type": "battery", "percent": 57 }""", Encoding.UTF8, "application/json"),
+            Token);
+        var changed = await agvs.NextAsync();
+
+        var agv = Assert.Single(first.Agvs);
+        Assert.Equal(new AgvSnapshot("AGV-1", null, null, "unregistered", "detached", false, null), agv); // 新しく登録した AGV は、切り離しで位置がわからない
+        Assert.True(changed.Version > first.Version);
+        Assert.Equal(57, Assert.Single(changed.Agvs).BatteryPercent);
+    }
+
+    private static async Task<HubConnection> ConnectScreenAsync(HttpClient client, SnapshotQueue<SystemStatusSnapshot> received, SnapshotQueue<AgvsWire>? agvs = null)
     {
         var connection = new HubConnectionBuilder().WithUrl(new Uri(client.BaseAddress!, "/hubs/screen")).Build();
         connection.On<SystemStatusSnapshot>("systemStatus", received.Add);
+        connection.On<AgvsWire>("agvs", snapshot => agvs?.Add(snapshot));
         await connection.StartAsync(Token);
         return connection;
     }
 
-    /// <summary>届いた運転状態の様子を、届いた順に取り出す。</summary>
-    private sealed class SnapshotQueue
+    /// <summary>画面に届いた AGV の様子（受け取るための形）。</summary>
+    private sealed record AgvsWire(long Version, AgvSnapshot[] Agvs);
+
+    /// <summary>届いた様子を、届いた順に取り出す。</summary>
+    private sealed class SnapshotQueue<T>
     {
-        private readonly System.Threading.Channels.Channel<SystemStatusSnapshot> _channel = System.Threading.Channels.Channel.CreateUnbounded<SystemStatusSnapshot>();
+        private readonly System.Threading.Channels.Channel<T> _channel = System.Threading.Channels.Channel.CreateUnbounded<T>();
 
-        public void Add(SystemStatusSnapshot snapshot) => _channel.Writer.TryWrite(snapshot);
+        public void Add(T snapshot) => _channel.Writer.TryWrite(snapshot);
 
-        public async Task<SystemStatusSnapshot> NextAsync()
+        public async Task<T> NextAsync()
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(10));

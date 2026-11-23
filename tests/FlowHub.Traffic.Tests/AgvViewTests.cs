@@ -26,11 +26,12 @@ public class AgvViewTests
     }
 
     /// <summary>N →(180度) M →(180度) S の通路。AGV は N で南（180度）を向いて待機中。</summary>
-    private static async Task<TrafficService> ReadyAsync()
+    /// <param name="startType">N の種類。</param>
+    private static async Task<TrafficService> ReadyAsync(PanelType startType = PanelType.Normal)
     {
         var store = new InMemoryMapStore();
         store.Publish(MapSnapshot.Create(
-            Panels.Select(id => new Panel(new PanelId(id), PanelType.Normal, false)),
+            Panels.Select(id => new Panel(new PanelId(id), id == "N" ? startType : PanelType.Normal, false)),
             [
                 new Connection(new PanelId("N"), new PanelId("M"), 800, new Heading(180), OneWay: false),
                 new Connection(new PanelId("M"), new PanelId("S"), 800, new Heading(180), OneWay: false),
@@ -61,5 +62,44 @@ public class AgvViewTests
 
         Assert.Equal(new Pose("N", 180), view.Position);
         Assert.Equal(new Pose("S", 180), view.StopsAt);
+    }
+
+    [Fact]
+    public async Task 充電残量はまだ届いていなければわからず届いたら最後の値を持つ()
+    {
+        var service = await ReadyAsync();
+        Assert.Null(service.GetAgv(Agv).BatteryPercent);
+
+        await service.HandleBatteryChangedAsync(Agv, 57, None);
+        await service.HandleBatteryChangedAsync(Agv, 55, None);
+
+        Assert.Equal(55, service.GetAgv(Agv).BatteryPercent);
+    }
+
+    [Fact]
+    public async Task キャリアを下げている途中かがわかる()
+    {
+        var service = await ReadyAsync(startType: PanelType.Transfer);
+        Assert.False(service.GetAgv(Agv).CarrierMoving);
+
+        await service.LowerCarrierAsync(Agv, "lower", None);
+
+        var view = service.GetAgv(Agv);
+        Assert.True(view.CarrierMoving);
+        Assert.False(view.CarrierRaised);
+    }
+
+    [Fact]
+    public async Task 登録したすべてのAGVの様子をIDの順に返す()
+    {
+        var service = await ReadyAsync();
+        service.RegisterAgv(new AgvId("AGV-0"), new MotionProfile(500, 250, 90));
+
+        var all = service.ListAgvs();
+
+        Assert.Equal(["AGV-0", "AGV-1"], all.Select(a => a.Id.Value));
+        Assert.Null(all[0].Position); // 位置がわからない
+        Assert.Equal(AgvState.Unregistered, all[0].State);
+        Assert.Equal(new Pose("N", 180), all[1].Position);
     }
 }

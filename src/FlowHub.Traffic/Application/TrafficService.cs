@@ -93,18 +93,40 @@ public sealed class TrafficService(
         _gate.Wait();
         try
         {
-            var entry = Entry(id);
-            var travel = entry.Travel;
-            return new AgvView(id, travel.Position, ToState(travel.Status), travel.Carrier == CarrierState.Raised, travel.CumulativeDistanceMm, entry.Control)
-            {
-                StopsAt = travel.Position is null ? null : travel.PlanningStart,
-                CanTravelSpecialTransfer = entry.CanTravelSpecialTransfer,
-            };
+            return ViewOf(id, Entry(id));
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// 登録しているすべての AGV の今の様子を、ID の順に返す（画面に出すため）。同じ時点の様子をそろえて読む。
+    /// </summary>
+    public IReadOnlyList<AgvView> ListAgvs()
+    {
+        _gate.Wait();
+        try
+        {
+            return [.. _agvs.OrderBy(pair => pair.Key.Value, StringComparer.Ordinal).Select(pair => ViewOf(pair.Key, pair.Value))];
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private static AgvView ViewOf(AgvId id, AgvEntry entry)
+    {
+        var travel = entry.Travel;
+        return new AgvView(id, travel.Position, ToState(travel.Status), travel.Carrier == CarrierState.Raised, travel.CumulativeDistanceMm, entry.Control)
+        {
+            StopsAt = travel.Position is null ? null : travel.PlanningStart,
+            CanTravelSpecialTransfer = entry.CanTravelSpecialTransfer,
+            CarrierMoving = travel.Carrier is CarrierState.Lowering or CarrierState.Raising,
+            BatteryPercent = entry.BatteryPercent,
+        };
     }
 
     /// <summary>
@@ -595,6 +617,7 @@ public sealed class TrafficService(
     internal Task HandleBatteryChangedAsync(AgvId id, int percent, CancellationToken cancellationToken) =>
         RunAsync(id, null, entry =>
         {
+            entry.BatteryPercent = percent;
             entry.PendingEvents.Add(metadata => new AgvBatteryChanged(metadata, id, percent));
             return true;
         }, cancellationToken);
@@ -1075,6 +1098,9 @@ public sealed class TrafficService(
 
         /// <summary>特殊消耗品受け渡しパネルを走れるか。</summary>
         public bool CanTravelSpecialTransfer { get; init; }
+
+        /// <summary>最後に届いた充電残量（%）。起動してから一度も届いていなければ null（メモリにだけ持ち、再起動したら次に届くまでわからない）。</summary>
+        public int? BatteryPercent { get; set; }
 
         /// <summary>切り離しから切り替える先。位置リセットの完了の通知を受けたら、これに切り替える。</summary>
         public ControlStatus? PendingControl { get; set; }

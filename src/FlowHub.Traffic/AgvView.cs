@@ -44,6 +44,12 @@ public sealed record AgvView(AgvId Id, Pose? Position, AgvState State, bool Carr
 
     /// <summary>特殊消耗品受け渡しパネルを走れるか（AGV の種類ごとの設定）。</summary>
     public bool CanTravelSpecialTransfer { get; init; }
+
+    /// <summary>キャリアを上げている途中か、下げている途中か。</summary>
+    public bool CarrierMoving { get; init; }
+
+    /// <summary>最後に AGV から届いた充電残量（%）。起動してから一度も届いていなければ null。</summary>
+    public int? BatteryPercent { get; init; }
 }
 
 /// <summary>
