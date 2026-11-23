@@ -22,7 +22,7 @@ describe('useServer', () => {
     const { latest } = watch(link);
 
     expect(link.connected).toBe(true);
-    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' } });
+    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' } });
   });
 
   it('届いた運転状態の様子と、つながりの様子を持つ', () => {
@@ -34,7 +34,7 @@ describe('useServer', () => {
       link.emitSystemStatus({ version: 1, state: 'started' });
     });
 
-    expect(latest()).toEqual({ connection: 'connected', status: { kind: 'live', snapshot: { version: 1, state: 'started' } } });
+    expect(latest()).toMatchObject({ connection: 'connected', status: { kind: 'live', snapshot: { version: 1, state: 'started' } } });
   });
 
   it('古い番号の様子は捨てる', () => {
@@ -58,13 +58,28 @@ describe('useServer', () => {
     });
 
     act(() => link.emitConnection('reconnecting'));
-    expect(latest()).toEqual({ connection: 'reconnecting', status: { kind: 'stale', snapshot: { version: 7, state: 'started' } } });
+    expect(latest()).toMatchObject({ connection: 'reconnecting', status: { kind: 'stale', snapshot: { version: 7, state: 'started' } } });
 
     act(() => {
       link.emitConnection('connected');
       link.emitSystemStatus({ version: 1, state: 'stopped' }); // サーバーが起動し直した
     });
     expect(latest().status).toEqual({ kind: 'live', snapshot: { version: 1, state: 'stopped' } });
+  });
+
+  it('AGV の様子も、番号の古いものは捨て、切れたら古いものにする', () => {
+    const link = createFakeLink();
+    const { latest } = watch(link);
+    const agv = { id: 'AGV-1', panel: 'P3', heading: 90, state: 'idle', control: 'auto', carrierMoving: false, batteryPercent: 50 } as const;
+
+    act(() => {
+      link.emitAgvs({ version: 2, agvs: [agv] });
+      link.emitAgvs({ version: 1, agvs: [] });
+    });
+    expect(latest().agvs).toEqual({ kind: 'live', snapshot: { version: 2, agvs: [agv] } });
+
+    act(() => link.emitConnection('reconnecting'));
+    expect(latest().agvs).toEqual({ kind: 'stale', snapshot: { version: 2, agvs: [agv] } });
   });
 
   it('消したら切る', () => {

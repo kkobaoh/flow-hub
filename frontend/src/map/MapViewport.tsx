@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { drawMap } from './drawing';
 import { contentBounds } from './equipment';
+import { unplacedRow } from './unplaced';
 import { MapCanvas, type MapCanvasProps } from './MapCanvas';
 import {
   fitView,
@@ -72,7 +73,11 @@ export function MapViewport({ size: fixedSize, focus = null, covered = NOT_COVER
   const surfaceRef = useRef<HTMLDivElement>(null);
   const size = useMeasuredSize(surfaceRef, fixedSize);
   const drawing = useMemo(() => drawMap(canvas.layout), [canvas.layout]);
-  const bounds = useMemo(() => contentBounds(drawing, canvas.equipment ?? []), [drawing, canvas.equipment]);
+  const unplacedCount = canvas.unplacedAgvs?.length ?? 0;
+  const bounds = useMemo(
+    () => unplacedRow(contentBounds(drawing, canvas.equipment ?? []), canvas.layout.panelSizeMm, unplacedCount).bounds,
+    [drawing, canvas.equipment, canvas.layout.panelSizeMm, unplacedCount],
+  );
   const fit = size ? fitView(bounds, size) : null;
   const limits = fit ? zoomLimits(fit.scale, canvas.layout.panelSizeMm) : null;
   // null のあいだは「全体が収まる大きさ」。画面の大きさが変わっても、合わせて収め直す。

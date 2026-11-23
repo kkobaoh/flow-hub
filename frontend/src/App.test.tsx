@@ -75,10 +75,56 @@ describe('App', () => {
     window.location.hash = '';
   });
 
-  it('運転状態のほかは、見本のデータで動かしていることを知らせる', () => {
+  it('運転状態と AGV のほかは、見本のデータで動かしていることを知らせる', () => {
     const { container } = render(<App link={connected()} />);
 
-    expect(container.textContent).toContain('運転状態のほかは、見本のデータです');
+    expect(container.textContent).toContain('運転状態と AGV のほかは、見本のデータです');
+  });
+
+  // ---- AGV の様子 ----
+
+  it('サーバーから届いた AGV を、マップの上と、位置がわからない列に描き、変わったら描き直す', () => {
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    expect(container.querySelector('[data-agv]')).toBeNull(); // 届くまでは、いない
+
+    act(() =>
+      link.emitAgvs({
+        version: 1,
+        agvs: [
+          { id: 'AGV-1', panel: 'P3', heading: 90, state: 'moving', control: 'auto', carrierMoving: false, batteryPercent: 72 },
+          { id: 'AGV-2', panel: null, heading: null, state: 'unregistered', control: 'detached', carrierMoving: false, batteryPercent: null },
+        ],
+      }),
+    );
+    const agv1 = container.querySelector('[data-agv="AGV-1"]');
+    expect(agv1?.hasAttribute('data-unplaced')).toBe(false);
+    expect(agv1?.textContent).toBe('AGV-1'); // 印の名前は ID そのまま
+    expect(container.querySelector('[data-agv="AGV-2"]')?.hasAttribute('data-unplaced')).toBe(true);
+
+    act(() =>
+      link.emitAgvs({
+        version: 2,
+        agvs: [{ id: 'AGV-1', panel: 'P4', heading: 90, state: 'idle', control: 'auto', carrierMoving: false, batteryPercent: 71 }],
+      }),
+    );
+    expect(container.querySelector('[data-agv="AGV-1"]')?.getAttribute('transform')).toContain('translate(4500 1500)'); // P4 の十字
+    expect(container.querySelector('[data-agv="AGV-2"]')).toBeNull();
+  });
+
+  it('位置がわからない AGV を押すと、カードを開き、位置を「わからない」と出す', () => {
+    const link = createFakeLink({
+      connection: 'connected',
+      status: { version: 1, state: 'started' },
+      agvs: { version: 1, agvs: [{ id: 'AGV-2', panel: null, heading: null, state: 'unregistered', control: 'detached', carrierMoving: false, batteryPercent: null }] },
+    });
+    const { container } = render(<App link={link} />);
+
+    click(container.querySelector('[data-agv="AGV-2"]')!);
+
+    const card = container.querySelector('[data-agv-card]');
+    expect(card?.textContent).toContain('位置がわからない');
+    expect(card?.textContent).toContain('わからない');
   });
 
   // ---- サーバーとのつながり ----

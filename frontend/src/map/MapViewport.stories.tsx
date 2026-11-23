@@ -22,9 +22,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const agvs: AgvOnMap[] = [
-  { id: agvId('AGV-1'), label: '1', panel: panelId('P3'), heading: heading(90), status: { activity: 'moving', charging: false, carrierMoving: false } },
-  { id: agvId('AGV-2'), label: '2', panel: panelId('SB2'), heading: heading(90), status: { activity: 'idle', charging: true, carrierMoving: false } },
-  { id: agvId('AGV-3'), label: '3', panel: panelId('SB'), heading: heading(90), status: { activity: 'idle', charging: false, carrierMoving: false } },
+  { id: agvId('AGV-1'), label: '1', panel: panelId('P3'), heading: heading(90), status: { activity: 'moving', charging: 'notCharging', carrierMoving: false } },
+  { id: agvId('AGV-2'), label: '2', panel: panelId('SB2'), heading: heading(90), status: { activity: 'idle', charging: 'charging', carrierMoving: false } },
+  { id: agvId('AGV-3'), label: '3', panel: panelId('SB'), heading: heading(90), status: { activity: 'idle', charging: 'notCharging', carrierMoving: false } },
 ];
 
 function Interactive() {

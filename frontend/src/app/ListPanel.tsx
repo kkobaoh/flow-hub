@@ -77,7 +77,7 @@ export function ListPanel({ agvs, equipment, searchConsumables, isChargingPanel 
         return sortForList(agvs, (a) => needsAttention(a.operation))
           .filter((a) => matchesQuery(a.id, query))
           .map((a) => {
-            const light = indicatorLight(a.status, isChargingPanel(a.panel));
+            const light = indicatorLight(a.status, a.position.kind === 'onMap' && isChargingPanel(a.position.panel));
             return {
               key: a.id,
               ref: { kind: 'agv', id: a.id },

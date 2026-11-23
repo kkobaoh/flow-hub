@@ -1,8 +1,9 @@
 import { useMemo, type KeyboardEvent } from 'react';
-import { indicatorLight, lightLabel, type AgvId, type AgvOnMap, type LightColor } from './agv';
+import { indicatorLight, lightLabel, type AgvId, type AgvOnMap, type LightColor, type UnplacedAgv } from './agv';
 import { crossPoint, drawMap, panelOf, routeSegments } from './drawing';
 import { attentionTag, contentBounds, labelSide, textWidthMm, type EquipmentId, type EquipmentOnMap } from './equipment';
 import type { MapLayout, PanelId } from './model';
+import { agvLabelFontRatio, unplacedRow } from './unplaced';
 import type { ViewBox } from './viewport';
 
 const LIGHT_FILL: Record<LightColor, string> = {
@@ -25,6 +26,8 @@ const ARROW_RATIO = 0.3;
 export interface MapCanvasProps {
   readonly layout: MapLayout;
   readonly agvs?: readonly AgvOnMap[];
+  /** 位置がわからない AGV（マップにないパネルにいるものも含む）。マップの下の外に、横一列に描く。 */
+  readonly unplacedAgvs?: readonly UnplacedAgv[];
   /** 予約しているパネル。 */
   readonly reservedPanels?: readonly PanelId[];
   /** 走る予定の経路（通るパネルの順）。AGV ごとに1つ。 */
@@ -53,6 +56,7 @@ export interface MapCanvasProps {
 export function MapCanvas({
   layout,
   agvs = [],
+  unplacedAgvs = [],
   reservedPanels = [],
   routes = [],
   selectedAgv = null,
@@ -88,7 +92,12 @@ export function MapCanvas({
     }
   };
   const onKey = (id: AgvId) => activateKey(() => select(id));
-  const bounds = contentBounds(d, equipment);
+  const row = unplacedRow(contentBounds(d, equipment), size, unplacedAgvs.length);
+  const bounds = row.bounds;
+  const unplacedMarkers = unplacedAgvs.map((agv, i) => {
+    const emphasis = agv.id === selectedAgv ? 'selected' : agv.id === highlightedAgv ? 'highlighted' : 'none';
+    return { agv, center: row.slots[i]!, light: indicatorLight(agv.status, false), emphasis } as const;
+  });
   const nameFont = size * 0.15;
   const tagFont = size * 0.11;
   const chipPad = size * 0.04;
@@ -319,9 +328,54 @@ export function MapCanvas({
             textAnchor="middle"
             dominantBaseline="central"
             y={0}
-            fontSize={size * 0.22}
+            fontSize={size * agvLabelFontRatio(agv.label)}
             className="fill-panel-line font-number font-bold"
           >
+            {agv.label}
+          </text>
+        </g>
+      ))}
+      {unplacedMarkers.length > 0 && (
+        <text data-unplaced-title="" x={row.title.x} y={row.title.y} dominantBaseline="hanging" fontSize={row.titleFontMm} className="fill-graphite font-sans font-bold">
+          位置がわからない AGV
+        </text>
+      )}
+      {unplacedMarkers.map(({ agv, center, light, emphasis }) => (
+        <g
+          key={agv.id}
+          data-agv={agv.id}
+          data-unplaced=""
+          data-emphasis={emphasis}
+          role="button"
+          tabIndex={0}
+          aria-label={`${agv.id}（位置がわからない・${lightLabel(light.color)}）`}
+          aria-pressed={emphasis === 'selected'}
+          transform={`translate(${center.x} ${center.y})`}
+          className="cursor-pointer outline-none"
+          onClick={() => select(agv.id)}
+          onKeyDown={onKey(agv.id)}
+          onMouseEnter={() => onHighlightAgv?.(agv.id)}
+          onMouseLeave={() => onHighlightAgv?.(null)}
+        >
+          {emphasis !== 'none' && (
+            <circle
+              r={radius * 1.35}
+              className="fill-none stroke-selection"
+              strokeWidth={size * 0.05}
+              strokeDasharray={emphasis === 'highlighted' ? `${size * 0.08} ${size * 0.06}` : undefined}
+            />
+          )}
+          {/* 位置がわからないので、点線の枠で描き、向きの印は描かない */}
+          <circle r={radius} className="fill-agv-body/60 stroke-graphite" strokeWidth={size * 0.03} strokeDasharray={`${size * 0.06} ${size * 0.04}`} />
+          <circle
+            data-light={light.color}
+            cx={radius * 0.72}
+            cy={-radius * 0.72}
+            r={radius * 0.3}
+            className={`${LIGHT_FILL[light.color]} stroke-panel-line${light.blinking ? ' animate-agv-blink' : ''}`}
+            strokeWidth={size * 0.02}
+          />
+          <text textAnchor="middle" dominantBaseline="central" fontSize={size * agvLabelFontRatio(agv.label)} className="fill-panel-line font-number font-bold">
             {agv.label}
           </text>
         </g>

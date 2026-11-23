@@ -36,3 +36,19 @@ test('サーバーとつながり、運転の切り替えが、開いている�
   expect(errors).toEqual([]);
   expect(otherErrors).toEqual([]);
 });
+
+test('サーバーに登録されている AGV を描く。初期データの AGV は切り離しで位置がわからないので、マップの下の列に描く', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+
+  for (const id of ['AGV-1', 'AGV-2']) {
+    const agv = page.locator(`[data-agv="${id}"]`);
+    await expect(agv).toBeVisible();
+    await expect(agv).toHaveAttribute('data-unplaced', '');
+  }
+  await expect(page.locator('[data-unplaced-title]')).toHaveText('位置がわからない AGV');
+
+  await page.locator('[data-agv="AGV-2"]').click();
+  await expect(page.locator('[data-agv-card]')).toContainText('位置がわからない');
+  expect(errors).toEqual([]);
+});

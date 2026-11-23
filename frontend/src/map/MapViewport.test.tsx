@@ -8,7 +8,7 @@ import { sampleEquipment, sampleLayout } from './sampleLayout';
 // 見本のマップは 6000 x 4000 mm。余白 24px を除いた 1000 x 600 px に収めると、0.15 px/mm
 const size = { width: 1048, height: 648 };
 const agvs: AgvOnMap[] = [
-  { id: agvId('AGV-1'), label: '1', panel: panelId('P3'), heading: heading(90), status: { activity: 'moving', charging: false, carrierMoving: false } },
+  { id: agvId('AGV-1'), label: '1', panel: panelId('P3'), heading: heading(90), status: { activity: 'moving', charging: 'notCharging', carrierMoving: false } },
 ];
 
 function viewBox(container: HTMLElement): number[] {

@@ -7,7 +7,8 @@ export type ManualActivity = 'none' | 'destination' | 'steps';
 export interface ManualInput {
   readonly operation: AgvOperation;
   readonly activity: ManualActivity;
-  readonly heading: Heading;
+  /** 向き。位置がわからなければ unknown。 */
+  readonly heading: Heading | 'unknown';
 }
 
 export interface Availability {
@@ -31,6 +32,7 @@ const STOPPED_REASON: Partial<Record<AgvOperation, string>> = {
   emergencyStopped: '緊急停止中は送れません。アラームクリアのあとに送ってください。',
   fault: '異常のあいだは送れません。',
   awaitingPositionReset: '位置リセットのあとに送ってください。',
+  positionUnknown: '位置がわからないので送れません。位置リセットのあとに送ってください。',
 };
 
 const CARDINAL = new Set([0, 90, 180, 270]);
@@ -54,7 +56,9 @@ export function manualAvailability(input: ManualInput): ManualAvailability {
   const step = input.activity === 'destination' ? no('行き先へ走っている途中は、ほかの指示を送れません。') : ok;
   const forwardBackward = !step.allowed
     ? step
-    : CARDINAL.has(input.heading)
+    : input.heading === 'unknown'
+      ? no('向きがわからないので、前進と後退は送れません。位置リセットのあとに送ってください。')
+      : CARDINAL.has(input.heading)
       ? ok
       : no('前進と後退は、0・90・180・270度のどれかを向いているときだけ送れます。先に「回転」でラインの向きに合わせてください。');
   const carrier = input.activity === 'none' ? ok : no('走っている途中は、キャリアを上げ下げできません。');

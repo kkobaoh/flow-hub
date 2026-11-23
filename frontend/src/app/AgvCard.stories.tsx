@@ -8,9 +8,8 @@ import { initialRoles } from './permissions';
 const agv: AgvDetail = {
   id: agvId('AGV-1'),
   label: '1',
-  panel: panelId('P3'),
-  heading: heading(90),
-  status: { activity: 'moving', charging: false, carrierMoving: false },
+  position: { kind: 'onMap', panel: panelId('P3'), heading: heading(90) },
+  status: { activity: 'moving', charging: 'notCharging', carrierMoving: false },
   control: 'auto',
   operation: 'traveling',
   transport: '#12 ST-1 から DEV-1 へ',
@@ -58,7 +57,7 @@ export const MaintainerIdle: Story = {
 export const Charging: Story = {
   args: {
     onChargingPin: true,
-    agv: { ...agv, panel: panelId('SB2'), status: { activity: 'idle', charging: true, carrierMoving: false }, operation: 'idle', transport: null, batteryPercent: 35 },
+    agv: { ...agv, position: { kind: 'onMap', panel: panelId('SB2'), heading: heading(90) }, status: { activity: 'idle', charging: 'charging', carrierMoving: false }, operation: 'idle', transport: null, batteryPercent: 35 },
   },
 };
 

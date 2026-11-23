@@ -14,7 +14,7 @@ export function sortForList<T extends { readonly id: string }>(items: readonly T
 
 /** AGV で気をつけるもの（緊急停止中、異常、位置リセット待ち）。 */
 export function needsAttention(operation: AgvOperation): boolean {
-  return operation === 'emergencyStopped' || operation === 'fault' || operation === 'awaitingPositionReset';
+  return operation === 'emergencyStopped' || operation === 'fault' || operation === 'awaitingPositionReset' || operation === 'positionUnknown';
 }
 
 function normalize(text: string): string {

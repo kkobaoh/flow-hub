@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { agvId, indicatorLight, type AgvStatus } from './agv';
 
-const idle: AgvStatus = { activity: 'idle', charging: false, carrierMoving: false };
+const idle: AgvStatus = { activity: 'idle', charging: 'notCharging', carrierMoving: false };
 
 describe('agvId', () => {
   it('空でない文字列から作れる', () => {
@@ -24,15 +24,20 @@ describe('indicatorLight（AGV の標示灯）', () => {
   });
 
   it('充電パネルで充電しているときは、緑', () => {
-    expect(indicatorLight({ ...idle, charging: true }, true)).toEqual({ color: 'charging', blinking: false });
+    expect(indicatorLight({ ...idle, charging: 'charging' }, true)).toEqual({ color: 'charging', blinking: false });
   });
 
   it('充電パネルにいるのに充電できていないときは、紫', () => {
     expect(indicatorLight(idle, true)).toEqual({ color: 'chargeFailed', blinking: false });
   });
 
+  it('充電しているかがわからないときは、充電パネルでも黄（緑と紫は出さない）', () => {
+    expect(indicatorLight({ ...idle, charging: 'unknown' }, true)).toEqual({ color: 'waiting', blinking: false });
+    expect(indicatorLight({ ...idle, charging: 'unknown', carrierMoving: true }, true)).toEqual({ color: 'waiting', blinking: false });
+  });
+
   it('緑と紫は、キャリアを上げ下げしているあいだ点滅する', () => {
-    expect(indicatorLight({ ...idle, charging: true, carrierMoving: true }, true)).toEqual({ color: 'charging', blinking: true });
+    expect(indicatorLight({ ...idle, charging: 'charging', carrierMoving: true }, true)).toEqual({ color: 'charging', blinking: true });
     expect(indicatorLight({ ...idle, carrierMoving: true }, true)).toEqual({ color: 'chargeFailed', blinking: true });
   });
 });

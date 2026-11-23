@@ -3,8 +3,8 @@ import type { Permissions } from './permissions';
 /** コントロールステータス（docs/domain.md「コントロールステータス」）。 */
 export type ControlStatus = 'auto' | 'assignmentPaused' | 'manual' | 'locked' | 'detached';
 
-/** AGV の動きの状態。 */
-export type AgvOperation = 'idle' | 'traveling' | 'emergencyStopped' | 'fault' | 'awaitingPositionReset';
+/** AGV の動きの状態。positionUnknown は、位置がわからない（位置リセットの前など。サーバーの「未登録」）。 */
+export type AgvOperation = 'idle' | 'traveling' | 'emergencyStopped' | 'fault' | 'awaitingPositionReset' | 'positionUnknown';
 
 export const controlStatusLabel: Record<ControlStatus, string> = {
   auto: 'オート',

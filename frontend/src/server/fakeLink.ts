@@ -1,4 +1,5 @@
 import type { CommandResult, ConnectionState, ServerHandlers, ServerLink } from './link';
+import type { AgvsSnapshot } from './agvs';
 import type { SystemStatusSnapshot } from './systemStatus';
 
 type Command = 'start' | 'stop';
@@ -17,13 +18,18 @@ export interface FakeLink extends ServerLink {
   release(): void;
   emitConnection(state: ConnectionState): void;
   emitSystemStatus(snapshot: SystemStatusSnapshot): void;
+  emitAgvs(snapshot: AgvsSnapshot): void;
 }
 
 /**
  * 偽物のつながりを作る。
  * @param initial つないだときに、すぐ送るもの（Storybook で、つながった形を見るため）。
  */
-export function createFakeLink(initial?: { readonly connection: ConnectionState; readonly status?: SystemStatusSnapshot }): FakeLink {
+export function createFakeLink(initial?: {
+  readonly connection: ConnectionState;
+  readonly status?: SystemStatusSnapshot;
+  readonly agvs?: AgvsSnapshot;
+}): FakeLink {
   let handlers: ServerHandlers | null = null;
   let result: CommandResult = 'ok';
   let holding = false;
@@ -51,6 +57,9 @@ export function createFakeLink(initial?: { readonly connection: ConnectionState;
         if (initial.status) {
           h.onSystemStatus(initial.status);
         }
+        if (initial.agvs) {
+          h.onAgvs(initial.agvs);
+        }
       }
       return () => {
         if (handlers === h) {
@@ -77,6 +86,9 @@ export function createFakeLink(initial?: { readonly connection: ConnectionState;
     },
     emitSystemStatus(snapshot) {
       handlers?.onSystemStatus(snapshot);
+    },
+    emitAgvs(snapshot) {
+      handlers?.onAgvs(snapshot);
     },
   };
 }

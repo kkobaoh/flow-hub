@@ -7,6 +7,7 @@ import { MapViewport } from '../map/MapViewport';
 import type { Heading, MapLayout, PanelId } from '../map/model';
 import type { Obstruction, Size } from '../map/viewport';
 import { AgvCard, type AgvDetail } from './AgvCard';
+import { placedAgvs, unplacedAgvs } from './agvPlacement';
 import { AppHeader, type SignedInUser } from './AppHeader';
 import { ConsumableCard } from './ConsumableCard';
 import type { ControlStatus } from './controlStatus';
@@ -80,6 +81,11 @@ function cardCovers(): Obstruction {
  * 1 全体の様子（マップ）。床のいまの様子を見て、その場で対処する画面。
  * サーバーとのやり取りはしない（受け取ったものを描き、操作を知らせる）。
  */
+/** AGV がいる、描いているマップの上のパネル（マップの上にいなければ null）。 */
+function panelOnMap(agv: AgvDetail): PanelId | null {
+  return agv.position.kind === 'onMap' ? agv.position.panel : null;
+}
+
 export function MapScreen(props: MapScreenProps) {
   const { layout, agvs, equipment, messages, permissions } = props;
   const [drawer, setDrawer] = useState<Drawer>(null);
@@ -101,11 +107,14 @@ export function MapScreen(props: MapScreenProps) {
     ref?.kind === 'consumable' ? (ref.id === consumable?.id ? consumable.at : null) : ref;
   const emphasis = located(hovered) ?? (chosenConsumable ? chosenConsumable.at : null);
   const focusPanel =
-    agv?.panel ??
+    (agv ? panelOnMap(agv) : null) ??
     chosenEquipment?.panel ??
     (chosenConsumable
       ? chosenConsumable.at.kind === 'agv'
-        ? agvs.find((a) => a.id === chosenConsumable.at.id)?.panel
+        ? (() => {
+            const carrier = agvs.find((a) => a.id === chosenConsumable.at.id);
+            return carrier ? panelOnMap(carrier) : null;
+          })()
         : equipment.find((e) => e.id === chosenConsumable.at.id)?.panel
       : null) ??
     null;
@@ -147,7 +156,8 @@ export function MapScreen(props: MapScreenProps) {
           <div className="absolute inset-0">
             <MapViewport
               layout={layout}
-              agvs={agvs}
+              agvs={placedAgvs(agvs)}
+              unplacedAgvs={unplacedAgvs(agvs)}
               reservedPanels={props.reservedPanels}
               routes={props.routes}
               selectedAgv={agv?.id ?? null}
@@ -229,7 +239,7 @@ export function MapScreen(props: MapScreenProps) {
           ) : agv ? (
             <AgvCard
               agv={agv}
-              onChargingPin={panelOf(layout, agv.panel).hasChargingPin}
+              onChargingPin={agv.position.kind === 'onMap' && panelOf(layout, agv.position.panel).hasChargingPin}
               permissions={permissions}
               onClose={close}
               onBack={back}
@@ -239,7 +249,7 @@ export function MapScreen(props: MapScreenProps) {
               onPositionReset={props.onPositionReset}
               manual={
                 <ManualPanel
-                  input={{ operation: agv.operation, activity: agv.manualActivity ?? 'none', heading: agv.heading }}
+                  input={{ operation: agv.operation, activity: agv.manualActivity ?? 'none', heading: agv.position.kind === 'unknown' ? 'unknown' : agv.position.heading }}
                   destinations={props.destinations}
                   onMove={(destination, arrival) => props.onManualMove(agv.id, destination, arrival)}
                   onStep={(step) => props.onManualStep(agv.id, step)}

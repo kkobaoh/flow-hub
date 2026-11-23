@@ -1,3 +1,4 @@
+import type { AgvsSnapshot } from './agvs';
 import type { SystemStatusSnapshot } from './systemStatus';
 
 /**
@@ -15,6 +16,7 @@ export type CommandResult = 'ok' | 'failed';
 export interface ServerHandlers {
   readonly onConnection: (state: ConnectionState) => void;
   readonly onSystemStatus: (snapshot: SystemStatusSnapshot) => void;
+  readonly onAgvs: (snapshot: AgvsSnapshot) => void;
 }
 
 /**

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { indicatorLight, lightLabel, type AgvId, type AgvOnMap } from '../map/agv';
+import { indicatorLight, lightLabel, type AgvId, type AgvPosition, type AgvStatus } from '../map/agv';
 import type { Heading } from '../map/model';
 import { controlOptions, controlStatusLabel, type AgvOperation, type ControlStatus } from './controlStatus';
 import type { ManualActivity } from './manual';
@@ -7,7 +7,12 @@ import { CardHeader } from './CardHeader';
 import type { Permissions } from './permissions';
 
 /** カードに出す AGV の詳細。 */
-export interface AgvDetail extends AgvOnMap {
+export interface AgvDetail {
+  readonly id: AgvId;
+  /** マップの印に書く短い名前。 */
+  readonly label: string;
+  readonly position: AgvPosition;
+  readonly status: AgvStatus;
   readonly control: ControlStatus;
   readonly operation: AgvOperation;
   /** 割り当て済みの搬送（なければ null）。 */
@@ -47,6 +52,7 @@ const OPERATION_LABEL: Record<Exclude<AgvOperation, 'idle'>, string> = {
   emergencyStopped: '緊急停止中',
   fault: '異常',
   awaitingPositionReset: '位置リセット待ち',
+  positionUnknown: '位置がわからない',
 };
 
 const CARDINAL: Partial<Record<number, string>> = { 0: '北', 90: '東', 180: '南', 270: '西' };
@@ -54,6 +60,19 @@ const CARDINAL: Partial<Record<number, string>> = { 0: '北', 90: '東', 180: '�
 function headingText(h: Heading): string {
   const cardinal = CARDINAL[h];
   return cardinal ? `${h}°（${cardinal}）` : `${h}°`;
+}
+
+function positionText(position: AgvPosition): string {
+  switch (position.kind) {
+    case 'onMap':
+      return `${position.panel}　${headingText(position.heading)}`;
+    case 'offMap':
+      return `${position.panel}（マップにない）　${headingText(position.heading)}`;
+    case 'unknown':
+      return 'わからない';
+    default:
+      throw new Error(`知らない位置です: ${JSON.stringify(position satisfies never)}`);
+  }
 }
 
 const NO_COMMAND = '切り離し中の AGV には、コマンドを送りません。';
@@ -117,7 +136,7 @@ export function AgvCard({
           <dd className="m-0 font-bold">{controlStatusLabel[agv.control]}</dd>
           <dt className="text-ink-muted">位置</dt>
           <dd className="m-0">
-            {agv.panel}　{headingText(agv.heading)}
+            {positionText(agv.position)}
           </dd>
           <dt className="text-ink-muted">搬送</dt>
           <dd className="m-0">{agv.transport ?? 'なし'}</dd>

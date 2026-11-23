@@ -8,9 +8,8 @@ import { initialRoles } from './permissions';
 const agv: AgvDetail = {
   id: agvId('AGV-1'),
   label: '1',
-  panel: panelId('P3'),
-  heading: heading(90),
-  status: { activity: 'idle', charging: false, carrierMoving: false },
+  position: { kind: 'onMap', panel: panelId('P3'), heading: heading(90) },
+  status: { activity: 'idle', charging: 'notCharging', carrierMoving: false },
   control: 'auto',
   operation: 'idle',
   transport: null,
@@ -70,7 +69,7 @@ describe('AgvCard', () => {
 
   it('充電パネルで充電しているときは、状態を「充電中」と出す', () => {
     const { container } = render(
-      <AgvCard {...props({ onChargingPin: true, agv: { ...agv, status: { ...agv.status, charging: true } } })} />,
+      <AgvCard {...props({ onChargingPin: true, agv: { ...agv, status: { ...agv.status, charging: 'charging' } } })} />,
     );
 
     expect(container.textContent).toContain('充電中');

@@ -1,9 +1,13 @@
 import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { COMMAND_TIMEOUT_MS, postCommand, retryDelayMs, type ServerHandlers, type ServerLink } from './link';
+import { parseAgvs } from './agvs';
 import { parseSystemStatus } from './systemStatus';
 
 /** 運転状態の様子を受け取る名前（サーバーの ScreenFeed.SystemStatusMethod と同じ）。 */
 const SYSTEM_STATUS = 'systemStatus';
+
+/** AGV の様子を受け取る名前（サーバーの ScreenFeed.AgvsMethod と同じ）。 */
+const AGVS = 'agvs';
 
 /**
  * 本物のつながり。SignalR のハブ（/hubs/screen）で様子を受け取り、操作は HTTP の窓口へ送る。
@@ -50,6 +54,14 @@ function connect(baseUrl: string, handlers: ServerHandlers): () => void {
     } catch (error) {
       // 形の正しくない様子は使わず、今の様子のままにする
       console.error('サーバーから届いた運転状態の様子を使えませんでした。', error);
+    }
+  });
+  connection.on(AGVS, (value: unknown) => {
+    try {
+      handlers.onAgvs(parseAgvs(value));
+    } catch (error) {
+      // 形の正しくない様子は使わず、今の様子のままにする
+      console.error('サーバーから届いた AGV の様子を使えませんでした。', error);
     }
   });
   connection.onreconnecting(() => handlers.onConnection('reconnecting'));

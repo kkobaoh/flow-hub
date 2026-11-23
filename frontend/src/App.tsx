@@ -1,8 +1,7 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   applyDemoSetting,
   demoAgvEntries,
-  demoAgvs,
   demoAgvTypes,
   demoCarriers,
   demoConfigVarieties,
@@ -46,6 +45,7 @@ import { UsersScreen } from './app/UsersScreen';
 import { agvId } from './map/agv';
 import type { Message } from './app/MessageRail';
 import type { CommandResult, ServerLink } from './server/link';
+import { toAgvDetails } from './server/agvs';
 import { runIndicator } from './server/systemStatus';
 import { useServer } from './server/useServer';
 import { sampleLayout } from './map/sampleLayout';
@@ -83,7 +83,6 @@ export function App({ link }: AppProps) {
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<readonly Message[]>(demoMessages);
   const messageCount = useRef(0);
-  const [agvs, setAgvs] = useState(demoAgvs);
   const [transports, setTransports] = useState(demoTransports);
   const [devices, setDevices] = useState(demoDevices);
   const [stations, setStations] = useState(demoStations);
@@ -99,6 +98,11 @@ export function App({ link }: AppProps) {
   const [mapDraft, setMapDraft] = useState(demoMapDraft);
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [published, setPublished] = useState({ version: 3, layout: sampleLayout });
+  // AGV は、サーバーから届いた様子を、描いているマップに合わせて使う（まだ届いていなければ、いない）
+  const agvs = useMemo(
+    () => (server.agvs.kind === 'waiting' ? [] : toAgvDetails(server.agvs.snapshot.agvs, published.layout)),
+    [server.agvs, published.layout],
+  );
   const [heights, setHeights] = useState(demoHeights);
   const [mapDirty, setMapDirty] = useState(false);
   const [leaving, setLeaving] = useState<{ readonly screen: ScreenKey; readonly target: string | undefined } | null>(null);
@@ -311,7 +315,7 @@ export function App({ link }: AppProps) {
     <>
       <ConnectionBanner connection={server.connection} />
       <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">
-        運転状態のほかは、見本のデータです
+        運転状態と AGV のほかは、見本のデータです
       </p>
       {route.screen === 'map' ? (
         <MapScreen
@@ -329,7 +333,7 @@ export function App({ link }: AppProps) {
           onStart={() => void sendRun('start')}
           onStop={() => void sendRun('stop')}
           onEmergencyStop={() => {}}
-          onChangeControl={(id, control) => setAgvs((as) => as.map((a) => (a.id === id ? { ...a, control } : a)))}
+          onChangeControl={() => {}} // AGV への操作は、次の小ステップでサーバーとつなぐ
           onAlarmClear={() => {}}
           onPositionReset={() => {}}
           onManualMove={accepted}

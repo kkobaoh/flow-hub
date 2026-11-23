@@ -22,9 +22,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const sampleAgvs: AgvOnMap[] = [
-  { id: agvId('AGV-1'), label: '1', panel: panelId('P3'), heading: heading(90), status: { activity: 'moving', charging: false, carrierMoving: false } },
-  { id: agvId('AGV-2'), label: '2', panel: panelId('SB2'), heading: heading(90), status: { activity: 'idle', charging: true, carrierMoving: false } },
-  { id: agvId('AGV-3'), label: '3', panel: panelId('SB'), heading: heading(90), status: { activity: 'idle', charging: false, carrierMoving: false } },
+  { id: agvId('AGV-1'), label: '1', panel: panelId('P3'), heading: heading(90), status: { activity: 'moving', charging: 'notCharging', carrierMoving: false } },
+  { id: agvId('AGV-2'), label: '2', panel: panelId('SB2'), heading: heading(90), status: { activity: 'idle', charging: 'charging', carrierMoving: false } },
+  { id: agvId('AGV-3'), label: '3', panel: panelId('SB'), heading: heading(90), status: { activity: 'idle', charging: 'notCharging', carrierMoving: false } },
 ];
 
 const sampleRoute = [panelId('P3'), panelId('P4'), panelId('P5'), panelId('P6'), panelId('D1')];
@@ -50,10 +50,10 @@ export const IndicatorLights: Story = {
   args: {
     layout: sampleLayout,
     agvs: [
-      { id: agvId('AGV-1'), label: '1', panel: panelId('P2'), heading: heading(90), status: { activity: 'moving', charging: false, carrierMoving: false } },
-      { id: agvId('AGV-2'), label: '2', panel: panelId('P7'), heading: heading(270), status: { activity: 'idle', charging: false, carrierMoving: false } },
-      { id: agvId('AGV-3'), label: '3', panel: panelId('SB2'), heading: heading(90), status: { activity: 'idle', charging: true, carrierMoving: true } },
-      { id: agvId('AGV-4'), label: '4', panel: panelId('P5'), heading: heading(180), status: { activity: 'idle', charging: false, carrierMoving: false } },
+      { id: agvId('AGV-1'), label: '1', panel: panelId('P2'), heading: heading(90), status: { activity: 'moving', charging: 'notCharging', carrierMoving: false } },
+      { id: agvId('AGV-2'), label: '2', panel: panelId('P7'), heading: heading(270), status: { activity: 'idle', charging: 'notCharging', carrierMoving: false } },
+      { id: agvId('AGV-3'), label: '3', panel: panelId('SB2'), heading: heading(90), status: { activity: 'idle', charging: 'charging', carrierMoving: true } },
+      { id: agvId('AGV-4'), label: '4', panel: panelId('P5'), heading: heading(180), status: { activity: 'idle', charging: 'notCharging', carrierMoving: false } },
     ],
   },
 };
@@ -94,5 +94,21 @@ export const CrossOffset: Story = {
         { from: panelId('B'), to: panelId('C'), distanceMm: 1000, heading: heading(90), oneWay: false },
       ],
     },
+  },
+};
+
+/** 印の名前を ID そのままにし、位置がわからない AGV をマップの下に横一列に描く。 */
+export const UnplacedAgvs: Story = {
+  args: {
+    layout: sampleLayout,
+    equipment: sampleEquipment,
+    agvs: [
+      { id: agvId('AGV-1'), label: 'AGV-1', panel: panelId('P3'), heading: heading(90), status: { activity: 'moving', charging: 'unknown', carrierMoving: false } },
+      { id: agvId('AGV-12'), label: 'AGV-12', panel: panelId('SB2'), heading: heading(90), status: { activity: 'idle', charging: 'unknown', carrierMoving: false } },
+    ],
+    unplacedAgvs: [
+      { id: agvId('AGV-3'), label: 'AGV-3', status: { activity: 'idle', charging: 'unknown', carrierMoving: false } },
+      { id: agvId('AGV-4'), label: 'AGV-4', status: { activity: 'idle', charging: 'unknown', carrierMoving: false } },
+    ],
   },
 };

@@ -1,11 +1,22 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { App } from './App';
 import { createFakeLink } from './server/fakeLink';
+import type { AgvsSnapshot } from './server/agvs';
 import type { ServerLink } from './server/link';
+
+/** Storybook で見せる AGV の様子（サーバーから届く形）。 */
+const storyAgvs: AgvsSnapshot = {
+  version: 1,
+  agvs: [
+    { id: 'AGV-1', panel: 'P3', heading: 90, state: 'moving', control: 'auto', carrierMoving: false, batteryPercent: 72 },
+    { id: 'AGV-2', panel: 'SB2', heading: 90, state: 'idle', control: 'assignmentPaused', carrierMoving: false, batteryPercent: 35 },
+    { id: 'AGV-3', panel: null, heading: null, state: 'unregistered', control: 'detached', carrierMoving: false, batteryPercent: null },
+  ],
+};
 
 /** Storybook で使う、つながったふりをするつながり。運転の切り替えを送ると、その様子が届く。 */
 function storyLink(): ServerLink {
-  const fake = createFakeLink({ connection: 'connected', status: { version: 1, state: 'started' } });
+  const fake = createFakeLink({ connection: 'connected', status: { version: 1, state: 'started' }, agvs: storyAgvs });
   let version = 1;
   const answer = (state: 'started' | 'stopped') => {
     version += 1;
@@ -30,5 +41,5 @@ export const Default: Story = {};
 
 /** サーバーとのつながりが切れて、つなぎ直している。 */
 export const Disconnected: Story = {
-  args: { link: createFakeLink({ connection: 'reconnecting', status: { version: 1, state: 'started' } }) },
+  args: { link: createFakeLink({ connection: 'reconnecting', status: { version: 1, state: 'started' }, agvs: storyAgvs }) },
 };

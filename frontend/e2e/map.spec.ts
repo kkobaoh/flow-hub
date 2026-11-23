@@ -21,6 +21,8 @@ async function surfaceCenter(page: Page): Promise<{ x: number; y: number }> {
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await expect(mapSvg(page)).toBeVisible();
+  // サーバーから AGV の様子が届くと、全体の範囲（位置がわからない AGV の列）が変わるので、届いてから始める
+  await expect(page.locator('[data-agv="AGV-1"]')).toBeVisible();
 });
 
 test('ドラッグでマップを動かす', async ({ page }) => {

@@ -6,8 +6,8 @@ import { heading, panelId } from './model';
 import { sampleLayout } from './sampleLayout';
 
 const agvs: AgvOnMap[] = [
-  { id: agvId('AGV-1'), label: '1', panel: panelId('P3'), heading: heading(90), status: { activity: 'moving', charging: false, carrierMoving: false } },
-  { id: agvId('AGV-2'), label: '2', panel: panelId('SB2'), heading: heading(90), status: { activity: 'idle', charging: true, carrierMoving: false } },
+  { id: agvId('AGV-1'), label: '1', panel: panelId('P3'), heading: heading(90), status: { activity: 'moving', charging: 'notCharging', carrierMoving: false } },
+  { id: agvId('AGV-2'), label: '2', panel: panelId('SB2'), heading: heading(90), status: { activity: 'idle', charging: 'charging', carrierMoving: false } },
 ];
 
 function marker(container: HTMLElement, id: string): Element {
@@ -98,5 +98,38 @@ describe('MapCanvas の予約と経路', () => {
     const { container } = render(<MapCanvas layout={sampleLayout} routes={[route]} />);
 
     expect(container.querySelectorAll('[data-route]')).toHaveLength(4);
+  });
+
+  it('位置がわからない AGV は、マップの下の外に見出しを付けて横一列に描き、向きの印は描かない', () => {
+    const onSelect = vi.fn();
+    const unplaced = [
+      { id: agvId('AGV-3'), label: 'AGV-3', status: { activity: 'idle', charging: 'unknown', carrierMoving: false } },
+      { id: agvId('AGV-4'), label: 'AGV-4', status: { activity: 'idle', charging: 'unknown', carrierMoving: false } },
+    ] as const;
+    const { container } = render(<MapCanvas layout={sampleLayout} agvs={agvs} unplacedAgvs={unplaced} onSelectAgv={onSelect} />);
+
+    expect(container.querySelector('[data-unplaced-title]')?.textContent).toBe('位置がわからない AGV');
+    const m3 = marker(container, 'AGV-3');
+    const m4 = marker(container, 'AGV-4');
+    expect(m3.hasAttribute('data-unplaced')).toBe(true);
+    expect(m3.getAttribute('aria-label')).toBe('AGV-3（位置がわからない・待機中）');
+    expect(m3.querySelector('path')).toBeNull(); // 向きの印がない
+    const [x3, y3] = (m3.getAttribute('transform') ?? '').match(/[-\d.]+/g)!.map(Number);
+    const [x4, y4] = (m4.getAttribute('transform') ?? '').match(/[-\d.]+/g)!.map(Number);
+    expect(y3).toBe(y4);
+    expect(x3).toBeLessThan(x4!);
+    expect(y3).toBeGreaterThan(4000); // マップ（行0〜3）より下
+
+    click(m4);
+    expect(onSelect).toHaveBeenCalledWith('AGV-4');
+  });
+
+  it('全体の範囲（viewBox）に、位置がわからない AGV の列まで含める', () => {
+    const without = render(<MapCanvas layout={sampleLayout} agvs={agvs} />).container.querySelector('svg')!.getAttribute('viewBox')!;
+    const unplaced = [{ id: agvId('AGV-3'), label: 'AGV-3', status: { activity: 'idle', charging: 'unknown', carrierMoving: false } }] as const;
+    const withRow = render(<MapCanvas layout={sampleLayout} agvs={agvs} unplacedAgvs={unplaced} />).container.querySelector('svg')!.getAttribute('viewBox')!;
+
+    const height = (v: string) => Number(v.split(' ')[3]);
+    expect(height(withRow)).toBeGreaterThan(height(without));
   });
 });
