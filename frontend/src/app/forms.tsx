@@ -76,17 +76,20 @@ export function Choice({
   value,
   options,
   onChange,
+  unselected = true,
 }: {
   readonly label: string;
   readonly value: string;
   readonly options: readonly (string | readonly [string, string])[];
   readonly onChange: (v: string) => void;
+  /** 「選ぶ」（未選択）を置くか。 */
+  readonly unselected?: boolean;
 }) {
   return (
     <label className="flex flex-col gap-1.5 text-sm font-bold">
       {label}
       <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={field}>
-        <option value="">選ぶ</option>
+        {unselected && <option value="">選ぶ</option>}
         {options.map((o) => {
           const [v, text] = typeof o === 'string' ? [o, o] : o;
           return (

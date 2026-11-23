@@ -7,6 +7,8 @@ import type { EquipmentDetail } from './EquipmentCard';
 import type { ConsumableHit } from './ListPanel';
 import type { DestinationOption } from './ManualPanel';
 import type { Message } from './MessageRail';
+import { initialRoles } from './permissions';
+import type { Role, UserAccount } from './users';
 import type { StationInventory } from './station';
 import type { Transport } from './transports';
 import type { AgvEntry, AgvType } from './agvs';
@@ -371,3 +373,20 @@ export const demoDeviceConfigs: readonly DeviceConfig[] = [
 
 /** 見本のステーションの構成。 */
 export const demoStationConfigs: readonly StationConfig[] = [{ id: 'ST-1', panel: 'ST', busy: true }];
+
+/** 見本のロール（最初の4つと、加えたロール）。 */
+export const demoRoles: readonly Role[] = [
+  { id: 'viewer', name: '閲覧のみ', permissions: initialRoles.閲覧のみ, timeout: { amount: 7, unit: 'days' }, isDefault: true, fixed: false },
+  { id: 'operator', name: '運用', permissions: initialRoles.運用, timeout: { amount: 8, unit: 'hours' }, isDefault: false, fixed: false },
+  { id: 'maintainer', name: '保守', permissions: initialRoles.保守, timeout: { amount: 8, unit: 'hours' }, isDefault: false, fixed: false },
+  { id: 'admin', name: '管理者', permissions: initialRoles.管理者, timeout: { amount: 8, unit: 'hours' }, isDefault: false, fixed: true },
+];
+
+/** 見本のユーザー。 */
+export const demoUsers: readonly UserAccount[] = [
+  { id: 'admin01', role: 'admin', lastLogin: onDay(0, '08:02'), state: { kind: 'active' } },
+  { id: 'ops01', role: 'operator', lastLogin: onDay(0, '07:55'), state: { kind: 'active' } },
+  { id: 'maint01', role: 'maintainer', lastLogin: onDay(1, '17:30'), state: { kind: 'locked', until: today('10:15') } },
+  { id: 'line-display', role: 'viewer', lastLogin: onDay(7, '06:00'), state: { kind: 'active' } },
+  { id: 'ops02', role: 'viewer', lastLogin: null, state: { kind: 'mustChangePassword' } },
+];

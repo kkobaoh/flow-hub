@@ -15,10 +15,12 @@ import {
   demoProcessKinds,
   demoRecords,
   demoReserved,
+  demoRoles,
   demoRoutes,
   demoStationConfigs,
   demoStations,
   demoTransports,
+  demoUsers,
   demoVarieties,
 } from './app/demo';
 import { AgvsScreen } from './app/AgvsScreen';
@@ -34,12 +36,19 @@ import { ScreenFrame } from './app/ScreenFrame';
 import { screens } from './app/screens';
 import { StationScreen } from './app/StationScreen';
 import { TransportsScreen } from './app/TransportsScreen';
+import { UsersScreen } from './app/UsersScreen';
 import { agvId } from './map/agv';
 import { sampleLayout } from './map/sampleLayout';
 
 const accepted = () => Promise.resolve('accepted' as const);
-const user = { name: '[ユーザー名]', role: '保守' } as const;
-const permissions = initialRoles.保守;
+const user = { name: '[ユーザー名]', role: '管理者' } as const;
+const permissions = initialRoles.管理者;
+
+/** 見本の画面で見せる仮のパスワード（本物は、サーバーが作る）。 */
+function demoPassword(): string {
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  return Array.from(crypto.getRandomValues(new Uint32Array(12)), (n) => letters[n % letters.length]).join('');
+}
 const mapVersion = 'マップ 版3（公開済み）';
 const transferPanels = sampleLayout.panels.filter((p) => p.type === 'Transfer' || p.type === 'SpecialTransfer').map((p): string => p.id);
 
@@ -62,6 +71,8 @@ export function App() {
   const [configVarieties, setConfigVarieties] = useState(demoConfigVarieties);
   const [deviceConfigs, setDeviceConfigs] = useState(demoDeviceConfigs);
   const [stationConfigs, setStationConfigs] = useState(demoStationConfigs);
+  const [users, setUsers] = useState(demoUsers);
+  const [roles, setRoles] = useState(demoRoles);
   const updateRecord = (id: string, change: (c: ConsumableRecord) => ConsumableRecord) => setRecords((rs) => rs.map((c) => (c.id === id ? change(c) : c)));
   const frame = {
     running,
@@ -184,6 +195,34 @@ export function App() {
               setStationConfigs((ss) => (original === null ? [...ss, { ...s, busy: false }] : ss.map((x) => (x.id === original ? { ...x, ...s } : x))))
             }
             onDeleteStation={(id) => setStationConfigs((ss) => ss.filter((s) => s.id !== id))}
+          />
+        );
+      case 'users':
+        return (
+          <UsersScreen
+            users={users}
+            roles={roles}
+            permissions={permissions}
+            onChangeRole={(id, role) => setUsers((us) => us.map((u) => (u.id === id ? { ...u, role } : u)))}
+            onUnlock={(id) => setUsers((us) => us.map((u) => (u.id === id ? { ...u, state: { kind: 'active' } } : u)))}
+            onResetPassword={(id) => {
+              setUsers((us) => us.map((u) => (u.id === id ? { ...u, state: { kind: 'mustChangePassword' } } : u)));
+              return Promise.resolve(demoPassword());
+            }}
+            onAddUser={(id) => {
+              setUsers((us) => [...us, { id, role: roles.find((r) => r.isDefault)?.id ?? '', lastLogin: null, state: { kind: 'mustChangePassword' } }]);
+              return Promise.resolve(demoPassword());
+            }}
+            onSaveRole={(original, r) =>
+              setRoles((rs) =>
+                original === null
+                  ? [...rs, { ...r, id: `role-${rs.length + 1}`, permissions: new Set(), isDefault: false, fixed: false }]
+                  : rs.map((x) => (x.id === original ? { ...x, ...r } : x)),
+              )
+            }
+            onDeleteRole={(id) => setRoles((rs) => rs.filter((r) => r.id !== id))}
+            onMakeDefault={(id) => setRoles((rs) => rs.map((r) => ({ ...r, isDefault: r.id === id })))}
+            onSavePermissions={(saved) => setRoles((rs) => rs.map((r) => ({ ...r, permissions: saved.get(r.id) ?? r.permissions })))}
           />
         );
       default:
