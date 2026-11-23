@@ -163,6 +163,83 @@ public class TrafficStopHandlingTests
     }
 
     [Fact]
+    public async Task 緊急停止が長引いて計画を立て直したら新しいコマンドができたAGVのコマンドを待っている要求を起こす()
+    {
+        var (service, clock) = await Agv1WaitingBehindStoppedAgv2Async();
+        await MotionOf(service, Agv1); // 渡すコマンドはまだない
+        var changed = service.NextChangeAsync(Agv1);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        await changed.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.NotNull(await MotionOf(service, Agv1));
+    }
+
+    [Fact]
+    public async Task 緊急停止が長引いて計画を立て直したらロックを外してから組み立ての後始末を呼ぶ()
+    {
+        var (service, clock) = await Agv1WaitingBehindStoppedAgv2Async();
+        var called = new TaskCompletionSource();
+        service.AttachAfterBackgroundWork(async cancellationToken =>
+        {
+            try
+            {
+                // ロックを持ったまま呼ばれていたら、ここで取れずに時間切れになる
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await service.HandlePositionRequestAsync(Agv1, timeout.Token);
+                called.SetResult();
+            }
+            catch (OperationCanceledException exception)
+            {
+                called.SetException(exception);
+            }
+        });
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        await called.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task 緊急停止が長引く前に再開したら組み立ての後始末を呼ばない()
+    {
+        var (service, clock) = await Agv1WaitingBehindStoppedAgv2Async();
+        var calls = 0;
+        service.AttachAfterBackgroundWork(_ =>
+        {
+            calls++;
+            return Task.CompletedTask;
+        });
+        await service.ClearAlarmAsync(Agv2, None); // 番号 3
+        await service.HandleCommandRequestAsync(Agv2, 2, None);
+        await service.HandleAlarmClearedAsync(Agv2, 3, None);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public async Task ほかのAGVの通知で新しいコマンドができたらそのAGVのコマンドを待っている要求を起こす()
+    {
+        var (service, clock) = await Agv1WaitingBehindStoppedAgv2Async();
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await MotionOf(service, Agv1); // AGV-1 が先に十字路を通る（番号 2）
+        await service.ClearAlarmAsync(Agv2, None); // 番号 3
+        await service.HandleCommandRequestAsync(Agv2, 2, None);
+        await service.HandleAlarmClearedAsync(Agv2, 3, None);
+        Assert.Null(await MotionOf(service, Agv2, lastReceived: 3)); // AGV-1 が通り過ぎるのを待っている
+        var changed = service.NextChangeAsync(Agv2);
+
+        // AGV-1 の通知で十字路が空き、AGV-2 に区間を渡す
+        await service.HandleMoveCompletedAsync(Agv1, 2, MoveDirection.Forward, new PanelId("M"), None);
+        await service.HandleMoveCompletedAsync(Agv1, 2, MoveDirection.Forward, new PanelId("S"), None);
+
+        await changed.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.NotNull(await MotionOf(service, Agv2, lastReceived: 3));
+    }
+
+    [Fact]
     public async Task 緊急停止中で障害物にしたAGVはアラームクリアのあとに行き先への計画を立て直す()
     {
         var (service, clock) = await Agv1WaitingBehindStoppedAgv2Async();

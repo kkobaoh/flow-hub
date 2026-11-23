@@ -42,6 +42,9 @@ public sealed class TrafficService(
     /// <summary>通り道を塞いでいる行き先のない AGV を、待機パネルへどかしてよいか。</summary>
     private bool _evacuationEnabled = true;
 
+    /// <summary>タイマーなど、リクエストの外で状態を変えたあとに呼ぶ後始末（組み立てが渡す。なければ呼ばない）。</summary>
+    private Func<CancellationToken, Task>? _afterBackgroundWork;
+
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public void Dispose() => _gate.Dispose();
@@ -141,6 +144,15 @@ public sealed class TrafficService(
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// タイマーなど、リクエストの外で状態を変えたあとに呼ぶ後始末をつなぐ（組み立てが、イベントを届ける処理を渡す）。
+    /// </summary>
+    public void AttachAfterBackgroundWork(Func<CancellationToken, Task> afterBackgroundWork)
+    {
+        ArgumentNullException.ThrowIfNull(afterBackgroundWork);
+        _afterBackgroundWork = afterBackgroundWork;
     }
 
     // ---- 配車などからの頼み ----
@@ -604,7 +616,7 @@ public sealed class TrafficService(
                 entry.CorrelationId = correlationId;
             }
 
-            var chargingPortsBefore = ReservedChargingPorts();
+            var start = BeginChange();
             var before = entry.Travel.Status;
             var numberBefore = entry.Travel.NextNumber;
             var result = action(entry);
@@ -638,40 +650,73 @@ public sealed class TrafficService(
                 ReplanAll();
             }
 
-            foreach (var create in entry.PendingEvents)
-            {
-                var metadata = EventMetadata.Start(entry.CorrelationId ?? $"agv:{id}", timeProvider);
-                await publisher.PublishAsync(create(metadata), cancellationToken).ConfigureAwait(false);
-            }
-
-            entry.PendingEvents.Clear();
-            if (wakesPollers)
-            {
-                // マニュアルの1つずつの動作で予約するパネルが変わったら、ほかの AGV はそれを避けて計画し直す
-                if ((_replanRequested && _agvs.Values.Any(e => e.PlanStatus == PlanStatus.Blocked || e.WasObstacle)) || _manualStepsChanged)
-                {
-                    ReplanAll();
-                }
-
-                _replanRequested = false;
-                _manualStepsChanged = false;
-                DispatchAll();
-                await DropBlockedManualStepsAsync(cancellationToken).ConfigureAwait(false);
-                entry.NotifyChanged();
-            }
-
-            // 充電ポートの予約を外したら、空いたことを知らせる（充電ポートが空くのを待っている AGV がいるかもしれない）
-            foreach (var port in chargingPortsBefore.Except(ReservedChargingPorts()))
-            {
-                var metadata = EventMetadata.Start($"charging-port:{port}", timeProvider);
-                await publisher.PublishAsync(new ChargingPortReleased(metadata, port), cancellationToken).ConfigureAwait(false);
-            }
-
+            await CompleteChangeAsync(start, entry, dispatches: wakesPollers, cancellationToken).ConfigureAwait(false);
             return result;
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 処理の前の様子。後始末で、処理の中で変わったもの（予約を外した充電ポート、新しいコマンドができた AGV）を見つけるのに使う。
+    /// </summary>
+    private sealed record ChangeStart(HashSet<PanelId> ReservedChargingPorts, IReadOnlyDictionary<AgvId, long> NextNumbers);
+
+    /// <summary>処理を始める前の様子を覚える（ロックの中で呼ぶ）。</summary>
+    private ChangeStart BeginChange() =>
+        new(ReservedChargingPorts(), _agvs.ToDictionary(pair => pair.Key, pair => pair.Value.Travel.NextNumber));
+
+    /// <summary>
+    /// 処理のあとの後始末（ロックの中で呼ぶ）。ロックを取る入り口は、すべてここを通す。
+    /// 処理の中で起きたことをイベントで知らせ、区間を渡せる AGV に渡し、待っているコマンドの要求を起こし、空いた充電ポートを知らせる。
+    /// </summary>
+    /// <param name="actor">処理を頼まれた AGV（タイマーなど、AGV の頼みでないときは null）。</param>
+    /// <param name="dispatches">区間を渡すか（コマンドや位置を取り出すだけの処理では、渡さない）。</param>
+    private async Task CompleteChangeAsync(ChangeStart start, AgvEntry? actor, bool dispatches, CancellationToken cancellationToken)
+    {
+        foreach (var entry in _agvs.Values)
+        {
+            foreach (var create in entry.PendingEvents)
+            {
+                var metadata = EventMetadata.Start(entry.CorrelationId ?? $"agv:{entry.Travel.Id}", timeProvider);
+                await publisher.PublishAsync(create(metadata), cancellationToken).ConfigureAwait(false);
+            }
+
+            entry.PendingEvents.Clear();
+        }
+
+        if (dispatches)
+        {
+            // マニュアルの1つずつの動作で予約するパネルが変わったら、ほかの AGV はそれを避けて計画し直す
+            if ((_replanRequested && _agvs.Values.Any(e => e.PlanStatus == PlanStatus.Blocked || e.WasObstacle)) || _manualStepsChanged)
+            {
+                ReplanAll();
+            }
+
+            _replanRequested = false;
+            _manualStepsChanged = false;
+            DispatchAll();
+            await DropBlockedManualStepsAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // コマンドを待っている要求を起こす。頼まれた AGV は、区間を渡す処理のときに起こす
+        // （コマンドや位置を取り出すだけの処理で起こすと、取りに来るたびに起き続けるため）。ほかの AGV は、新しいコマンドができたときに起こす
+        foreach (var (id, entry) in _agvs)
+        {
+            var gotCommand = start.NextNumbers.TryGetValue(id, out var numberBefore) && entry.Travel.NextNumber != numberBefore;
+            if (entry == actor ? dispatches : gotCommand)
+            {
+                entry.NotifyChanged();
+            }
+        }
+
+        // 充電ポートの予約を外したら、空いたことを知らせる（充電ポートが空くのを待っている AGV がいるかもしれない）
+        foreach (var port in start.ReservedChargingPorts.Except(ReservedChargingPorts()))
+        {
+            var metadata = EventMetadata.Start($"charging-port:{port}", timeProvider);
+            await publisher.PublishAsync(new ChargingPortReleased(metadata, port), cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -931,6 +976,10 @@ public sealed class TrafficService(
         entry.StopTimer = timeProvider.CreateTimer(_ => _ = OnStoppedLongAsync(entry), null, _planning.EmergencyStopReplanDelay, Timeout.InfiniteTimeSpan);
     }
 
+    /// <summary>
+    /// 緊急停止が長引いた（タイマーから）。障害物にして計画を立て直し、ほかの入り口と同じ後始末をする。
+    /// ロックを外してから、組み立てがつないだ後始末（イベントを届ける）を呼ぶ。
+    /// </summary>
     private async Task OnStoppedLongAsync(AgvEntry entry)
     {
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -941,12 +990,19 @@ public sealed class TrafficService(
                 return;
             }
 
+            var start = BeginChange();
             entry.StoppedLong = true;
             ReplanAll();
+            await CompleteChangeAsync(start, actor: null, dispatches: true, CancellationToken.None).ConfigureAwait(false);
         }
         finally
         {
             _gate.Release();
+        }
+
+        if (_afterBackgroundWork is { } afterBackgroundWork)
+        {
+            await afterBackgroundWork(CancellationToken.None).ConfigureAwait(false);
         }
     }
 

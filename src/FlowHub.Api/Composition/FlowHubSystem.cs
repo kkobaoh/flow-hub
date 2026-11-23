@@ -102,6 +102,9 @@ internal sealed partial class FlowHubSystem : IDisposable
         // シミュレーターの通知も、処理を終えたあとにイベントを届ける
         simulator.Attach(new ConsumablesSimulationTarget(consumables), events.FlushAsync);
 
+        // 交通整理のタイマー（緊急停止が長引いたときの立て直し）のあとも、イベントを届ける
+        traffic.AttachAfterBackgroundWork(events.FlushAsync);
+
         // 起動したときは、いつも停止から始める（設定があれば、すぐスタートにする）
         await dispatching.StopAsync(cancellationToken).ConfigureAwait(false);
         if (settings.StartOnLaunch)
