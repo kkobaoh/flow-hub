@@ -9,6 +9,7 @@ import type { DestinationOption } from './ManualPanel';
 import type { Message } from './MessageRail';
 import type { StationInventory } from './station';
 import type { Transport } from './transports';
+import type { ConsumableLocation, ConsumableRecord } from './consumables';
 import type { DeviceInside, HeldConsumable, SavedRow, SettingRow } from './devices';
 
 /**
@@ -282,4 +283,49 @@ export const demoStations: readonly StationInventory[] = [
       },
     ],
   },
+];
+
+const consumable = (
+  id: string,
+  variety: string | null,
+  location: ConsumableLocation,
+  more: Partial<ConsumableRecord> = {},
+): ConsumableRecord => ({
+  id,
+  variety,
+  processKind: variety === null ? null : variety === '[品種C]' ? '[加工の種類B]' : '[加工の種類A]',
+  condition: variety === null ? null : '新品',
+  location,
+  needsCheck: false,
+  reservation: null,
+  nomination: null,
+  shipping: false,
+  history: [],
+  ...more,
+});
+
+/** 見本の消耗品の記録（消耗品の検索と手入力の画面）。所在は、装置とステーションの見本とそろえている。 */
+export const demoRecords: readonly ConsumableRecord[] = [
+  consumable(
+    'T-0101',
+    '[品種A]',
+    { kind: 'slot', device: 'DEV-1', stocker: 1, slot: 1 },
+    {
+      history: [
+        { at: onDay(1, '09:58'), what: 'DEV-1 のストッカー1・スロット1 に入れた', detail: '搬送 #10 で届けました' },
+        { at: onDay(1, '09:51'), what: 'AGV-1 に積み込んだ', detail: 'ST-1 から、搬送 #10' },
+        { at: onDay(1, '09:40'), what: '届ける予約が付いた', detail: 'DEV-1 の [品種A] の不足を補うため' },
+        { at: onDay(2, '14:02'), what: 'ST-1 に入庫した', detail: '新品として登録しました' },
+      ],
+    },
+  ),
+  consumable('T-0100', '[品種A]', { kind: 'processing', device: 'DEV-1' }, { condition: '中古品' }),
+  consumable('T-0110', '[品種A]', { kind: 'station', station: 'ST-1' }, { history: [{ at: onDay(2, '14:02'), what: 'ST-1 に入庫した', detail: '新品として登録しました' }] }),
+  consumable('T-0111', '[品種A]', { kind: 'station', station: 'ST-1' }, { reservation: { transport: 14, assigned: false, purpose: 'DEV-2 へ届ける' } }),
+  consumable('T-0207', '[品種B]', { kind: 'agv', agv: 'AGV-1' }, { reservation: { transport: 12, assigned: true, purpose: 'DEV-1 へ届ける' } }),
+  consumable('T-0203', '[品種B]', { kind: 'slot', device: 'DEV-1', stocker: 2, slot: 1 }, { condition: '中古品' }),
+  consumable('T-0208', '[品種B]', { kind: 'station', station: 'ST-1' }, { nomination: { device: 'DEV-1', assigned: false } }),
+  consumable('T-0303', '[品種C]', { kind: 'station', station: 'ST-1' }),
+  consumable('T-0410', '[品種D]', { kind: 'slot', device: 'DEV-1', stocker: 2, slot: 2 }),
+  consumable('X-9001', null, { kind: 'station', station: 'ST-1' }, { needsCheck: true }),
 ];

@@ -7,12 +7,15 @@ import {
   demoDevices,
   demoEquipment,
   demoMessages,
+  demoRecords,
   demoReserved,
   demoRoutes,
   demoStations,
   demoTransports,
   demoVarieties,
 } from './app/demo';
+import type { ConsumableRecord } from './app/consumables';
+import { ConsumablesScreen } from './app/ConsumablesScreen';
 import { DevicesScreen } from './app/DevicesScreen';
 import { matchesQuery } from './app/listing';
 import { MapScreen } from './app/MapScreen';
@@ -41,6 +44,8 @@ export function App() {
   const [transports, setTransports] = useState(demoTransports);
   const [devices, setDevices] = useState(demoDevices);
   const [stations, setStations] = useState(demoStations);
+  const [records, setRecords] = useState(demoRecords);
+  const updateRecord = (id: string, change: (c: ConsumableRecord) => ConsumableRecord) => setRecords((rs) => rs.map((c) => (c.id === id ? change(c) : c)));
   const frame = {
     running,
     user,
@@ -93,6 +98,27 @@ export function App() {
                 ),
               )
             }
+          />
+        );
+      case 'consumables':
+        return (
+          <ConsumablesScreen
+            key={r.target ?? ''}
+            records={records}
+            selected={r.target}
+            stations={stations.map((s) => s.id)}
+            devices={devices}
+            varieties={demoVarieties}
+            permissions={permissions}
+            onOpen={(id) => navigate('consumables', id)}
+            onNominate={(id, device) => updateRecord(id, (c) => ({ ...c, nomination: { device, assigned: false } }))}
+            onCancelNomination={(id) => updateRecord(id, (c) => ({ ...c, nomination: null }))}
+            onRegister={(input) => setRecords((rs) => [...rs, { ...input, processKind: null, needsCheck: false, reservation: null, nomination: null, shipping: false, history: [] }])}
+            onEdit={(input) => updateRecord(input.id, (c) => ({ ...c, ...input }))}
+            onDelete={(id) => {
+              setRecords((rs) => rs.filter((c) => c.id !== id));
+              navigate('consumables');
+            }}
           />
         );
       default:
