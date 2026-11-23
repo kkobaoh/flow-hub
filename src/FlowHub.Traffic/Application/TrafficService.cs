@@ -213,10 +213,12 @@ public sealed class TrafficService(
     /// 位置を上書きする（最初の登録も同じ）。指定のパネルをほかの AGV が予約していたら false。
     /// </summary>
     /// <exception cref="InvalidOperationException">切り離し中のとき（切り離しから切り替える操作で、位置を指定する）。</exception>
+    /// <exception cref="ArgumentException">位置のパネルが、今のマップにないとき。</exception>
     public Task<bool> ResetPositionAsync(AgvId id, Pose position, CancellationToken cancellationToken) =>
         RunAsync(id, null, entry =>
         {
             RefuseWhenDetached(entry);
+            RequireOnMap(position);
             return entry.Travel.ResetPosition(position).Succeeded;
         }, cancellationToken);
 
@@ -269,7 +271,7 @@ public sealed class TrafficService(
     }
 
     /// <summary>切り離しから切り替える。位置リセットを送り、完了の通知を受けたら切り替わる。</summary>
-    private static bool LeaveDetached(AgvEntry entry, ControlStatus target, Pose? position)
+    private bool LeaveDetached(AgvEntry entry, ControlStatus target, Pose? position)
     {
         if (target == ControlStatus.Detached)
         {
@@ -280,6 +282,8 @@ public sealed class TrafficService(
         {
             throw new ArgumentException($"{entry.Travel.Id} を切り離しから切り替えるには、位置（パネルと絶対角度）を指定してください。", nameof(position));
         }
+
+        RequireOnMap(position);
 
         if (!entry.Travel.ResetPosition(position).Succeeded)
         {
@@ -408,6 +412,15 @@ public sealed class TrafficService(
         if (entry.Control == ControlStatus.Detached)
         {
             throw new InvalidOperationException($"{entry.Travel.Id} は切り離し中のため、コマンドを受け付けません。");
+        }
+    }
+
+    /// <summary>位置のパネルが、今のマップにあることを確かめる。</summary>
+    private void RequireOnMap(Pose position)
+    {
+        if (!CurrentMap().Panels.Any(panel => panel.Id.Value == position.NodeId))
+        {
+            throw new ArgumentException($"パネル {position.NodeId} は、今のマップにありません。", nameof(position));
         }
     }
 

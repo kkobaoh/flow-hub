@@ -255,6 +255,17 @@ public class TrafficServiceTests
     }
 
     [Fact]
+    public async Task マップにないパネルには位置リセットできない()
+    {
+        var (service, _, _) = await ReadyAt(new Pose("A", 0));
+        var other = new AgvId("AGV-2");
+        service.RegisterAgv(other, Motion);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ResetPositionAsync(other, new Pose("NOWHERE", 0), CancellationToken.None));
+        Assert.Null(service.GetAgv(other).Position);
+    }
+
+    [Fact]
     public async Task 回転から始まる経路では回転の完了を受けて次の区間を渡し着いたら知らせる()
     {
         // A で 90度を向いている。0度の方向の B へは、まず 0度へ回転してから前進する

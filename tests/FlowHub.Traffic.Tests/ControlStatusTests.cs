@@ -187,6 +187,19 @@ public class ControlStatusTests
         Assert.Empty(commands);
     }
 
+    [Fact]
+    public async Task 切り離しから戻す位置のパネルがマップになければ受け付けず切り離しのまま()
+    {
+        var service = await TwoAgvsAsync();
+        await ChangeAsync(service, Agv2, ControlStatus.Locked);
+        await ChangeAsync(service, Agv2, ControlStatus.Detached);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => ChangeAsync(service, Agv2, ControlStatus.Auto, new Pose("NOWHERE", 0)));
+
+        Assert.Equal(ControlStatus.Detached, service.GetAgv(Agv2).Control);
+        Assert.Empty(await service.HandleCommandRequestAsync(Agv2, 1, None));
+    }
+
     // ---- 受け付けるコマンド ----
 
     [Fact]
