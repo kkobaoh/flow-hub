@@ -12,7 +12,7 @@ const agv: AgvDetail = {
   status: { activity: 'moving', charging: 'notCharging', carrierMoving: false },
   control: 'auto',
   operation: 'traveling',
-  transport: '#12 ST-1 から DEV-1 へ',
+  transport: { label: '#12 ST-1 から DEV-1 へ', step: '搬送先へ移動' },
   batteryPercent: 72,
 };
 

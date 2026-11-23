@@ -70,7 +70,7 @@ describe('useServer', () => {
   it('AGV の様子も、番号の古いものは捨て、切れたら古いものにする', () => {
     const link = createFakeLink();
     const { latest } = watch(link);
-    const agv = { id: 'AGV-1', panel: 'P3', heading: 90, state: 'idle', control: 'auto', carrierMoving: false, batteryPercent: 50 } as const;
+    const agv = { id: 'AGV-1', panel: 'P3', heading: 90, state: 'idle', control: 'auto', carrierMoving: false, batteryPercent: 50, reservedPanels: [], route: [], transport: null } as const;
 
     act(() => {
       link.emitAgvs({ version: 2, agvs: [agv] });

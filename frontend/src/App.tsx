@@ -14,9 +14,7 @@ import {
   demoMessages,
   demoProcessKinds,
   demoRecords,
-  demoReserved,
   demoRoles,
-  demoRoutes,
   demoStationConfigs,
   demoStations,
   demoTransports,
@@ -46,7 +44,7 @@ import { panelOptions } from './app/panelOptions';
 import type { Message } from './app/MessageRail';
 import type { CommandResult, ServerLink } from './server/link';
 import { commandNotice, toManualOutcome, type AgvCommand, type AgvCommandResult } from './server/agvCommands';
-import { toAgvDetails } from './server/agvs';
+import { mapOverlays, toAgvDetails } from './server/agvs';
 import { runIndicator } from './server/systemStatus';
 import { useServer } from './server/useServer';
 import { sampleLayout } from './map/sampleLayout';
@@ -106,6 +104,11 @@ export function App({ link }: AppProps) {
   // AGV は、サーバーから届いた様子を、描いているマップに合わせて使う（まだ届いていなければ、いない）
   const agvs = useMemo(
     () => (server.agvs.kind === 'waiting' ? [] : toAgvDetails(server.agvs.snapshot.agvs, published.layout)),
+    [server.agvs, published.layout],
+  );
+  // 予約しているパネルと走る予定の経路も、サーバーから届いた AGV の様子から描く
+  const overlays = useMemo(
+    () => (server.agvs.kind === 'waiting' ? { reservedPanels: [], routes: [] } : mapOverlays(server.agvs.snapshot.agvs, published.layout)),
     [server.agvs, published.layout],
   );
   const [heights, setHeights] = useState(demoHeights);
@@ -363,8 +366,8 @@ export function App({ link }: AppProps) {
           layout={published.layout}
           agvs={agvs}
           equipment={demoEquipment.filter((e) => published.layout.panels.some((p) => p.id === e.panel))}
-          reservedPanels={demoReserved}
-          routes={demoRoutes}
+          reservedPanels={overlays.reservedPanels}
+          routes={overlays.routes}
           destinations={destinations}
           searchConsumables={(query) => demoConsumables.filter((c) => matchesQuery(c.id, query))}
           onOpenEquipment={(screen, id) => navigate(screen, id)}

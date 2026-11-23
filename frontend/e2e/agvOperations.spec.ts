@@ -28,5 +28,6 @@ test('切り離しの AGV を、位置を選んでオートに戻すと、位置
   await expect(agv).not.toHaveAttribute('data-unplaced', '');
   await expect(card).toContainText('SB　90°（東）');
   await expect(card).toContainText('オート');
+  await expect(page.locator('[data-reserved]')).not.toHaveCount(0); // いるパネル（SB）を予約している
   expect(errors).toEqual([]);
 });

@@ -66,7 +66,7 @@ describe('AgvCard', () => {
   });
 
   it('状態、コントロールステータス、位置、搬送、充電残量を出す', () => {
-    const { container } = render(<AgvCard {...props({ agv: { ...agv, transport: '#12 ST-1 から DEV-1 へ' } })} />);
+    const { container } = render(<AgvCard {...props({ agv: { ...agv, transport: { label: '#12 ST-1 から DEV-1 へ', step: '搬送先へ移動' } } })} />);
     const text = container.textContent ?? '';
 
     expect(text).toContain('待機中');
@@ -74,6 +74,7 @@ describe('AgvCard', () => {
     expect(text).toContain('P3');
     expect(text).toContain('90°（東）');
     expect(text).toContain('#12 ST-1 から DEV-1 へ');
+    expect(text).toContain('搬送先へ移動');
     expect(text).toContain('72%');
   });
 

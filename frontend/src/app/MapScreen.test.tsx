@@ -13,7 +13,7 @@ const agvs: AgvDetail[] = [
   {
     id: agvId('AGV-1'), label: '1', position: { kind: 'onMap', panel: panelId('P3'), heading: heading(90) },
     status: { activity: 'moving', charging: 'notCharging', carrierMoving: false },
-    control: 'auto', operation: 'traveling', transport: '#12 ST-1 から DEV-1 へ', batteryPercent: 72,
+    control: 'auto', operation: 'traveling', transport: { label: '#12 ST-1 から DEV-1 へ', step: '搬送先へ移動' }, batteryPercent: 72,
   },
   {
     id: agvId('AGV-3'), label: '3', position: { kind: 'onMap', panel: panelId('SB'), heading: heading(90) },

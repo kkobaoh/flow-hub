@@ -8,9 +8,13 @@ import type { ServerLink } from './server/link';
 const storyAgvs: AgvsSnapshot = {
   version: 1,
   agvs: [
-    { id: 'AGV-1', panel: 'P3', heading: 90, state: 'moving', control: 'auto', carrierMoving: false, batteryPercent: 72 },
-    { id: 'AGV-2', panel: 'SB2', heading: 90, state: 'idle', control: 'assignmentPaused', carrierMoving: false, batteryPercent: 35 },
-    { id: 'AGV-3', panel: null, heading: null, state: 'unregistered', control: 'detached', carrierMoving: false, batteryPercent: null },
+    {
+      id: 'AGV-1', panel: 'P3', heading: 90, state: 'moving', control: 'auto', carrierMoving: false, batteryPercent: 72,
+      reservedPanels: ['P3', 'P4'], route: ['P3', 'P4', 'P5', 'P6', 'D1'],
+      transport: { id: 12, from: 'ST-1', to: 'DEV-1', stage: 'movingToDestination', paused: false },
+    },
+    { id: 'AGV-2', panel: 'SB2', heading: 90, state: 'idle', control: 'assignmentPaused', carrierMoving: false, batteryPercent: 35, reservedPanels: [], route: [], transport: null },
+    { id: 'AGV-3', panel: null, heading: null, state: 'unregistered', control: 'detached', carrierMoving: false, batteryPercent: null, reservedPanels: [], route: [], transport: null },
   ],
 };
 

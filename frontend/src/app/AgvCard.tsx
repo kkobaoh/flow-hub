@@ -10,6 +10,14 @@ import type { ManualActivity } from './manual';
 import { CardHeader } from './CardHeader';
 import type { Permissions } from './permissions';
 
+/** AGV に割り当て済みの搬送（カードに出す形）。 */
+export interface AgvTransport {
+  /** 番号と搬送元から搬送先（「#12 ST-1 から DEV-1 へ」）。 */
+  readonly label: string;
+  /** 今の段階（「搬送先へ移動」など。一時停止中なら、そう添える）。 */
+  readonly step: string;
+}
+
 /** カードに出す AGV の詳細。 */
 export interface AgvDetail {
   readonly id: AgvId;
@@ -20,7 +28,7 @@ export interface AgvDetail {
   readonly control: ControlStatus;
   readonly operation: AgvOperation;
   /** 割り当て済みの搬送（なければ null）。 */
-  readonly transport: string | null;
+  readonly transport: AgvTransport | null;
   /** 充電残量（%）。まだ一度も届いていなければ null。 */
   readonly batteryPercent: number | null;
   /** マニュアルで、今走らせているもの（なければ 'none'）。 */
@@ -199,7 +207,16 @@ export function AgvCard({
             {positionText(agv.position)}
           </dd>
           <dt className="text-ink-muted">搬送</dt>
-          <dd className="m-0">{agv.transport ?? 'なし'}</dd>
+          <dd className="m-0">
+            {agv.transport === null ? (
+              'なし'
+            ) : (
+              <>
+                <span className="block">{agv.transport.label}</span>
+                <span className="block text-xs text-ink-muted">{agv.transport.step}</span>
+              </>
+            )}
+          </dd>
           <dt className="text-ink-muted">充電残量</dt>
           <dd className="m-0 flex items-center gap-2">
             {agv.batteryPercent === null ? (

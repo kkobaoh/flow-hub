@@ -92,8 +92,8 @@ describe('App', () => {
       link.emitAgvs({
         version: 1,
         agvs: [
-          { id: 'AGV-1', panel: 'P3', heading: 90, state: 'moving', control: 'auto', carrierMoving: false, batteryPercent: 72 },
-          { id: 'AGV-2', panel: null, heading: null, state: 'unregistered', control: 'detached', carrierMoving: false, batteryPercent: null },
+          { id: 'AGV-1', panel: 'P3', heading: 90, state: 'moving', control: 'auto', carrierMoving: false, batteryPercent: 72, reservedPanels: [], route: [], transport: null },
+          { id: 'AGV-2', panel: null, heading: null, state: 'unregistered', control: 'detached', carrierMoving: false, batteryPercent: null, reservedPanels: [], route: [], transport: null },
         ],
       }),
     );
@@ -105,18 +105,43 @@ describe('App', () => {
     act(() =>
       link.emitAgvs({
         version: 2,
-        agvs: [{ id: 'AGV-1', panel: 'P4', heading: 90, state: 'idle', control: 'auto', carrierMoving: false, batteryPercent: 71 }],
+        agvs: [{ id: 'AGV-1', panel: 'P4', heading: 90, state: 'idle', control: 'auto', carrierMoving: false, batteryPercent: 71, reservedPanels: [], route: [], transport: null }],
       }),
     );
     expect(container.querySelector('[data-agv="AGV-1"]')?.getAttribute('transform')).toContain('translate(4500 1500)'); // P4 の十字
     expect(container.querySelector('[data-agv="AGV-2"]')).toBeNull();
   });
 
+  it('予約しているパネルと走る予定の経路、割り当て済みの搬送を、サーバーから届いた様子で出す', () => {
+    const link = createFakeLink({
+      connection: 'connected',
+      status: { version: 1, state: 'started' },
+      agvs: {
+        version: 1,
+        agvs: [
+          {
+            id: 'AGV-1', panel: 'P3', heading: 90, state: 'moving', control: 'auto', carrierMoving: false, batteryPercent: 72,
+            reservedPanels: ['P3', 'P4'], route: ['P3', 'P4', 'P5'],
+            transport: { id: 12, from: 'ST-1', to: 'DEV-1', stage: 'movingToDestination', paused: false },
+          },
+        ],
+      },
+    });
+    const { container } = render(<App link={link} />);
+
+    expect(container.querySelectorAll('[data-reserved]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-route]')).toHaveLength(2); // P3→P4、P4→P5
+    click(container.querySelector('[data-agv="AGV-1"]')!);
+    const card = container.querySelector('[data-agv-card]');
+    expect(card?.textContent).toContain('#12 ST-1 から DEV-1 へ');
+    expect(card?.textContent).toContain('搬送先へ移動');
+  });
+
   it('位置がわからない AGV を押すと、カードを開き、位置を「わからない」と出す', () => {
     const link = createFakeLink({
       connection: 'connected',
       status: { version: 1, state: 'started' },
-      agvs: { version: 1, agvs: [{ id: 'AGV-2', panel: null, heading: null, state: 'unregistered', control: 'detached', carrierMoving: false, batteryPercent: null }] },
+      agvs: { version: 1, agvs: [{ id: 'AGV-2', panel: null, heading: null, state: 'unregistered', control: 'detached', carrierMoving: false, batteryPercent: null, reservedPanels: [], route: [], transport: null }] },
     });
     const { container } = render(<App link={link} />);
 
@@ -217,7 +242,7 @@ describe('App', () => {
     const link = createFakeLink({
       connection: 'connected',
       status: { version: 1, state: 'started' },
-      agvs: { version: 1, agvs: [{ id: 'AGV-1', panel: 'P3', heading: 90, state: 'idle', control, carrierMoving: false, batteryPercent: 72 }] },
+      agvs: { version: 1, agvs: [{ id: 'AGV-1', panel: 'P3', heading: 90, state: 'idle', control, carrierMoving: false, batteryPercent: 72, reservedPanels: [], route: [], transport: null }] },
     });
     const rendered = render(<App link={link} />);
     click(rendered.container.querySelector('[data-agv="AGV-1"]')!);
