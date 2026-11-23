@@ -9,6 +9,7 @@ import type { DestinationOption } from './ManualPanel';
 import type { Message } from './MessageRail';
 import type { StationInventory } from './station';
 import type { Transport } from './transports';
+import type { AgvEntry, AgvType } from './agvs';
 import type { ConsumableLocation, ConsumableRecord } from './consumables';
 import type { DeviceInside, HeldConsumable, SavedRow, SettingRow } from './devices';
 
@@ -329,3 +330,18 @@ export const demoRecords: readonly ConsumableRecord[] = [
   consumable('T-0410', '[品種D]', { kind: 'slot', device: 'DEV-1', stocker: 2, slot: 2 }),
   consumable('X-9001', null, { kind: 'station', station: 'ST-1' }, { needsCheck: true }),
 ];
+
+/** 見本の AGV の登録（AGV-4 は、走行の側にだけ登録されている食い違い）。 */
+export const demoAgvEntries: readonly AgvEntry[] = [
+  ...demoAgvs.map((a): AgvEntry => ({ id: a.id, type: a.id === 'AGV-3' ? '[種類B]' : '[種類A]', carrier: '[キャリアの種類A]', control: a.control, registration: 'both' })),
+  { id: agvId('AGV-4'), type: '[種類A]', carrier: null, control: null, registration: 'trafficOnly' },
+];
+
+/** 見本の AGV の種類。 */
+export const demoAgvTypes: readonly AgvType[] = [
+  { name: '[種類A]', forward: 1000, backward: 500, rotation: 45, chargeAt: 20, resumeAt: 80, special: false },
+  { name: '[種類B]', forward: 800, backward: 400, rotation: 30, chargeAt: 20, resumeAt: 80, special: true },
+];
+
+/** 見本のキャリアの種類。 */
+export const demoCarriers: readonly string[] = ['[キャリアの種類A]', '[キャリアの種類B]'];

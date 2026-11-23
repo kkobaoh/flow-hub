@@ -1,7 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import {
   applyDemoSetting,
+  demoAgvEntries,
   demoAgvs,
+  demoAgvTypes,
+  demoCarriers,
   demoConsumables,
   demoDestinations,
   demoDevices,
@@ -14,6 +17,7 @@ import {
   demoTransports,
   demoVarieties,
 } from './app/demo';
+import { AgvsScreen } from './app/AgvsScreen';
 import type { ConsumableRecord } from './app/consumables';
 import { ConsumablesScreen } from './app/ConsumablesScreen';
 import { DevicesScreen } from './app/DevicesScreen';
@@ -25,6 +29,7 @@ import { ScreenFrame } from './app/ScreenFrame';
 import { screens } from './app/screens';
 import { StationScreen } from './app/StationScreen';
 import { TransportsScreen } from './app/TransportsScreen';
+import { agvId } from './map/agv';
 import { sampleLayout } from './map/sampleLayout';
 
 const accepted = () => Promise.resolve('accepted' as const);
@@ -45,6 +50,8 @@ export function App() {
   const [devices, setDevices] = useState(demoDevices);
   const [stations, setStations] = useState(demoStations);
   const [records, setRecords] = useState(demoRecords);
+  const [agvEntries, setAgvEntries] = useState(demoAgvEntries);
+  const [agvTypes, setAgvTypes] = useState(demoAgvTypes);
   const updateRecord = (id: string, change: (c: ConsumableRecord) => ConsumableRecord) => setRecords((rs) => rs.map((c) => (c.id === id ? change(c) : c)));
   const frame = {
     running,
@@ -119,6 +126,22 @@ export function App() {
               setRecords((rs) => rs.filter((c) => c.id !== id));
               navigate('consumables');
             }}
+          />
+        );
+      case 'agvs':
+        return (
+          <AgvsScreen
+            entries={agvEntries}
+            types={agvTypes}
+            carriers={demoCarriers}
+            defaults={{ chargeAt: 20, resumeAt: 80 }}
+            permissions={permissions}
+            onAddAgv={(d) => setAgvEntries((es) => [...es, { id: agvId(d.id), type: d.type, carrier: d.carrier, control: 'detached', registration: 'both' }])}
+            onChangeAgv={(id, c) => setAgvEntries((es) => es.map((e) => (e.id === id ? { ...e, ...c } : e)))}
+            onAlignAgv={(id, c) => setAgvEntries((es) => es.map((e) => (e.id === id ? { ...e, ...c, control: 'detached', registration: 'both' } : e)))}
+            onDeleteAgv={(id) => setAgvEntries((es) => es.filter((e) => e.id !== id))}
+            onSaveType={(original, t) => setAgvTypes((ts) => (original === null ? [...ts, t] : ts.map((x) => (x.name === original ? t : x))))}
+            onDeleteType={(name) => setAgvTypes((ts) => ts.filter((t) => t.name !== name))}
           />
         );
       default:
