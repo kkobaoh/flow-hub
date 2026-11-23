@@ -419,8 +419,13 @@ public sealed class TrafficService(
     /// マニュアルで、行き先のパネルを指定して走らせる。経路はシステムが求め、全台の計画で一番先に計画する。
     /// 今はほかの AGV に塞がれていて行けないときと、マップの上に経路がないときは、受け付けない。着いても、着いたことは知らせない。
     /// </summary>
+    /// <param name="arrival">
+    /// 着いたときの向き（0・90・180・270度のどれか）。指定しなければ null で、向きは問わない。
+    /// 今いるパネルで向きだけが違えば、その場で向きを合わせる。特殊消耗品受け渡しパネルでは、キャリアを下ろす角度と違う向きは受け付けない。
+    /// </param>
     /// <exception cref="InvalidOperationException">マニュアルでないとき。待機中でない（走っている途中、緊急停止中など）とき。キャリアが上がっていないとき。</exception>
-    public Task<ManualMoveResult> ManualMoveAsync(AgvId id, PanelId destination, CancellationToken cancellationToken) =>
+    /// <exception cref="ArgumentOutOfRangeException">特殊消耗品受け渡しパネルでないのに、着いたときの向きが 0・90・180・270度のどれでもないとき。</exception>
+    public Task<ManualMoveResult> ManualMoveAsync(AgvId id, PanelId destination, Heading? arrival, CancellationToken cancellationToken) =>
         RunAsync(id, $"manual:{id}", entry =>
         {
             RequireManual(entry);
@@ -430,7 +435,23 @@ public sealed class TrafficService(
                 throw new InvalidOperationException($"{id} は待機中でないため、行き先を受け付けません（今の状態：{travel.Status}）。");
             }
 
-            if (travel.Position!.NodeId == destination.Value)
+            var arrivalHeading = arrival?.Degrees;
+            if (arrivalHeading is not null)
+            {
+                if (SpecialPanelHeadings().TryGetValue(destination.Value, out var lowering))
+                {
+                    if (lowering != arrivalHeading)
+                    {
+                        return ManualMoveResult.ArrivalHeadingNotAllowed;
+                    }
+                }
+                else if (arrivalHeading is not (0 or 90 or 180 or 270))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(arrival), arrivalHeading, "着いたときの向きは、0・90・180・270度のどれかにしてください（ラインを読み取って回るため）。");
+                }
+            }
+
+            if (travel.Position!.NodeId == destination.Value && (arrivalHeading is null || travel.Position.Heading == arrivalHeading))
             {
                 return ManualMoveResult.AlreadyThere;
             }
@@ -440,7 +461,7 @@ public sealed class TrafficService(
                 throw new InvalidOperationException($"{id} はキャリアが上がっていないため、走らせられません。");
             }
 
-            entry.Destination = destination;
+            entry.SetManualDestination(destination, arrivalHeading);
             entry.NeededBy = null;
             entry.RequestOrder = ++_requestOrder;
             ReplanAll();
@@ -861,11 +882,12 @@ public sealed class TrafficService(
     }
 
     /// <summary>
-    /// 行き先で向く角度。特殊消耗品受け渡しパネルなら、キャリアを下ろす角度（着いたら回ってから止まる。マニュアルの行き先も同じ）。
-    /// ほかのパネルは、向きを決めない。
+    /// 行き先で向く角度。マニュアルの行き先で着いたときの向きが指定されていれば、その向き。
+    /// 特殊消耗品受け渡しパネルなら、キャリアを下ろす角度（着いたら回ってから止まる。マニュアルの行き先も同じ）。
+    /// ほかは、向きを決めない。
     /// </summary>
-    private int? GoalHeadingOf(PanelId destination) =>
-        SpecialPanelHeadings().TryGetValue(destination.Value, out var heading) ? heading : null;
+    private int? GoalHeadingOf(AgvEntry entry, PanelId destination) =>
+        entry.ArrivalHeading ?? (SpecialPanelHeadings().TryGetValue(destination.Value, out var heading) ? heading : null);
 
     /// <summary>特殊消耗品受け渡しパネルと、そのキャリアを下ろす角度。</summary>
     private Dictionary<string, int> SpecialPanelHeadings() =>
@@ -949,7 +971,7 @@ public sealed class TrafficService(
             }
         }
 
-        var goal = entry.Destination is { } destination && travel.Carrier == CarrierState.Raised ? new AgentGoal(destination.Value, GoalHeadingOf(destination)) : null;
+        var goal = entry.Destination is { } destination && travel.Carrier == CarrierState.Raised ? new AgentGoal(destination.Value, GoalHeadingOf(entry, destination)) : null;
         var motion = entry.Motion;
         return new PlanningAgent(
             travel.Id.Value,
@@ -1065,7 +1087,7 @@ public sealed class TrafficService(
     private RouteResult Plan(AgvEntry entry, PanelId destination)
     {
         var graph = RouteGraphFactory.FromMap(CurrentMap(), entry.CanTravelSpecialTransfer);
-        return _planner.Plan(new RouteRequest(graph, entry.Travel.Position!, destination.Value, GoalHeadingOf(destination), entry.Motion));
+        return _planner.Plan(new RouteRequest(graph, entry.Travel.Position!, destination.Value, GoalHeadingOf(entry, destination), entry.Motion));
     }
 
     private MapSnapshot CurrentMap() =>
@@ -1108,8 +1130,26 @@ public sealed class TrafficService(
         /// <summary>今の一連の流れの ID（配車からの頼みに付いてきたもの）。</summary>
         public string? CorrelationId { get; set; }
 
-        /// <summary>頼まれた行き先。着いたら null。</summary>
-        public PanelId? Destination { get; set; }
+        /// <summary>頼まれた行き先。着いたら null。設定し直すと、着いたときの向きも消す（向きは、行き先と一緒にだけ持つ）。</summary>
+        public PanelId? Destination
+        {
+            get;
+            set
+            {
+                field = value;
+                ArrivalHeading = null;
+            }
+        }
+
+        /// <summary>マニュアルの行き先で指定された、着いたときの向き。指定がなければ null。</summary>
+        public int? ArrivalHeading { get; private set; }
+
+        /// <summary>マニュアルの行き先を、着いたときの向きと一緒に設定する。</summary>
+        public void SetManualDestination(PanelId destination, int? arrivalHeading)
+        {
+            Destination = destination;
+            ArrivalHeading = arrivalHeading;
+        }
 
         /// <summary>頼まれた搬送の必要時刻（計画の順番に使う）。搬送のない移動なら null。</summary>
         public DateTimeOffset? NeededBy { get; set; }

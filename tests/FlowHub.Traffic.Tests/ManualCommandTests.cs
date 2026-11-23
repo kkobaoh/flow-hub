@@ -101,7 +101,7 @@ public class ManualCommandTests
         var service = new TrafficService(Map(), events, new FixedTimeProvider());
         await ReadyAsync(service, Agv1, new Pose("N", 180), ControlStatus.Auto);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ManualMoveAsync(Agv1, P("S"), None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ManualMoveAsync(Agv1, P("S"), arrival: null, None));
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ManualStepAsync(Agv1, new ManualForward(), None));
     }
 
@@ -110,7 +110,7 @@ public class ManualCommandTests
     {
         var (service, events) = await OneManualAsync(new Pose("N", 180));
 
-        var result = await service.ManualMoveAsync(Agv1, P("S"), None);
+        var result = await service.ManualMoveAsync(Agv1, P("S"), arrival: null, None);
         var motion = await MotionOf(service, Agv1);
         await service.HandleMoveCompletedAsync(Agv1, motion!.Number, MoveDirection.Forward, P("M"), None);
         await service.HandleMoveCompletedAsync(Agv1, motion.Number, MoveDirection.Forward, P("S"), None);
@@ -126,7 +126,7 @@ public class ManualCommandTests
     {
         var (service, _) = await TwoAsync(new Pose("N", 180), new Pose("M", 270), ControlStatus.Locked);
 
-        var result = await service.ManualMoveAsync(Agv1, P("S"), None);
+        var result = await service.ManualMoveAsync(Agv1, P("S"), arrival: null, None);
         await service.ChangeControlStatusAsync(Agv2, ControlStatus.Detached, position: null, None); // 塞いでいた AGV がいなくなっても
 
         Assert.Equal(ManualMoveResult.Blocked, result);
@@ -139,7 +139,7 @@ public class ManualCommandTests
     {
         var (service, _) = await OneManualAsync(new Pose("N", 180));
 
-        var result = await service.ManualMoveAsync(Agv1, P("Q1"), None); // 別の島
+        var result = await service.ManualMoveAsync(Agv1, P("Q1"), arrival: null, None); // 別の島
 
         Assert.Equal(ManualMoveResult.NoRoute, result);
         Assert.Null(await MotionOf(service, Agv1));
@@ -150,7 +150,51 @@ public class ManualCommandTests
     {
         var (service, _) = await OneManualAsync(new Pose("N", 180));
 
-        Assert.Equal(ManualMoveResult.AlreadyThere, await service.ManualMoveAsync(Agv1, P("N"), None));
+        Assert.Equal(ManualMoveResult.AlreadyThere, await service.ManualMoveAsync(Agv1, P("N"), arrival: null, None));
+    }
+
+    [Fact]
+    public async Task 着いたときの向きを指定すると着いてからその向きへ回る()
+    {
+        var (service, _) = await OneManualAsync(new Pose("N", 180));
+
+        var result = await service.ManualMoveAsync(Agv1, P("S"), arrival: new Heading(90), None);
+        var motion = await MotionOf(service, Agv1);
+
+        Assert.Equal(ManualMoveResult.Started, result);
+        Assert.Equal<TravelCommand>([new ForwardCommand(800, P("M")), new ForwardCommand(800, P("S")), new RotateCommand(90)], motion!.Steps);
+    }
+
+    [Fact]
+    public async Task 今いるパネルで向きだけ違えばその場で向きを合わせる()
+    {
+        var (service, _) = await OneManualAsync(new Pose("N", 180));
+
+        var result = await service.ManualMoveAsync(Agv1, P("N"), arrival: new Heading(0), None);
+        var motion = await MotionOf(service, Agv1);
+        await service.HandleRotationCompletedAsync(Agv1, motion!.Number, 0, None);
+
+        Assert.Equal(ManualMoveResult.Started, result);
+        Assert.Equal<TravelCommand>([new RotateCommand(0)], motion.Steps);
+        Assert.Equal(new Pose("N", 0), service.GetAgv(Agv1).Position);
+        Assert.Equal(ManualMoveResult.AlreadyThere, await service.ManualMoveAsync(Agv1, P("N"), arrival: new Heading(0), None)); // 着いたら行き先を外している
+    }
+
+    [Fact]
+    public async Task 今いるパネルで向きも同じならそのまま()
+    {
+        var (service, _) = await OneManualAsync(new Pose("N", 180));
+
+        Assert.Equal(ManualMoveResult.AlreadyThere, await service.ManualMoveAsync(Agv1, P("N"), arrival: new Heading(180), None));
+        Assert.Null(await MotionOf(service, Agv1));
+    }
+
+    [Fact]
+    public async Task 着いたときの向きは0度90度180度270度のどれか()
+    {
+        var (service, _) = await OneManualAsync(new Pose("N", 180));
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.ManualMoveAsync(Agv1, P("S"), arrival: new Heading(45), None));
     }
 
     [Fact]
@@ -161,7 +205,7 @@ public class ManualCommandTests
         await service.EmergencyStopAsync(Agv2, None);
         await service.MoveAgvAsync(Agv2, P("W"), Now, "transport", None);
 
-        await service.ManualMoveAsync(Agv1, P("S"), None);
+        await service.ManualMoveAsync(Agv1, P("S"), arrival: null, None);
 
         Assert.NotNull(await MotionOf(service, Agv1)); // 十字路は、マニュアルの AGV-1 が先に通る
     }
@@ -170,7 +214,7 @@ public class ManualCommandTests
     public async Task 走り出したあとで塞がれたらその場で待つ()
     {
         var (service, _) = await TwoAsync(new Pose("N", 180), new Pose("E", 270), ControlStatus.Auto);
-        await service.ManualMoveAsync(Agv1, P("W"), None); // N → M（回転）→ W
+        await service.ManualMoveAsync(Agv1, P("W"), arrival: null, None); // N → M（回転）→ W
         var first = await MotionOf(service, Agv1);
         await service.HandleMoveCompletedAsync(Agv1, first!.Number, MoveDirection.Forward, P("M"), None);
 
@@ -190,9 +234,9 @@ public class ManualCommandTests
     public async Task 走っている途中は別の指示を受け付けない()
     {
         var (service, _) = await OneManualAsync(new Pose("N", 180));
-        await service.ManualMoveAsync(Agv1, P("S"), None);
+        await service.ManualMoveAsync(Agv1, P("S"), arrival: null, None);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ManualMoveAsync(Agv1, P("N"), None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ManualMoveAsync(Agv1, P("N"), arrival: null, None));
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ManualStepAsync(Agv1, new ManualForward(), None));
     }
 
@@ -200,7 +244,7 @@ public class ManualCommandTests
     public async Task 行き先へ走っている途中に緊急停止してもアラームクリアのあとに続きを走る()
     {
         var (service, _) = await OneManualAsync(new Pose("N", 180));
-        await service.ManualMoveAsync(Agv1, P("S"), None); // 番号 2
+        await service.ManualMoveAsync(Agv1, P("S"), arrival: null, None); // 番号 2
         await service.EmergencyStopAsync(Agv1, None); // 番号 3（番号 2 は受け取る前に取り下げる）
 
         await service.ClearAlarmAsync(Agv1, None); // 番号 4
@@ -430,7 +474,7 @@ public class ManualCommandTests
         var (service, _) = await OneManualAsync(new Pose("N", 180));
         await service.EmergencyStopAsync(Agv1, None);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ManualMoveAsync(Agv1, P("S"), None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ManualMoveAsync(Agv1, P("S"), arrival: null, None));
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ManualStepAsync(Agv1, new ManualForward(), None));
     }
 

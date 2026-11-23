@@ -77,7 +77,7 @@ public class SpecialTransferAccessTests
         var service = await ReadyAsync(canTravelSpecialTransfer: false, ControlStatus.Manual);
 
         Assert.Equal(ManualStepResult.NotAllowed, await service.ManualStepAsync(Agv, new ManualForward(), None));
-        Assert.Equal(ManualMoveResult.NoRoute, await service.ManualMoveAsync(Agv, P("B"), None));
+        Assert.Equal(ManualMoveResult.NoRoute, await service.ManualMoveAsync(Agv, P("B"), arrival: null, None));
     }
 
     [Fact]

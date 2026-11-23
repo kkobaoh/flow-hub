@@ -16,6 +16,9 @@ public enum ManualMoveResult
 
     /// <summary>今はほかの AGV に塞がれていて行けないので、受け付けなかった（画面で知らせる）。</summary>
     Blocked,
+
+    /// <summary>特殊消耗品受け渡しパネルで、キャリアを下ろす角度と違う「着いたときの向き」を指定されたので、受け付けなかった（画面で知らせる）。</summary>
+    ArrivalHeadingNotAllowed,
 }
 
 /// <summary>

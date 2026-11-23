@@ -165,8 +165,30 @@ public class SpecialTransferMotionTests
     {
         var (service, _) = await ReadyAsync(new Pose("A", 90), ControlStatus.Manual);
 
-        await service.ManualMoveAsync(Agv, P("X"), None);
+        await service.ManualMoveAsync(Agv, P("X"), arrival: null, None);
 
+        Assert.Equal<TravelCommand>([new ForwardCommand(800, P("X"), Special: true), new RotateSpecialCommand(45)], (await MotionOf(service)).Steps);
+    }
+
+    [Fact]
+    public async Task マニュアルの行き先でキャリアを下ろす角度と違う着いたときの向きは受け付けない()
+    {
+        var (service, _) = await ReadyAsync(new Pose("A", 90), ControlStatus.Manual);
+
+        var result = await service.ManualMoveAsync(Agv, P("X"), arrival: new Heading(90), None);
+
+        Assert.Equal(ManualMoveResult.ArrivalHeadingNotAllowed, result);
+        Assert.Empty((await service.HandleCommandRequestAsync(Agv, 1, None)).OfType<MotionCommand>()); // 走らせない
+    }
+
+    [Fact]
+    public async Task マニュアルの行き先でキャリアを下ろす角度と同じ着いたときの向きは受け付ける()
+    {
+        var (service, _) = await ReadyAsync(new Pose("A", 90), ControlStatus.Manual);
+
+        var result = await service.ManualMoveAsync(Agv, P("X"), arrival: new Heading(45), None);
+
+        Assert.Equal(ManualMoveResult.Started, result);
         Assert.Equal<TravelCommand>([new ForwardCommand(800, P("X"), Special: true), new RotateSpecialCommand(45)], (await MotionOf(service)).Steps);
     }
 }
