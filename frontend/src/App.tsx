@@ -9,6 +9,7 @@ import {
   demoMessages,
   demoReserved,
   demoRoutes,
+  demoStations,
   demoTransports,
   demoVarieties,
 } from './app/demo';
@@ -19,6 +20,7 @@ import { useRoute, type Route } from './app/navigation';
 import { initialRoles } from './app/permissions';
 import { ScreenFrame } from './app/ScreenFrame';
 import { screens } from './app/screens';
+import { StationScreen } from './app/StationScreen';
 import { TransportsScreen } from './app/TransportsScreen';
 import { sampleLayout } from './map/sampleLayout';
 
@@ -38,6 +40,7 @@ export function App() {
   const [agvs, setAgvs] = useState(demoAgvs);
   const [transports, setTransports] = useState(demoTransports);
   const [devices, setDevices] = useState(demoDevices);
+  const [stations, setStations] = useState(demoStations);
   const frame = {
     running,
     user,
@@ -70,6 +73,26 @@ export function App() {
             permissions={permissions}
             onSelect={(id) => navigate('devices', id)}
             onSaveSetting={(id, rows) => setDevices((ds) => ds.map((d) => (d.id === id ? applyDemoSetting(d, rows) : d)))}
+          />
+        );
+      case 'station':
+        return (
+          <StationScreen
+            stations={stations}
+            selected={r.target}
+            varieties={demoVarieties}
+            permissions={permissions}
+            onSelect={(id) => navigate('station', id)}
+            onShip={(sid, item) => setStations((ss) => ss.map((s) => (s.id === sid ? { ...s, items: s.items.filter((i) => i.id !== item) } : s)))}
+            onFix={(sid, item, fix) =>
+              setStations((ss) =>
+                ss.map((s) =>
+                  s.id === sid
+                    ? { ...s, items: s.items.map((i) => (i.id === item ? { ...i, variety: fix.variety, condition: fix.condition, state: { kind: 'available' } } : i)) }
+                    : s,
+                ),
+              )
+            }
           />
         );
       default:

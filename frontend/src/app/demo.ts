@@ -7,6 +7,7 @@ import type { EquipmentDetail } from './EquipmentCard';
 import type { ConsumableHit } from './ListPanel';
 import type { DestinationOption } from './ManualPanel';
 import type { Message } from './MessageRail';
+import type { StationInventory } from './station';
 import type { Transport } from './transports';
 import type { DeviceInside, HeldConsumable, SavedRow, SettingRow } from './devices';
 
@@ -250,3 +251,35 @@ export function applyDemoSetting(device: DeviceInside, saved: readonly SavedRow[
     .map((r) => ({ variety: r.variety, target: 0, have: r.have, status: 'notInSetting' }));
   return { ...device, setting: [...inSetting, ...leftOver] };
 }
+
+const onDay = (day: number, hhmm: string) => {
+  const d = today(hhmm);
+  d.setDate(d.getDate() - day);
+  return d;
+};
+
+/** 見本のステーションの在庫（数はマップのカード（demoEquipment）とそろえている）。 */
+export const demoStations: readonly StationInventory[] = [
+  {
+    id: equipmentId('ST-1'),
+    panel: panelId('ST'),
+    summary: [
+      { variety: '[品種A]', available: 1, reserved: 1, replenishWaiting: 2 },
+      { variety: '[品種B]', available: 0, reserved: 0, replenishWaiting: 0 },
+      { variety: '[品種C]', available: 1, reserved: 0, replenishWaiting: 0 },
+    ],
+    items: [
+      { id: 'T-0110', variety: '[品種A]', condition: '新品', receivedAt: onDay(2, '14:02'), state: { kind: 'available' } },
+      { id: 'T-0111', variety: '[品種A]', condition: '新品', receivedAt: onDay(2, '14:02'), state: { kind: 'reserved', transport: 14, assigned: false } },
+      { id: 'T-0208', variety: '[品種B]', condition: '新品', receivedAt: onDay(3, '09:30'), state: { kind: 'nominated', device: 'DEV-1' } },
+      { id: 'T-0303', variety: '[品種C]', condition: '新品', receivedAt: onDay(4, '16:45'), state: { kind: 'available' } },
+      {
+        id: 'X-9001',
+        variety: null,
+        condition: null,
+        receivedAt: onDay(0, '08:12'),
+        state: { kind: 'needsCheck', reason: '登録されていない ID として入ってきました。' },
+      },
+    ],
+  },
+];
