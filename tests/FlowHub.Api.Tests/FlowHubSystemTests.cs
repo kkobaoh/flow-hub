@@ -253,6 +253,70 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
     }
 
+    // ---- 画面からの AGV の操作 ----
+
+    [Fact]
+    public async Task 切り離しから位置を指定してオートに戻しAGVへ位置リセットを送る()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        var (status, result) = await OperateAsync(client, "/agvs/AGV-1/control", """{ "status": "auto", "panel": "A", "heading": 90 }""");
+        var commands = await CommandsAsync(client, -1);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("accepted", result);
+        Assert.Equal("positionReset", (string?)commands.Single()!["type"]);
+    }
+
+    [Fact]
+    public async Task 受け付けられない操作は理由の種類を返し形の正しくない頼みと知らないAGVは断る()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        var notManual = await OperateAsync(client, "/agvs/AGV-1/manual/move", """{ "destination": "S" }"""); // 切り離し中
+        var noPosition = await OperateAsync(client, "/agvs/AGV-1/control", """{ "status": "auto" }""");
+        var offMap = await OperateAsync(client, "/agvs/AGV-1/control", """{ "status": "auto", "panel": "NOWHERE", "heading": 0 }""");
+        var unknownStatus = await OperateAsync(client, "/agvs/AGV-1/control", """{ "status": "sleep" }""");
+        var unknownAgv = await OperateAsync(client, "/agvs/AGV-9/emergency-stop", "{}");
+
+        Assert.Equal((HttpStatusCode.Conflict, "notAllowed"), notManual);
+        Assert.Equal(HttpStatusCode.BadRequest, noPosition.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, offMap.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, unknownStatus.Status);
+        Assert.Equal(HttpStatusCode.NotFound, unknownAgv.Status);
+    }
+
+    [Fact]
+    public async Task マニュアルのAGVへ行き先と着いたときの向きを送る()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        await system.Dispatching.ChangeControlStatusAsync(Agv1, ControlStatus.Manual, new Pose("A", 0), Token);
+        var reset = (await CommandsAsync(client, -1)).Single()!;
+        using var completed = await client.PostAsync(
+            new Uri("/agv/AGV-1/notifications", UriKind.Relative),
+            new StringContent($$"""{ "type": "positionResetCompleted", "number": {{reset["number"]}} }""", Encoding.UTF8, "application/json"),
+            Token);
+
+        var already = await OperateAsync(client, "/agvs/AGV-1/manual/move", """{ "destination": "A", "arrival": 0 }""");
+        var turn = await OperateAsync(client, "/agvs/AGV-1/manual/move", """{ "destination": "A", "arrival": 90 }""");
+
+        Assert.Equal((HttpStatusCode.OK, "alreadyThere"), already);
+        Assert.Equal((HttpStatusCode.OK, "accepted"), turn);
+    }
+
+    private static async Task<(HttpStatusCode Status, string? Result)> OperateAsync(HttpClient client, string path, string body)
+    {
+        using var response = await client.PostAsync(new Uri(path, UriKind.Relative), new StringContent(body, Encoding.UTF8, "application/json"), Token);
+        var text = await response.Content.ReadAsStringAsync(Token);
+        return (response.StatusCode, text.TrimStart().StartsWith('{') ? (string?)JsonNode.Parse(text)!["result"] : null);
+    }
+
     // ---- 画面へのリアルタイムの知らせ（SignalR） ----
 
     [Fact]

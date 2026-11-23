@@ -173,6 +173,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         app.MapAgvEndpoints(Traffic, _agvEndpoints, _timeProvider);
         app.MapSystemEndpoints(Dispatching);
         app.MapTransportEndpoints(Dispatching);
+        app.MapAgvOperationEndpoints(Traffic, Dispatching, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.AgvOperations"));
     }
 
     public void Dispose()
