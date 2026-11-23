@@ -2,6 +2,7 @@ using FlowHub.Api.Composition.Screens;
 using FlowHub.Api.Database;
 using FlowHub.Api.InitialData;
 using FlowHub.BuildingBlocks;
+using FlowHub.Consumables;
 using FlowHub.Consumables.Application;
 using FlowHub.Consumables.Infrastructure;
 using FlowHub.Dispatching.Application;
@@ -138,6 +139,15 @@ internal sealed partial class FlowHubSystem : IDisposable
     }
 
     /// <summary>
+    /// 画面へ送る AGV の様子を読む。交通整理の様子と、配車の割り当て済みの搬送を合わせる（それぞれの lock で別々に読む）。
+    /// </summary>
+    private IReadOnlyList<AgvSnapshot> ReadAgvs()
+    {
+        var assignments = Dispatching.ListAssignments().ToDictionary(a => a.Agv);
+        return [.. Traffic.ListAgvs().Select(view => AgvSnapshot.From(view, assignments.GetValueOrDefault(view.Id), TransferEndpointNames.DisplayName))];
+    }
+
+    /// <summary>
     /// 処理のあとの後始末。たまったイベントを届けてから、画面へ様子を送る（変わっていれば）。
     /// HTTP のリクエスト、シミュレーターの通知、交通整理のタイマーのあとは、すべてここを通す。
     /// </summary>
@@ -159,7 +169,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ArgumentNullException.ThrowIfNull(app);
 
         var screen = app.Services.GetRequiredService<ScreenFeed>();
-        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, () => [.. Traffic.ListAgvs().Select(AgvSnapshot.From)]));
+        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs));
         _screen = screen;
 
         app.Use(async (context, next) =>

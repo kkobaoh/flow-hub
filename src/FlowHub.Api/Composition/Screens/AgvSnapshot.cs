@@ -1,3 +1,4 @@
+using FlowHub.Dispatching;
 using FlowHub.Traffic;
 
 namespace FlowHub.Api.Composition.Screens;
@@ -10,7 +11,17 @@ namespace FlowHub.Api.Composition.Screens;
 internal sealed record AgvsSnapshot(long Version, IReadOnlyList<AgvSnapshot> Agvs);
 
 /// <summary>
-/// 画面へ送る、1台の AGV の様子。言葉は画面の側と合わせる。
+/// 画面へ送る、割り当て済みの搬送。
+/// </summary>
+/// <param name="Id">搬送の番号。</param>
+/// <param name="From">搬送元の名前（受け渡しの相手。ものを積んだまま止まっていた AGV 自身なら、その AGV）。</param>
+/// <param name="To">搬送先の名前（受け渡しの相手）。</param>
+/// <param name="Stage">段階。<c>movingToSource</c>、<c>loweringAtSource</c>、<c>transferringAtSource</c>、<c>raisingAtSource</c>、<c>movingToDestination</c>、<c>loweringAtDestination</c>、<c>transferringAtDestination</c>、<c>raisingAtDestination</c>、<c>interrupted</c>。</param>
+/// <param name="Paused">一時停止しているか。</param>
+internal sealed record AgvTransportSnapshot(long Id, string From, string To, string Stage, bool Paused);
+
+/// <summary>
+/// 画面へ送る、1台の AGV の様子。言葉は画面の側と合わせる。並びは中身で比べる（変わったときだけ送るため）。
 /// </summary>
 /// <param name="Id">AGV の ID。</param>
 /// <param name="Panel">いるパネル。位置がわからなければ null。</param>
@@ -21,10 +32,22 @@ internal sealed record AgvsSnapshot(long Version, IReadOnlyList<AgvSnapshot> Agv
 /// <param name="BatteryPercent">最後に届いた充電残量（%）。まだ届いていなければ null。</param>
 internal sealed record AgvSnapshot(string Id, string? Panel, int? Heading, string State, string Control, bool CarrierMoving, int? BatteryPercent)
 {
-    /// <summary>交通整理の AGV の様子を、画面へ送る形にする。</summary>
-    public static AgvSnapshot From(AgvView view)
+    /// <summary>予約しているパネル（いるパネルも含む）。</summary>
+    public IReadOnlyList<string> ReservedPanels { get; init; } = [];
+
+    /// <summary>走る予定の経路（今のパネルから行き先まで、通るパネルの順）。走る予定がなければ空。</summary>
+    public IReadOnlyList<string> Route { get; init; } = [];
+
+    /// <summary>割り当て済みの搬送。なければ null。</summary>
+    public AgvTransportSnapshot? Transport { get; init; }
+
+    /// <summary>交通整理の AGV の様子と、配車の割り当て済みの搬送を、画面へ送る形にする。</summary>
+    /// <param name="assignment">その AGV に割り当てている搬送。なければ null。</param>
+    /// <param name="endpointName">受け渡しの相手の参照を、画面に出す名前にする（消耗品の管理が書き方を知っている）。</param>
+    public static AgvSnapshot From(AgvView view, AgvAssignment? assignment, Func<string, string> endpointName)
     {
         ArgumentNullException.ThrowIfNull(view);
+        ArgumentNullException.ThrowIfNull(endpointName);
         return new AgvSnapshot(
             view.Id.Value,
             view.Position?.NodeId,
@@ -32,8 +55,53 @@ internal sealed record AgvSnapshot(string Id, string? Panel, int? Heading, strin
             StateText(view.State),
             ControlText(view.Control),
             view.CarrierMoving,
-            view.BatteryPercent);
+            view.BatteryPercent)
+        {
+            ReservedPanels = [.. view.ReservedPanels.Select(p => p.Value)],
+            Route = [.. view.RoutePanels.Select(p => p.Value)],
+            Transport = assignment is null ? null : TransportOf(assignment, endpointName),
+        };
     }
+
+    public bool Equals(AgvSnapshot? other) =>
+        other is not null
+        && Id == other.Id
+        && Panel == other.Panel
+        && Heading == other.Heading
+        && State == other.State
+        && Control == other.Control
+        && CarrierMoving == other.CarrierMoving
+        && BatteryPercent == other.BatteryPercent
+        && ReservedPanels.SequenceEqual(other.ReservedPanels)
+        && Route.SequenceEqual(other.Route)
+        && Equals(Transport, other.Transport);
+
+    public override int GetHashCode() => HashCode.Combine(Id, Panel, Heading, State, Control, CarrierMoving, BatteryPercent, Transport);
+
+    private static AgvTransportSnapshot TransportOf(AgvAssignment assignment, Func<string, string> endpointName)
+    {
+        var from = assignment.Source switch
+        {
+            SourceTransferPoint point => endpointName(point.Endpoint),
+            SourceAgv agv => agv.Agv.Value,
+            _ => throw new ArgumentOutOfRangeException(nameof(assignment), assignment.Source, "知らない搬送元です。"),
+        };
+        return new AgvTransportSnapshot(assignment.Transport.Value, from, endpointName(assignment.DestinationEndpoint), StageText(assignment.Stage), assignment.Paused);
+    }
+
+    private static string StageText(AssignedTransportStage stage) => stage switch
+    {
+        AssignedTransportStage.MovingToSource => "movingToSource",
+        AssignedTransportStage.LoweringAtSource => "loweringAtSource",
+        AssignedTransportStage.TransferringAtSource => "transferringAtSource",
+        AssignedTransportStage.RaisingAtSource => "raisingAtSource",
+        AssignedTransportStage.MovingToDestination => "movingToDestination",
+        AssignedTransportStage.LoweringAtDestination => "loweringAtDestination",
+        AssignedTransportStage.TransferringAtDestination => "transferringAtDestination",
+        AssignedTransportStage.RaisingAtDestination => "raisingAtDestination",
+        AssignedTransportStage.Interrupted => "interrupted",
+        _ => throw new ArgumentOutOfRangeException(nameof(stage), stage, "知らない搬送の段階です。"),
+    };
 
     private static string StateText(AgvState state) => state switch
     {

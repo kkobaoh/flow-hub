@@ -117,7 +117,7 @@ public sealed class TrafficService(
         }
     }
 
-    private static AgvView ViewOf(AgvId id, AgvEntry entry)
+    private AgvView ViewOf(AgvId id, AgvEntry entry)
     {
         var travel = entry.Travel;
         return new AgvView(id, travel.Position, ToState(travel.Status), travel.Carrier == CarrierState.Raised, travel.CumulativeDistanceMm, entry.Control)
@@ -126,7 +126,29 @@ public sealed class TrafficService(
             CanTravelSpecialTransfer = entry.CanTravelSpecialTransfer,
             CarrierMoving = travel.Carrier is CarrierState.Lowering or CarrierState.Raising,
             BatteryPercent = entry.BatteryPercent,
+            ReservedPanels = _reservations.ReservedBy(id),
+            RoutePanels = RoutePanelsOf(travel),
         };
+    }
+
+    /// <summary>走る予定の経路（今のパネルから、渡した区間と、まだ渡していない区間をつないで行き先まで）。走る予定がなければ空。</summary>
+    private static PanelId[] RoutePanelsOf(AgvTravel travel)
+    {
+        if (travel.RemainingRoutePanels is not { } committed)
+        {
+            return [];
+        }
+
+        var panels = new List<PanelId>(committed);
+        foreach (var panel in travel.RemainingSections.SelectMany(section => section.Panels))
+        {
+            if (panels[^1] != panel)
+            {
+                panels.Add(panel);
+            }
+        }
+
+        return panels.Count < 2 ? [] : [.. panels];
     }
 
     /// <summary>

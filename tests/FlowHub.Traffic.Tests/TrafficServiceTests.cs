@@ -228,7 +228,12 @@ public class TrafficServiceTests
 
         var view = service.GetAgv(Agv);
 
-        Assert.Equal(new AgvView(Agv, new Pose("A", 0), AgvState.Idle, CarrierRaised: true, CumulativeDistanceMm: 0), view);
+        Assert.Equal(Agv, view.Id);
+        Assert.Equal(new Pose("A", 0), view.Position);
+        Assert.Equal(AgvState.Idle, view.State);
+        Assert.True(view.CarrierRaised);
+        Assert.Equal(0, view.CumulativeDistanceMm);
+        Assert.Equal(ControlStatus.Auto, view.Control);
     }
 
     [Fact]

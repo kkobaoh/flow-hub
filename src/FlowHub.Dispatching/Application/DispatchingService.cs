@@ -58,6 +58,47 @@ public sealed class DispatchingService(
     }
 
     /// <summary>
+    /// AGV に割り当てている搬送（中断したものも含む）を、AGV の ID の順に返す（画面に出すため）。
+    /// </summary>
+    public IReadOnlyList<AgvAssignment> ListAssignments()
+    {
+        _gate.Wait();
+        try
+        {
+            return [.. _agvs
+                .Where(pair => pair.Value.Active is not null)
+                .OrderBy(pair => pair.Key.Value, StringComparer.Ordinal)
+                .Select(pair => AssignmentOf(pair.Key, pair.Value.Active!))];
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private static AgvAssignment AssignmentOf(AgvId agv, Transport transport)
+    {
+        var request = transport.Request;
+        AssignmentSource source = request.FromAgv is { } holder
+            ? new SourceAgv(holder)
+            : new SourceTransferPoint(request.Source.Panel, request.Source.Endpoint);
+        var stage = transport.Stage switch
+        {
+            TransportStage.MovingToSource => AssignedTransportStage.MovingToSource,
+            TransportStage.LoweringAtSource => AssignedTransportStage.LoweringAtSource,
+            TransportStage.TransferringAtSource => AssignedTransportStage.TransferringAtSource,
+            TransportStage.RaisingAtSource => AssignedTransportStage.RaisingAtSource,
+            TransportStage.MovingToDestination => AssignedTransportStage.MovingToDestination,
+            TransportStage.LoweringAtDestination => AssignedTransportStage.LoweringAtDestination,
+            TransportStage.TransferringAtDestination => AssignedTransportStage.TransferringAtDestination,
+            TransportStage.RaisingAtDestination => AssignedTransportStage.RaisingAtDestination,
+            TransportStage.Interrupted => AssignedTransportStage.Interrupted,
+            _ => throw new InvalidOperationException($"搬送 {transport.Id} は割り当て済みの段階ではありません（{transport.Stage}）。"),
+        };
+        return new AgvAssignment(agv, transport.Id, source, request.Destination.Panel, request.Destination.Endpoint, stage, transport.IsPaused);
+    }
+
+    /// <summary>
     /// 搬送を頼む。待ち行列に入れ、割り当てられる AGV がいれば割り当てる。
     /// </summary>
     public Task<TransportId> RequestTransportAsync(TransportOrder order, CancellationToken cancellationToken)

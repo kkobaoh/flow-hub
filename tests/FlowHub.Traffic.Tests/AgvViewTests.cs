@@ -102,4 +102,18 @@ public class AgvViewTests
         Assert.Equal(AgvState.Unregistered, all[0].State);
         Assert.Equal(new Pose("N", 180), all[1].Position);
     }
+
+    [Fact]
+    public async Task 予約しているパネルと今のパネルから行き先までの経路がわかる()
+    {
+        var service = await ReadyAsync();
+        Assert.Equal([new PanelId("N")], service.GetAgv(Agv).ReservedPanels); // 止まっていても、いるパネルは予約している
+        Assert.Empty(service.GetAgv(Agv).RoutePanels); // 行き先がなければ、経路はない
+
+        await service.MoveAgvAsync(Agv, new PanelId("S"), null, "move", None);
+        var view = service.GetAgv(Agv);
+
+        Assert.Equal([new PanelId("N"), new PanelId("M"), new PanelId("S")], view.RoutePanels);
+        Assert.Equal(["M", "N", "S"], view.ReservedPanels.Select(p => p.Value).Order());
+    }
 }

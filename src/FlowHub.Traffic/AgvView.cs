@@ -1,3 +1,4 @@
+using FlowHub.Map;
 using FlowHub.Routing;
 
 namespace FlowHub.Traffic;
@@ -50,6 +51,12 @@ public sealed record AgvView(AgvId Id, Pose? Position, AgvState State, bool Carr
 
     /// <summary>最後に AGV から届いた充電残量（%）。起動してから一度も届いていなければ null。</summary>
     public int? BatteryPercent { get; init; }
+
+    /// <summary>予約しているパネル（いるパネルも含む）。</summary>
+    public IReadOnlyList<PanelId> ReservedPanels { get; init; } = [];
+
+    /// <summary>走る予定の経路（今のパネルから行き先まで、通るパネルの順）。AGV に渡した区間と、まだ渡していない区間をつなぐ。走る予定がなければ空。</summary>
+    public IReadOnlyList<PanelId> RoutePanels { get; init; } = [];
 }
 
 /// <summary>

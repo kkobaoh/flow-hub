@@ -153,13 +153,7 @@ public class DispatchingServiceTests
     private static async Task<TransportId> LoadedTransport(DispatchingService service, FakeTraffic traffic)
     {
         var id = await service.RequestTransportAsync(Order(), None);
-        traffic.SetAgv(S);
-        await service.OnAgvArrivedAsync(new AgvArrived(Meta(), Agv, S), None);
-        traffic.SetAgv(S, AgvState.Idle, carrierRaised: false);
-        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None);
-        await service.ReportTransferCompletedAsync(id, None);
-        traffic.SetAgv(S, AgvState.Idle, carrierRaised: true);
-        await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
+        await AdvanceToLoaded(service, traffic, id);
         return id;
     }
 
@@ -171,6 +165,50 @@ public class DispatchingServiceTests
         await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None);
         await service.ReportTransferCompletedAsync(id, None);
         traffic.SetAgv(D);
+        await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
+    }
+
+    // ---- 割り当て済みの搬送の様子（画面に出す） ----
+
+    [Fact]
+    public async Task 割り当て済みの搬送の番号と搬送元と搬送先と段階がわかる()
+    {
+        var (service, traffic, _) = Setup(A);
+        Assert.Empty(service.ListAssignments());
+
+        var id = await service.RequestTransportAsync(Order(), None);
+        var moving = Assert.Single(service.ListAssignments());
+        await AdvanceToLoaded(service, traffic, id);
+        var carrying = Assert.Single(service.ListAssignments());
+
+        Assert.Equal(new AgvAssignment(Agv, id, new SourceTransferPoint(S, "station-1"), D, "device-1", AssignedTransportStage.MovingToSource, Paused: false), moving);
+        Assert.Equal(AssignedTransportStage.MovingToDestination, carrying.Stage);
+    }
+
+    [Fact]
+    public async Task 運転を停止して一時停止した搬送は一時停止中とわかり終わった搬送は出さない()
+    {
+        var (service, traffic, _) = Setup(A);
+        var id = await service.RequestTransportAsync(Order(), None);
+
+        await service.StopAsync(None);
+        Assert.True(Assert.Single(service.ListAssignments()).Paused);
+
+        await service.StartAsync(None);
+        await AdvanceToLoaded(service, traffic, id);
+        await CompleteTransport(service, traffic, id);
+        Assert.Empty(service.ListAssignments());
+    }
+
+    /// <summary>頼んだ搬送を、搬送元の受け渡しを終えてキャリアを上げるところまで進める（頼むところは済んでいる）。</summary>
+    private static async Task AdvanceToLoaded(DispatchingService service, FakeTraffic traffic, TransportId id)
+    {
+        traffic.SetAgv(S);
+        await service.OnAgvArrivedAsync(new AgvArrived(Meta(), Agv, S), None);
+        traffic.SetAgv(S, AgvState.Idle, carrierRaised: false);
+        await service.OnCarrierLoweredAsync(new CarrierLowered(Meta(), Agv), None);
+        await service.ReportTransferCompletedAsync(id, None);
+        traffic.SetAgv(S, AgvState.Idle, carrierRaised: true);
         await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
     }
 
