@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using FlowHub.Api.Composition;
+using FlowHub.Api.Composition.Screens;
 using FlowHub.Api.Database;
 using FlowHub.Simulator;
 using FlowHub.Dispatching;
@@ -15,6 +16,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -104,6 +106,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
+        FlowHubSystem.AddScreenServices(builder.Services);
         _app = builder.Build();
         system.MapEndpoints(_app);
         await _app.StartAsync(Token);
@@ -248,6 +251,67 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, canceled.StatusCode);
         Assert.Equal("canceled", (string?)JsonNode.Parse(await canceled.Content.ReadAsStringAsync(Token))!["result"]);
         Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+    }
+
+    // ---- 画面へのリアルタイムの知らせ（SignalR） ----
+
+    [Fact]
+    public async Task 画面がつないだときに今の運転状態が届く()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync(startOnLaunch: true);
+        var client = await ServeAsync(system);
+        var received = new SnapshotQueue();
+        await using var screen = await ConnectScreenAsync(client, received);
+
+        var first = await received.NextAsync();
+
+        Assert.Equal("started", first.State);
+    }
+
+    [Fact]
+    public async Task 運転状態が変わったら新しい番号で全員に届く()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync(startOnLaunch: true);
+        var client = await ServeAsync(system);
+        var receivedA = new SnapshotQueue();
+        var receivedB = new SnapshotQueue();
+        await using var screenA = await ConnectScreenAsync(client, receivedA);
+        await using var screenB = await ConnectScreenAsync(client, receivedB);
+        var first = await receivedA.NextAsync();
+        await receivedB.NextAsync();
+
+        using var stopped = await client.PostAsync(new Uri("/system/stop", UriKind.Relative), null, Token);
+        var changedA = await receivedA.NextAsync();
+        var changedB = await receivedB.NextAsync();
+
+        Assert.Equal("stopped", changedA.State);
+        Assert.True(changedA.Version > first.Version);
+        Assert.Equal(changedA, changedB);
+    }
+
+    private static async Task<HubConnection> ConnectScreenAsync(HttpClient client, SnapshotQueue received)
+    {
+        var connection = new HubConnectionBuilder().WithUrl(new Uri(client.BaseAddress!, "/hubs/screen")).Build();
+        connection.On<SystemStatusSnapshot>("systemStatus", received.Add);
+        await connection.StartAsync(Token);
+        return connection;
+    }
+
+    /// <summary>届いた運転状態の様子を、届いた順に取り出す。</summary>
+    private sealed class SnapshotQueue
+    {
+        private readonly System.Threading.Channels.Channel<SystemStatusSnapshot> _channel = System.Threading.Channels.Channel.CreateUnbounded<SystemStatusSnapshot>();
+
+        public void Add(SystemStatusSnapshot snapshot) => _channel.Writer.TryWrite(snapshot);
+
+        public async Task<SystemStatusSnapshot> NextAsync()
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            return await _channel.Reader.ReadAsync(timeout.Token);
+        }
     }
 
     private static async Task<string?> StatusAsync(HttpClient client)

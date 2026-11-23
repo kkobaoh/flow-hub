@@ -1,3 +1,4 @@
+using FlowHub.Api.Composition.Screens;
 using FlowHub.Api.Database;
 using FlowHub.Api.InitialData;
 using FlowHub.BuildingBlocks;
@@ -13,6 +14,7 @@ using FlowHub.Traffic.Application;
 using FlowHub.Traffic.Infrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace FlowHub.Api.Composition;
@@ -22,13 +24,15 @@ namespace FlowHub.Api.Composition;
 /// </summary>
 /// <remarks>
 /// 起動したときは、運転状態を停止から始める（docs/domain.md「システムの運転状態」）。
-/// イベントは、処理（HTTP のリクエスト、シミュレーターの通知）を終えたあとにまとめて届ける。
+/// イベントは、処理（HTTP のリクエスト、シミュレーターの通知、交通整理のタイマー）を終えたあとにまとめて届け、
+/// そのあとで画面へ様子を送る（<see cref="AfterWorkAsync"/>。後始末はここにまとめる）。
 /// 装置・ステーション・上位システムとのやり取りは、本物の通信ができるまでシミュレーターで仮に実装する。
 /// </remarks>
 internal sealed partial class FlowHubSystem : IDisposable
 {
     private readonly AgvEndpointOptions _agvEndpoints;
     private readonly TimeProvider _timeProvider;
+    private volatile ScreenFeed? _screen;
 
     private FlowHubSystem(
         InProcessEventBus events,
@@ -99,11 +103,13 @@ internal sealed partial class FlowHubSystem : IDisposable
         ToolPlanningSubscriptions.Register(subscriptions, toolPlanning);
         ApiSubscriptions.Register(subscriptions, loggerFactory);
 
-        // シミュレーターの通知も、処理を終えたあとにイベントを届ける
-        simulator.Attach(new ConsumablesSimulationTarget(consumables), events.FlushAsync);
+        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, settings.AgvEndpoints, timeProvider);
 
-        // 交通整理のタイマー（緊急停止が長引いたときの立て直し）のあとも、イベントを届ける
-        traffic.AttachAfterBackgroundWork(events.FlushAsync);
+        // シミュレーターの通知も、処理を終えたあとに後始末をする
+        simulator.Attach(new ConsumablesSimulationTarget(consumables), system.AfterWorkAsync);
+
+        // 交通整理のタイマー（緊急停止が長引いたときの立て直し）のあとも、後始末をする
+        traffic.AttachAfterBackgroundWork(system.AfterWorkAsync);
 
         // 起動したときは、いつも停止から始める（設定があれば、すぐスタートにする）
         await dispatching.StopAsync(cancellationToken).ConfigureAwait(false);
@@ -112,25 +118,58 @@ internal sealed partial class FlowHubSystem : IDisposable
             await dispatching.StartAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        await events.FlushAsync(cancellationToken).ConfigureAwait(false);
-
-        return new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, settings.AgvEndpoints, timeProvider);
+        await system.AfterWorkAsync(cancellationToken).ConfigureAwait(false);
+        return system;
     }
 
     /// <summary>
-    /// HTTP の窓口を開く。リクエストを処理し終えたら、たまったイベントを届ける。
+    /// 画面とつなぐ SignalR のサービスを登録する（<c>app.Build()</c> の前に呼ぶ）。
     /// </summary>
+    public static void AddScreenServices(IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddSignalR();
+        services.AddSingleton<IScreenBroadcast, HubScreenBroadcast>();
+        services.AddSingleton(provider => new ScreenFeed(
+            provider.GetRequiredService<IScreenBroadcast>(),
+            TimeProvider.System,
+            provider.GetRequiredService<ILogger<ScreenFeed>>()));
+    }
+
+    /// <summary>
+    /// 処理のあとの後始末。たまったイベントを届けてから、画面へ様子を送る（変わっていれば）。
+    /// HTTP のリクエスト、シミュレーターの通知、交通整理のタイマーのあとは、すべてここを通す。
+    /// </summary>
+    public async Task AfterWorkAsync(CancellationToken cancellationToken)
+    {
+        await Events.FlushAsync(cancellationToken).ConfigureAwait(false);
+        if (_screen is { } screen)
+        {
+            await screen.PublishIfChangedAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// HTTP の窓口と、画面とつなぐハブ（<c>/hubs/screen</c>）を開く。リクエストを処理し終えたら、後始末をする。
+    /// </summary>
+    /// <remarks>先に <see cref="AddScreenServices"/> でサービスを登録しておく。</remarks>
     public void MapEndpoints(WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
+
+        var screen = app.Services.GetRequiredService<ScreenFeed>();
+        screen.Attach(() => Dispatching.IsRunning);
+        _screen = screen;
 
         app.Use(async (context, next) =>
         {
             await next(context).ConfigureAwait(false);
 
-            // リクエストが途中で切れても、受け付けた処理のイベントは届ける
-            await Events.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            // リクエストが途中で切れても、受け付けた処理のイベントは届け、画面へ様子を送る
+            await AfterWorkAsync(CancellationToken.None).ConfigureAwait(false);
         });
+        app.MapHub<ScreenHub>("/hubs/screen");
         app.MapAgvEndpoints(Traffic, _agvEndpoints, _timeProvider);
         app.MapSystemEndpoints(Dispatching);
         app.MapTransportEndpoints(Dispatching);

@@ -2,6 +2,7 @@ using FlowHub.Api.Composition;
 
 var builder = WebApplication.CreateBuilder(args);
 var settings = FlowHubSettings.Read(builder.Configuration, builder.Environment.ContentRootPath);
+FlowHubSystem.AddScreenServices(builder.Services);
 var app = builder.Build();
 
 using var system = await FlowHubSystem.StartAsync(
