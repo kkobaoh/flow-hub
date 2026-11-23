@@ -314,7 +314,7 @@ function Table({
           {addLabel}
         </button>
       </div>
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead>
             <tr>

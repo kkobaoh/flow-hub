@@ -84,7 +84,7 @@ export function StationScreen({ stations, selected, varieties, permissions, onSe
         <h2 id="summary-title" className="m-0 text-lg font-bold">
           品種ごとの数
         </h2>
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[560px] border-collapse text-sm">
             <thead>
               <tr>
@@ -144,7 +144,7 @@ export function StationScreen({ stations, selected, varieties, permissions, onSe
         {shown.length === 0 ? (
           <p className="m-0 py-2 text-[15px] text-ink-muted">{checkOnly ? '要確認の消耗品はありません。' : 'ステーションに消耗品はありません。'}</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[820px] border-collapse text-sm">
               <thead>
                 <tr>

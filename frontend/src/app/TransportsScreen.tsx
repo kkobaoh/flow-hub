@@ -101,7 +101,7 @@ export function TransportsScreen({ transports, permissions, onCancel, onRetry }:
       {rows.length === 0 ? (
         <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">{current.empty}</p>
       ) : (
-        <div className="overflow-x-auto rounded-[10px] border border-line bg-paper">
+        <div className="relative overflow-x-auto rounded-[10px] border border-line bg-paper">
           <table className="w-full min-w-[860px] border-collapse text-sm">
             <thead>
               <tr className="text-left text-ink-muted">

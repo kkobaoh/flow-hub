@@ -1,21 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-
-/** 画面で起きたエラー（例外と console.error）を集める。どのテストも、最後に空であることを確かめる。 */
-function collectErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => {
-    if (m.type() === 'error') {
-      errors.push(m.text());
-    }
-  });
-  return errors;
-}
-
-async function openMenu(page: Page, screen: string) {
-  await page.getByRole('button', { name: 'メニュー' }).click();
-  await page.locator(`[data-screen="${screen}"]`).click();
-}
+import { expect, test } from '@playwright/test';
+import { collectErrors, openMenu } from './errors';
 
 const screens: readonly (readonly [string, string])[] = [
   ['transports', '搬送の一覧'],

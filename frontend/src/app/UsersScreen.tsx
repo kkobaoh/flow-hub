@@ -97,7 +97,7 @@ export function UsersScreen(props: UsersScreenProps) {
               ユーザーを加える
             </button>
           </div>
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[860px] border-collapse text-sm">
               <thead>
                 <tr>
@@ -167,7 +167,7 @@ export function UsersScreen(props: UsersScreenProps) {
                 ロールを加える
               </button>
             </div>
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full min-w-[860px] border-collapse text-sm">
                 <thead>
                   <tr>
@@ -327,7 +327,7 @@ function PermissionMatrix({
           パーミッションを保存する
         </button>
       </div>
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[760px] border-collapse text-sm">
           <thead>
             <tr>

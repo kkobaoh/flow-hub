@@ -212,7 +212,7 @@ export function MapEditScreen(props: MapEditScreenProps) {
       {publishBlocked !== null && validation !== null && <p className={`${note} -mt-2 text-right`}>{publishBlocked}</p>}
       {!allowed && <p className="m-0 text-sm font-bold">{publishBlocked}</p>}
 
-      <div className="grid items-start gap-4 lg:grid-cols-[180px_minmax(0,1fr)_320px]">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[180px_minmax(0,1fr)_320px]">
         <nav aria-label="置くもの" className={`${section} gap-2`}>
           <h2 className="m-0 text-sm font-bold text-ink-muted">置くもの</h2>
           {TOOLS.map(([key, label]) => (

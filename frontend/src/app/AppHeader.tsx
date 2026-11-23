@@ -35,7 +35,7 @@ export function AppHeader({ running, user, current, mapVersion, onNavigate, onCh
       return undefined;
     }
     const closeOutside = (e: MouseEvent) => {
-      if (menuRef.current && e.target instanceof Node && !menuRef.current.contains(e.target)) {
+      if (menuRef.current && !e.composedPath().includes(menuRef.current)) {
         setOpen(false);
       }
     };

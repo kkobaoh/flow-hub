@@ -65,7 +65,7 @@ export function AgvsScreen(props: AgvsScreenProps) {
           </button>
         </div>
         <p className="m-0 text-sm text-ink-muted">新しく加えた AGV は、切り離しから始めます。マップの上に置いて位置リセットをしてから、コントロールステータスを切り替えてください。</p>
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[820px] border-collapse text-sm">
             <thead>
               <tr>
@@ -134,7 +134,7 @@ export function AgvsScreen(props: AgvsScreenProps) {
           </button>
         </div>
         <p className="m-0 text-sm text-ink-muted">変えた値は、次の割り当てと充電の判断から効きます。</p>
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[960px] border-collapse text-sm">
             <thead>
               <tr>

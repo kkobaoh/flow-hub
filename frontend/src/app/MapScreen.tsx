@@ -17,6 +17,7 @@ import { MessageRail, MessageTab, type Message } from './MessageRail';
 import type { Permissions } from './permissions';
 import { RunSwitch } from './RunSwitch';
 import type { ScreenKey } from './screens';
+import { clickedInside } from './outside';
 
 export interface MapScreenProps {
   readonly layout: MapLayout;
@@ -116,7 +117,7 @@ export function MapScreen(props: MapScreenProps) {
       return undefined;
     }
     const closeOutside = (e: MouseEvent) => {
-      if (e.target instanceof Element && !e.target.closest(KEEP_CARD)) {
+      if (!clickedInside(e, KEEP_CARD)) {
         setDrawer(null);
         setHovered(null);
       }

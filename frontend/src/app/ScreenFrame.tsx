@@ -3,6 +3,7 @@ import { AppHeader, type SignedInUser } from './AppHeader';
 import { MessageRail, MessageTab, type Message } from './MessageRail';
 import type { Permissions } from './permissions';
 import type { ScreenKey } from './screens';
+import { clickedInside } from './outside';
 
 export interface ScreenFrameProps {
   readonly current: ScreenKey;
@@ -35,7 +36,7 @@ export function ScreenFrame(props: ScreenFrameProps) {
       return undefined;
     }
     const closeOutside = (e: MouseEvent) => {
-      if (e.target instanceof Element && !e.target.closest('[data-message-area]')) {
+      if (!clickedInside(e, '[data-message-area]')) {
         setOpen(false);
       }
     };

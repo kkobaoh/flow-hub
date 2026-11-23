@@ -200,7 +200,7 @@ function SettingSection({
       </p>
       {!allowed && <p className="m-0 text-sm font-bold">ストッカーの設定は、運用以上のロールで使えます。</p>}
 
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[600px] border-collapse text-sm">
           <thead>
             <tr>
