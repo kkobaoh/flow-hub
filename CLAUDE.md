@@ -87,6 +87,7 @@
 | tailwindcss、@tailwindcss/vite（npm） | 画面の見た目（CSS） | MIT |
 | vitest（npm） | 画面のテスト | MIT |
 | jsdom（npm） | 画面のテストで、ブラウザーの代わりをする | MIT |
+| @playwright/test（npm） | 画面を本物のブラウザーで確かめる E2E テスト（Microsoft 製。依存の playwright、playwright-core も Apache-2.0） | Apache-2.0 |
 
 - npm のパッケージは、依存しているものも含めてライセンスを確かめています。vite が CSS の処理に使う **lightningcss は MPL-2.0** です（ファイル単位の弱いコピーレフト）。ビルドの道具の中でだけ動き、配る成果物には入らず、手を加えずに使うので、使ってよいことにしています。
 
@@ -220,7 +221,7 @@ frontend/            （画面。React + TypeScript + Vite + Tailwind CSS + Vite
 - NuGet パッケージのバージョンは、`Directory.Packages.props` で **一元管理** します。各プロジェクトには、バージョンを書きません。
 - コンテキストの間の依存の向きは、`tests/FlowHub.ArchitectureTests` で守らせます。コンテキストを追加したり、依存の向きの表を変えたりしたときは、このテストの表も合わせて更新します。
 - フロントエンドは React + TypeScript で作り、ほかのサードパーティーのライブラリは基本的に使いません（サーバー側と同じ方針）。画面のリアルタイム更新には SignalR を使います。画面の仕様は docs/screens.md にまとめます。
-  - フロントエンドは **`frontend/`** に置きます。ビルドは **Vite**、見た目は **Tailwind CSS**、テストは **Vitest**、部品の確かめは **Storybook** です。使い方は `frontend/README.md` にあります。
+  - フロントエンドは **`frontend/`** に置きます。ビルドは **Vite**、見た目は **Tailwind CSS**、テストは **Vitest**、E2E テストは **Playwright**、部品の確かめは **Storybook** です。使い方は `frontend/README.md` にあります。
   - 画面のデザインの試作は、Artifact の「FlowHub 画面デザイン」にあります（https://claude.ai/artifact/WCtJNB5UUes8dXfkJBKxXf）。実装は、この試作をもとに進めます。
 
 ## 技術スタック

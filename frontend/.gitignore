@@ -3,3 +3,5 @@ dist/
 storybook-static/
 *.local
 *.log
+test-results/
+playwright-report/
