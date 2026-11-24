@@ -77,6 +77,9 @@ namespace FlowHub.Map.Infrastructure.Migrations
                     b.Property<int>("Version")
                         .HasColumnType("integer");
 
+                    b.Property<int>("PanelSizeMm")
+                        .HasColumnType("integer");
+
                     b.HasKey("Version");
 
                     b.ToTable("versions", "map");
@@ -94,10 +97,34 @@ namespace FlowHub.Map.Infrastructure.Migrations
                     b.Property<int?>("CarrierLoweringHeading")
                         .HasColumnType("integer");
 
+                    b.Property<int>("Column")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CrossOffsetEastMm")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CrossOffsetSouthMm")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("HasChargingPin")
                         .HasColumnType("boolean");
 
                     b.Property<int>("Order")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("OutlineHeightMm")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("OutlineWidthMm")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("OutlineXMm")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("OutlineYMm")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Row")
                         .HasColumnType("integer");
 
                     b.Property<string>("Type")

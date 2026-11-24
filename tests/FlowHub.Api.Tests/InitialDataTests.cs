@@ -102,11 +102,23 @@ public sealed class InitialDataTests : IDisposable
     }
 
     [Fact]
+    public async Task 初期データのパネルの位置と受け渡しパネルの外形を入れる()
+    {
+        await StartAsync(BundledFile);
+
+        var drawing = (await OpenMapAsync())!.Drawing!;
+        Assert.Equal(1000, drawing.PanelSizeMm);
+        Assert.Equal(new GridPosition(2, 0), drawing.Placements[new PanelId("ST")].Position);
+        Assert.Equal(new Outline(3050, 2900, 900, 2100), drawing.Placements[new PanelId("D1")].Outline);
+        Assert.Null(drawing.Placements[new PanelId("P1")].Outline);
+    }
+
+    [Fact]
     public async Task 特殊消耗品受け渡しパネルとキャリアを下ろす角度を入れられ装置の受け渡しパネルに使える()
     {
         var path = WriteModified(json =>
         {
-            json["map"]!["panels"]!.AsArray().Add(new JsonObject { ["id"] = "X", ["type"] = "SpecialTransfer", ["carrierLoweringHeading"] = 45 });
+            json["map"]!["panels"]!.AsArray().Add(new JsonObject { ["id"] = "X", ["type"] = "SpecialTransfer", ["carrierLoweringHeading"] = 45, ["column"] = 5, ["row"] = 2 });
             json["map"]!["connections"]!.AsArray().Add(new JsonObject { ["from"] = "P5", ["to"] = "X", ["distanceMm"] = 1000, ["heading"] = 90 });
             json["consumables"]!["devices"]![0]!["transferPanel"] = "X";
         });
@@ -160,7 +172,10 @@ public sealed class InitialDataTests : IDisposable
         // マップの DB だけに中身がある
         var options = Database;
         var map = await MapDatabase.OpenAsync(b => Databases.Configure(b, options, MapDatabase.Schema), (c, t) => Databases.InitializeAsync(c, options, t), Token);
-        map.Publish(MapSnapshot.Create([new Panel(new PanelId("X"), PanelType.Normal, false)], []).Snapshot!);
+        map.Publish(MapSnapshot.Create(
+            [new Panel(new PanelId("X"), PanelType.Normal, false)],
+            [],
+            drawing: new MapDrawing(1000, new Dictionary<PanelId, PanelPlacement> { [new PanelId("X")] = new(new GridPosition(0, 0), CrossOffset.None, null) })).Snapshot!);
 
         var system = await StartAsync(BundledFile);
 
@@ -193,6 +208,10 @@ public sealed class InitialDataTests : IDisposable
     {
         { "AGV の種類がない", "agvs.0.type=unknown" },
         { "マップの検証に通らない", "map.connections.0.distanceMm=0" },
+        { "同じ格子に2枚のパネル", "map.panels.1.column=1" },
+        { "十字の交点の間が短すぎる", "map.panelSizeMm=600" },
+        { "パネルの位置がない", "map.panels.0.row=null" },
+        { "パネルの一辺の長さがない", "map.panelSizeMm=null" },
         { "受け渡しパネルがマップにない", "consumables.devices.0.transferPanel=NOWHERE" },
         { "品種の加工の種類がない", "consumables.varieties.0.processType=unknown" },
         { "ストッカーの設定の品種がない", "consumables.stockerSettings.1.counts.DR-9=1" },
@@ -237,7 +256,7 @@ public sealed class InitialDataTests : IDisposable
 
         var parts = path.Split('.');
         var parent = Navigate(json, parts[..^1]);
-        JsonNode newValue = int.TryParse(value, out var number) ? JsonValue.Create(number) : JsonValue.Create(value);
+        JsonNode? newValue = value == "null" ? null : int.TryParse(value, out var number) ? JsonValue.Create(number) : JsonValue.Create(value);
         if (parent is JsonArray array)
         {
             array[int.Parse(parts[^1], System.Globalization.CultureInfo.InvariantCulture)] = newValue;

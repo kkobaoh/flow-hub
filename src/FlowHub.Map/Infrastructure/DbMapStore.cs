@@ -51,33 +51,33 @@ public sealed class DbMapStore : IMapStore
     private readonly Lock _lock = new();
     private int _latestVersion;
 
+    /// <summary>
+    /// 読み直すときの検証のオプション。交点の間の距離は、公開したときに、そのときの設定で確かめてあるので、設定が変わっても読み直せるように確かめない（最小の距離を 1mm にする）。
+    /// </summary>
+    private static readonly MapValidationOptions ReloadOptions = new() { MinimumCrossDistanceMm = 1 };
+
     internal DbMapStore(Func<MapDbContext> createContext) => _createContext = createContext;
 
     public MapSnapshot? Current => _memory.Current;
 
+    public int CurrentVersion => _memory.CurrentVersion;
+
     public int? CarrierHeightOf(PanelId panel) => _memory.CarrierHeightOf(panel);
 
     /// <summary>
-    /// マップを公開する。次の番号の版として DB に保存してから、今の版にする。
+    /// マップを公開する。次の番号の版として DB に保存してから、今の版にする。DB に残す版は、描く情報を必ず持つ。
     /// </summary>
     public void Publish(MapSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        var drawing = snapshot.Drawing ?? throw new ArgumentException("描く情報（パネルの位置）のないマップは、DB に残せません。", nameof(snapshot));
         lock (_lock)
         {
             var version = _latestVersion + 1;
             using (var context = _createContext())
             {
-                context.Versions.Add(new MapVersionRow { Version = version });
-                context.Panels.AddRange(snapshot.Panels.Select((panel, order) => new PanelRow
-                {
-                    Version = version,
-                    Order = order,
-                    PanelId = panel.Id.Value,
-                    Type = panel.Type.ToString(),
-                    HasChargingPin = panel.HasChargingPin,
-                    CarrierLoweringHeading = panel.CarrierLoweringHeading?.Degrees,
-                }));
+                context.Versions.Add(new MapVersionRow { Version = version, PanelSizeMm = drawing.PanelSizeMm });
+                context.Panels.AddRange(snapshot.Panels.Select((panel, order) => ToRow(version, order, panel, drawing.Placements[panel.Id])));
                 context.Connections.AddRange(snapshot.Connections.Select((connection, order) => new ConnectionRow
                 {
                     Version = version,
@@ -92,9 +92,32 @@ public sealed class DbMapStore : IMapStore
             }
 
             _latestVersion = version;
-            _memory.Publish(snapshot);
+            _memory.Publish(snapshot, version);
         }
     }
+
+    private static PanelRow ToRow(int version, int order, Panel panel, PanelPlacement placement) => new()
+    {
+        Version = version,
+        Order = order,
+        PanelId = panel.Id.Value,
+        Type = panel.Type.ToString(),
+        HasChargingPin = panel.HasChargingPin,
+        CarrierLoweringHeading = panel.CarrierLoweringHeading?.Degrees,
+        Column = placement.Position.Column,
+        Row = placement.Position.Row,
+        CrossOffsetEastMm = placement.CrossOffset.EastMm,
+        CrossOffsetSouthMm = placement.CrossOffset.SouthMm,
+        OutlineXMm = placement.Outline?.XMm,
+        OutlineYMm = placement.Outline?.YMm,
+        OutlineWidthMm = placement.Outline?.WidthMm,
+        OutlineHeightMm = placement.Outline?.HeightMm,
+    };
+
+    private static PanelPlacement ToPlacement(PanelRow row) => new(
+        new GridPosition(row.Column, row.Row),
+        new CrossOffset(row.CrossOffsetEastMm, row.CrossOffsetSouthMm),
+        row is { OutlineXMm: { } x, OutlineYMm: { } y, OutlineWidthMm: { } width, OutlineHeightMm: { } height } ? new Outline(x, y, width, height) : null);
 
     /// <summary>
     /// キャリアの高さを設定する。新しく設定されたほうを使い、使うことにしたら DB に書く。
@@ -137,11 +160,13 @@ public sealed class DbMapStore : IMapStore
     internal async Task LoadAsync(CancellationToken cancellationToken)
     {
         await using var context = _createContext();
-        var latest = await context.Versions.Select(v => (int?)v.Version).MaxAsync(cancellationToken).ConfigureAwait(false);
-        if (latest is not { } version)
+        var latest = await context.Versions.OrderByDescending(v => v.Version).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (latest is null)
         {
             return;
         }
+
+        var version = latest.Version;
 
         var panels = await context.Panels.Where(p => p.Version == version).OrderBy(p => p.Order).ToListAsync(cancellationToken).ConfigureAwait(false);
         var connections = await context.Connections.Where(c => c.Version == version).OrderBy(c => c.Order).ToListAsync(cancellationToken).ConfigureAwait(false);
@@ -150,12 +175,14 @@ public sealed class DbMapStore : IMapStore
             {
                 CarrierLoweringHeading = p.CarrierLoweringHeading is { } heading ? new Heading(heading) : null,
             }),
-            connections.Select(c => new Connection(new PanelId(c.FromPanelId), new PanelId(c.ToPanelId), c.DistanceMm, new Heading(c.HeadingDegrees), c.OneWay)));
+            connections.Select(c => new Connection(new PanelId(c.FromPanelId), new PanelId(c.ToPanelId), c.DistanceMm, new Heading(c.HeadingDegrees), c.OneWay)),
+            ReloadOptions,
+            new MapDrawing(latest.PanelSizeMm, panels.ToDictionary(p => new PanelId(p.PanelId), ToPlacement)));
         var snapshot = result.Snapshot
             ?? throw new InvalidOperationException($"保存してあるマップの版 {version} が、検証を通りません：{string.Join("、", result.Errors.Select(e => e.ToString()))}");
 
         _latestVersion = version;
-        _memory.Publish(snapshot);
+        _memory.Publish(snapshot, version);
 
         foreach (var height in await context.CarrierHeights.ToListAsync(cancellationToken).ConfigureAwait(false))
         {

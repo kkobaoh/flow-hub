@@ -6,6 +6,9 @@ namespace FlowHub.Map.Infrastructure;
 internal sealed class MapVersionRow
 {
     public int Version { get; set; }
+
+    /// <summary>パネルの一辺の長さ（mm）。</summary>
+    public int PanelSizeMm { get; set; }
 }
 
 /// <summary>版ごとのパネル。</summary>
@@ -24,6 +27,27 @@ internal sealed class PanelRow
 
     /// <summary>キャリアを下ろす角度（特殊消耗品受け渡しパネルだけ）。</summary>
     public int? CarrierLoweringHeading { get; set; }
+
+    /// <summary>格子の列（東へ増える）。</summary>
+    public int Column { get; set; }
+
+    /// <summary>格子の行（南へ増える）。</summary>
+    public int Row { get; set; }
+
+    /// <summary>十字のずれ（mm、東が正）。</summary>
+    public int CrossOffsetEastMm { get; set; }
+
+    /// <summary>十字のずれ（mm、南が正）。</summary>
+    public int CrossOffsetSouthMm { get; set; }
+
+    /// <summary>下にあるものの外形（受け渡しパネルだけ。なければ 4 つとも null）。</summary>
+    public int? OutlineXMm { get; set; }
+
+    public int? OutlineYMm { get; set; }
+
+    public int? OutlineWidthMm { get; set; }
+
+    public int? OutlineHeightMm { get; set; }
 }
 
 /// <summary>版ごとのつながり。</summary>

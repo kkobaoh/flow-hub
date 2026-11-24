@@ -8,6 +8,7 @@ internal static class MapValidator
     public static IReadOnlyList<MapValidationError> Validate(
         IReadOnlyList<Panel> panels,
         IReadOnlyList<Connection> connections,
+        MapDrawing? drawing,
         MapValidationOptions options)
     {
         var errors = new List<MapValidationError>();
@@ -20,6 +21,11 @@ internal static class MapValidator
         if (options.RequireConnected)
         {
             ValidateConnected(panelsById, validConnections, errors);
+        }
+
+        if (drawing is not null)
+        {
+            MapDrawingValidator.Validate(panelsById, validConnections, drawing, options.MinimumCrossDistanceMm, errors);
         }
 
         return errors;

@@ -92,7 +92,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         var logger = loggerFactory.CreateLogger<FlowHubSystem>();
         if (settings.InitialDataPath is { } initialData)
         {
-            await InitialDataSeeder.SeedIfEmptyAsync(initialData, map, trafficStore, dispatchingStore, consumablesStore, logger, cancellationToken).ConfigureAwait(false);
+            await InitialDataSeeder.SeedIfEmptyAsync(initialData, map, trafficStore, dispatchingStore, consumablesStore, settings.MapValidation, logger, cancellationToken).ConfigureAwait(false);
         }
 
         var subscriptions = new EventSubscriptions();

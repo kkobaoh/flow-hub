@@ -53,6 +53,7 @@ internal static partial class InitialDataSeeder
         TrafficStore traffic,
         DispatchingStore dispatching,
         ConsumablesStore consumables,
+        MapValidationOptions mapValidation,
         ILogger logger,
         CancellationToken cancellationToken)
     {
@@ -70,7 +71,7 @@ internal static partial class InitialDataSeeder
             return false;
         }
 
-        var data = Prepare(path, logger);
+        var data = Prepare(path, mapValidation, logger);
 
         map.Publish(data.Map);
         foreach (var type in data.AgvTypes)
@@ -121,7 +122,7 @@ internal static partial class InitialDataSeeder
     }
 
     /// <summary>読んで、全体を確かめる。正しくなければ、ログに出して投げる。</summary>
-    private static SeedData Prepare(string path, ILogger logger)
+    private static SeedData Prepare(string path, MapValidationOptions mapValidation, ILogger logger)
     {
         var errors = new List<string>();
         SeedData? data = null;
@@ -129,7 +130,7 @@ internal static partial class InitialDataSeeder
         {
             var file = JsonSerializer.Deserialize<InitialDataFile>(File.ReadAllText(path), JsonOptions)
                 ?? throw new JsonException("中身がありません。");
-            data = Validate(file, errors);
+            data = Validate(file, mapValidation, errors);
         }
         catch (IOException exception)
         {
@@ -155,7 +156,7 @@ internal static partial class InitialDataSeeder
     }
 
     /// <summary>中身を確かめて、入れる形にする。正しくないところは errors に足す。</summary>
-    private static SeedData? Validate(InitialDataFile file, List<string> errors)
+    private static SeedData? Validate(InitialDataFile file, MapValidationOptions mapValidation, List<string> errors)
     {
         // ---- マップ ----
         MapSnapshot? map = null;
@@ -170,9 +171,21 @@ internal static partial class InitialDataSeeder
                 CarrierLoweringHeading = p.CarrierLoweringHeading is { } heading ? new Heading(heading) : null,
             });
             var connections = Each(file.Map.Connections, errors, "つながり", c => new Connection(new PanelId(c.From), new PanelId(c.To), c.DistanceMm, new Heading(c.Heading), c.OneWay));
-            var result = MapSnapshot.Create(panels, connections);
-            errors.AddRange(result.Errors.Select(e => $"マップ：{e.Message}"));
-            map = result.Snapshot;
+            var placements = Each(file.Map.Panels, errors, "パネルの位置", p => KeyValuePair.Create(new PanelId(p.Id), Placement(p)));
+            if (file.Map.PanelSizeMm is not { } panelSize)
+            {
+                errors.Add("map.panelSizeMm（パネルの一辺の長さ）がありません。");
+            }
+            else
+            {
+                var drawing = Each([panelSize], errors, "map.panelSizeMm", size => new MapDrawing(size, new Dictionary<PanelId, PanelPlacement>(placements))).FirstOrDefault();
+                if (drawing is not null)
+                {
+                    var result = MapSnapshot.Create(panels, connections, mapValidation, drawing);
+                    errors.AddRange(result.Errors.Select(e => $"マップ：{e.Message}"));
+                    map = result.Snapshot;
+                }
+            }
         }
 
         bool IsTransferPanel(PanelId panel) => map?.Panels.Any(p => p.Id == panel && p.Type is PanelType.Transfer or PanelType.SpecialTransfer) ?? false;
@@ -277,6 +290,20 @@ internal static partial class InitialDataSeeder
     }
 
     /// <summary>要素ごとに作る。作れなかったもの（ID が空、値が範囲外など）は errors に足して飛ばす。</summary>
+    /// <summary>パネルの描き方。列と行は必ず書く。</summary>
+    private static PanelPlacement Placement(PanelData panel)
+    {
+        if (panel.Column is not { } column || panel.Row is not { } row)
+        {
+            throw new ArgumentException($"パネル {panel.Id} の column（列）か row（行）がありません。", nameof(panel));
+        }
+
+        return new PanelPlacement(
+            new GridPosition(column, row),
+            panel.CrossOffset is { } offset ? new CrossOffset(offset.EastMm, offset.SouthMm) : CrossOffset.None,
+            panel.Outline is { } o ? new Outline(o.XMm, o.YMm, o.WidthMm, o.HeightMm) : null);
+    }
+
     private static List<TResult> Each<TSource, TResult>(IEnumerable<TSource> items, List<string> errors, string what, Func<TSource, TResult> create)
     {
         var results = new List<TResult>();

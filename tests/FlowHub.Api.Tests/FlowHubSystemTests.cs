@@ -78,7 +78,13 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var map = await MapDatabase.OpenAsync(b => Databases.Configure(b, options, MapDatabase.Schema), (c, t) => Databases.InitializeAsync(c, options, t), Token);
         map.Publish(MapSnapshot.Create(
             [new Panel(A, PanelType.Normal, false), new Panel(S, PanelType.Transfer, false), new Panel(D, PanelType.Transfer, false)],
-            [new Connection(A, S, 800, new Heading(0), false), new Connection(A, D, 800, new Heading(90), false)]).Snapshot!);
+            [new Connection(A, S, 800, new Heading(0), false), new Connection(A, D, 800, new Heading(90), false)],
+            drawing: new MapDrawing(1000, new Dictionary<PanelId, PanelPlacement>
+            {
+                [A] = new(new GridPosition(0, 1), CrossOffset.None, null),
+                [S] = new(new GridPosition(0, 0), CrossOffset.None, null),
+                [D] = new(new GridPosition(1, 1), CrossOffset.None, null),
+            })).Snapshot!);
 
         var traffic = await TrafficDatabase.OpenAsync(b => Databases.Configure(b, options, TrafficDatabase.Schema), (c, t) => Databases.InitializeAsync(c, options, t), Token);
         await traffic.AddAgvTypeAsync("small", new MotionProfile(500, 250, 90), Token);

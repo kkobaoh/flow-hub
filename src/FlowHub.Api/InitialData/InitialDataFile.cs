@@ -17,6 +17,9 @@ internal sealed class InitialDataFile
 
 internal sealed class MapData
 {
+    /// <summary>パネルの一辺の長さ（mm）。必ず書く。</summary>
+    public int? PanelSizeMm { get; set; }
+
     public List<PanelData> Panels { get; set; } = [];
 
     public List<ConnectionData> Connections { get; set; } = [];
@@ -32,6 +35,36 @@ internal sealed class PanelData
 
     /// <summary>キャリアを下ろす角度（特殊消耗品受け渡しパネルだけ）。</summary>
     public int? CarrierLoweringHeading { get; set; }
+
+    /// <summary>格子の列（東へ増える）。必ず書く。</summary>
+    public int? Column { get; set; }
+
+    /// <summary>格子の行（南へ増える）。必ず書く。</summary>
+    public int? Row { get; set; }
+
+    /// <summary>十字のずれ。省略したら、ずれていない。</summary>
+    public CrossOffsetData? CrossOffset { get; set; }
+
+    /// <summary>下にある装置かステーションの外形（受け渡しパネルだけ。省略できる）。</summary>
+    public OutlineData? Outline { get; set; }
+}
+
+internal sealed class CrossOffsetData
+{
+    public int EastMm { get; set; }
+
+    public int SouthMm { get; set; }
+}
+
+internal sealed class OutlineData
+{
+    public int XMm { get; set; }
+
+    public int YMm { get; set; }
+
+    public int WidthMm { get; set; }
+
+    public int HeightMm { get; set; }
 }
 
 internal sealed class ConnectionData

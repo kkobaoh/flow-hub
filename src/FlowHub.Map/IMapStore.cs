@@ -11,6 +11,9 @@ public interface IMapStore
     /// <summary>今の版のマップ。まだ公開していなければ null。</summary>
     MapSnapshot? Current { get; }
 
+    /// <summary>今の版の番号（公開した順に 1 から）。まだ公開していなければ 0。</summary>
+    int CurrentVersion { get; }
+
     /// <summary>マップを公開して、今の版にする。</summary>
     void Publish(MapSnapshot snapshot);
 
@@ -31,6 +34,7 @@ public sealed class InMemoryMapStore : IMapStore
     private readonly Lock _lock = new();
     private readonly Dictionary<PanelId, (int HeightMm, DateTimeOffset SetAt)> _heights = [];
     private MapSnapshot? _current;
+    private int _version;
 
     public MapSnapshot? Current
     {
@@ -43,12 +47,27 @@ public sealed class InMemoryMapStore : IMapStore
         }
     }
 
-    public void Publish(MapSnapshot snapshot)
+    public int CurrentVersion
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _version;
+            }
+        }
+    }
+
+    public void Publish(MapSnapshot snapshot) => Publish(snapshot, version: null);
+
+    /// <summary>マップを今の版にする。番号を指定しなければ、次の番号にする（DB から読んだときは、DB の番号を使う）。</summary>
+    internal void Publish(MapSnapshot snapshot, int? version)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         lock (_lock)
         {
             _current = snapshot;
+            _version = version ?? _version + 1;
         }
     }
 

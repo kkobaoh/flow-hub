@@ -46,6 +46,24 @@ public enum MapValidationErrorCode
 
     /// <summary>島の中に、一方通行のせいで入れるのに出られない区画がある（常に検証する）。</summary>
     NotStronglyConnected,
+
+    /// <summary>描く情報に、パネルの位置がない。</summary>
+    MissingPlacement,
+
+    /// <summary>描く情報に、マップにないパネルの位置がある。</summary>
+    PlacementForUnknownPanel,
+
+    /// <summary>同じ格子に2枚以上のパネルがある。</summary>
+    DuplicateGridPosition,
+
+    /// <summary>受け渡しパネルでも特殊消耗品受け渡しパネルでもないパネルに、外形がある。</summary>
+    OutlineOnNonTransferPanel,
+
+    /// <summary>上下左右に隣り合うパネルの十字の交点の間（位置から計算した距離）が、最小の距離より短い。</summary>
+    CrossDistanceTooShort,
+
+    /// <summary>上下左右に隣り合う、つながっているパネルのつながりの距離が、最小の距離より短い。</summary>
+    ConnectionDistanceTooShort,
 }
 
 /// <summary>

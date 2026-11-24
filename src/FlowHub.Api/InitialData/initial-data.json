@@ -1,19 +1,20 @@
 {
   "map": {
+    "panelSizeMm": 1000,
     "panels": [
-      { "id": "P1", "type": "Normal" },
-      { "id": "P2", "type": "Normal" },
-      { "id": "P3", "type": "Normal" },
-      { "id": "P4", "type": "Normal" },
-      { "id": "P5", "type": "Normal" },
-      { "id": "P6", "type": "Normal" },
-      { "id": "P7", "type": "Normal" },
-      { "id": "P8", "type": "Normal" },
-      { "id": "ST", "type": "Transfer" },
-      { "id": "D1", "type": "Transfer" },
-      { "id": "D2", "type": "Transfer" },
-      { "id": "SB", "type": "Standby" },
-      { "id": "SB2", "type": "Standby", "chargingPin": true }
+      { "id": "P1", "type": "Normal", "column": 1, "row": 1 },
+      { "id": "P2", "type": "Normal", "column": 2, "row": 1 },
+      { "id": "P3", "type": "Normal", "column": 3, "row": 1 },
+      { "id": "P4", "type": "Normal", "column": 4, "row": 1 },
+      { "id": "P5", "type": "Normal", "column": 4, "row": 2 },
+      { "id": "P6", "type": "Normal", "column": 3, "row": 2 },
+      { "id": "P7", "type": "Normal", "column": 2, "row": 2 },
+      { "id": "P8", "type": "Normal", "column": 1, "row": 2 },
+      { "id": "ST", "type": "Transfer", "column": 2, "row": 0, "outline": { "xMm": 1500, "yMm": -750, "widthMm": 2000, "heightMm": 1650 } },
+      { "id": "D1", "type": "Transfer", "column": 3, "row": 3, "outline": { "xMm": 3050, "yMm": 2900, "widthMm": 900, "heightMm": 2100 } },
+      { "id": "D2", "type": "Transfer", "column": 2, "row": 3, "outline": { "xMm": 1100, "yMm": 2900, "widthMm": 1850, "heightMm": 1750 } },
+      { "id": "SB", "type": "Standby", "column": 0, "row": 1 },
+      { "id": "SB2", "type": "Standby", "chargingPin": true, "column": 5, "row": 1 }
     ],
     "connections": [
       { "from": "P1", "to": "P2", "distanceMm": 1000, "heading": 90 },

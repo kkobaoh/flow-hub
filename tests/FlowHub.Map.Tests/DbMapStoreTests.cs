@@ -31,9 +31,22 @@ public sealed class DbMapStoreTests : IDisposable
             (context, cancellationToken) => context.Database.EnsureCreatedAsync(cancellationToken),
             Token);
 
+    /// <summary>受け渡しパネルの下にあるものの外形（見本）。</summary>
+    private static readonly Outline UnderT = new(1500, -800, 2000, 1600);
+
+    /// <summary>
+    /// 描く情報つきのマップを作る（DB に残す版は、描く情報を必ず持つため）。パネルは並べた順に東へ1枚ずつ置き、受け渡しパネルには外形を置く。
+    /// </summary>
+    private static MapSnapshotResult Drawn(IEnumerable<Panel> panels, IEnumerable<Connection> connections)
+    {
+        var list = panels.ToList();
+        var placements = list.Select((p, i) => KeyValuePair.Create(p.Id, new PanelPlacement(new GridPosition(i, 0), CrossOffset.None, p.Type == PanelType.Transfer ? UnderT : null)));
+        return MapSnapshot.Create(list, connections, drawing: new MapDrawing(1000, new Dictionary<PanelId, PanelPlacement>(placements)));
+    }
+
     /// <summary>A →(0度) B →(90度) T（受け渡しパネル、充電ピンあり）。</summary>
     private static MapSnapshot ThreePanels() =>
-        MapSnapshot.Create(
+        Drawn(
             [
                 new Panel(A, PanelType.Normal, false),
                 new Panel(B, PanelType.Normal, false),
@@ -46,7 +59,7 @@ public sealed class DbMapStoreTests : IDisposable
 
     /// <summary>A →(0度、900mm) B。</summary>
     private static MapSnapshot TwoPanels() =>
-        MapSnapshot.Create(
+        Drawn(
             [new Panel(A, PanelType.Normal, false), new Panel(B, PanelType.Normal, false)],
             [new Connection(A, B, 900, new Heading(0), OneWay: false)]).Snapshot!;
 
@@ -74,11 +87,48 @@ public sealed class DbMapStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task 描く情報も次に開いたときに読める()
+    {
+        var store = await OpenAsync();
+        store.Publish(ThreePanels());
+
+        var reopened = await OpenAsync();
+
+        var drawing = reopened.Current!.Drawing!;
+        Assert.Equal(1000, drawing.PanelSizeMm);
+        Assert.Equal(new PanelPlacement(new GridPosition(2, 0), CrossOffset.None, UnderT), drawing.Placements[T]);
+        Assert.Equal(new PanelPlacement(new GridPosition(0, 0), CrossOffset.None, null), drawing.Placements[A]);
+    }
+
+    [Fact]
+    public async Task 描く情報のないマップはDBに残せない()
+    {
+        var store = await OpenAsync();
+        var undrawn = MapSnapshot.Create([new Panel(A, PanelType.Normal, false)], []).Snapshot!;
+
+        Assert.Throws<ArgumentException>(() => store.Publish(undrawn));
+        Assert.Null(store.Current);
+    }
+
+    [Fact]
+    public async Task 今の版の番号は公開するたびに進み開き直しても続く()
+    {
+        var store = await OpenAsync();
+        Assert.Equal(0, store.CurrentVersion);
+        store.Publish(ThreePanels());
+        store.Publish(TwoPanels());
+
+        var reopened = await OpenAsync();
+
+        Assert.Equal(2, reopened.CurrentVersion);
+    }
+
+    [Fact]
     public async Task 特殊消耗品受け渡しパネルとキャリアを下ろす角度も次に開いたときに読める()
     {
         var store = await OpenAsync();
         var special = new Panel(new PanelId("X"), PanelType.SpecialTransfer, false) { CarrierLoweringHeading = new Heading(215) };
-        store.Publish(MapSnapshot.Create(
+        store.Publish(Drawn(
             [new Panel(A, PanelType.Normal, false), special],
             [new Connection(A, special.Id, 800, new Heading(0), OneWay: false)]).Snapshot!);
 

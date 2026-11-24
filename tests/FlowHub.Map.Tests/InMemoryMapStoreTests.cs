@@ -29,6 +29,18 @@ public class InMemoryMapStoreTests
     }
 
     [Fact]
+    public void 今の版の番号は公開するたびに1つ進む()
+    {
+        var store = new InMemoryMapStore();
+        Assert.Equal(0, store.CurrentVersion);
+
+        store.Publish(Map());
+        store.Publish(Map());
+
+        Assert.Equal(2, store.CurrentVersion);
+    }
+
+    [Fact]
     public void キャリアの高さは設定されるまでない()
     {
         var store = new InMemoryMapStore();
