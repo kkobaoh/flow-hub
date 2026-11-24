@@ -5,6 +5,8 @@ using FlowHub.Api.Composition;
 using FlowHub.Api.Composition.Screens;
 using FlowHub.Api.Database;
 using FlowHub.Simulator;
+using FlowHub.Consumables;
+using FlowHub.Consumables.Infrastructure;
 using FlowHub.Dispatching;
 using FlowHub.Dispatching.Infrastructure;
 using FlowHub.Map;
@@ -82,7 +84,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
             drawing: new MapDrawing(1000, new Dictionary<PanelId, PanelPlacement>
             {
                 [A] = new(new GridPosition(0, 1), CrossOffset.None, null),
-                [S] = new(new GridPosition(0, 0), CrossOffset.None, null),
+                [S] = new(new GridPosition(0, 0), CrossOffset.None, new Outline(-500, -1200, 2000, 1500)),
                 [D] = new(new GridPosition(1, 1), CrossOffset.None, null),
             })).Snapshot!);
 
@@ -345,6 +347,29 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task 画面がつないだときに公開中のマップと外形のある装置とステーションが届く()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var options = Database;
+        var consumables = await ConsumablesDatabase.OpenAsync(b => Databases.Configure(b, options, ConsumablesDatabase.Schema), (c, t) => Databases.InitializeAsync(c, options, t), Token);
+        await consumables.AddStationAsync(new StationLayout(new StationId("ST-1"), S), Token);
+        await consumables.AddDeviceAsync(new DeviceLayout(new DeviceId("DEV-1"), D, [2]), Token); // D には外形がない
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        var map = new SnapshotQueue<MapViewSnapshot>();
+        await using var screen = await ConnectScreenAsync(client, new SnapshotQueue<SystemStatusSnapshot>(), map: map);
+
+        var first = await map.NextAsync();
+
+        Assert.Equal(1, first.MapVersion);
+        Assert.Equal(1000, first.PanelSizeMm);
+        Assert.Equal(["A", "S", "D"], first.Panels.Select(p => p.Id));
+        Assert.Equal(new PanelView("S", "Transfer", false, null, 0, 0, 0, 0), first.Panels[1]);
+        Assert.Equal(2, first.Connections.Count);
+        Assert.Equal([new EquipmentView("ST-1", "station", "S", new OutlineView(-500, -1200, 2000, 1500))], first.Equipment);
+    }
+
+    [Fact]
     public async Task 運転状態が変わったら新しい番号で全員に届く()
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
@@ -388,11 +413,12 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(57, Assert.Single(changed.Agvs).BatteryPercent);
     }
 
-    private static async Task<HubConnection> ConnectScreenAsync(HttpClient client, SnapshotQueue<SystemStatusSnapshot> received, SnapshotQueue<AgvsWire>? agvs = null)
+    private static async Task<HubConnection> ConnectScreenAsync(HttpClient client, SnapshotQueue<SystemStatusSnapshot> received, SnapshotQueue<AgvsWire>? agvs = null, SnapshotQueue<MapViewSnapshot>? map = null)
     {
         var connection = new HubConnectionBuilder().WithUrl(new Uri(client.BaseAddress!, "/hubs/screen")).Build();
         connection.On<SystemStatusSnapshot>("systemStatus", received.Add);
         connection.On<AgvsWire>("agvs", snapshot => agvs?.Add(snapshot));
+        connection.On<MapViewSnapshot>("map", snapshot => map?.Add(snapshot));
         await connection.StartAsync(Token);
         return connection;
     }

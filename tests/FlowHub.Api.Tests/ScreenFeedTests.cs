@@ -19,6 +19,7 @@ public sealed class ScreenFeedTests : IDisposable
     private bool _running;
     private Func<IReadOnlyList<AgvSnapshot>> _agvs = () => [];
     private Func<IReadOnlyList<Notice>> _notices = () => [];
+    private Func<ScreenMapState> _map = () => ScreenMapState.Empty;
 
     public ScreenFeedTests()
     {
@@ -34,7 +35,7 @@ public sealed class ScreenFeedTests : IDisposable
         _logs.Dispose();
     }
 
-    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices()));
+    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices(), () => _map()));
 
     [Fact]
     public void つなぐ前は様子がない()
@@ -54,6 +55,7 @@ public sealed class ScreenFeedTests : IDisposable
                 new ScreenMessage(ScreenFeed.SystemStatusMethod, new SystemStatusSnapshot(1, "started")),
                 new ScreenMessage(ScreenFeed.AgvsMethod, new AgvsSnapshot(1, [Agv1AtP1])),
                 new ScreenMessage(ScreenFeed.MessagesMethod, new MessagesSnapshot(1, [])),
+                new ScreenMessage(ScreenFeed.MapMethod, ScreenMapState.Empty.ToSnapshot(1)),
             ],
             _feed.Current(),
             MessageComparer.Instance);
@@ -112,6 +114,30 @@ public sealed class ScreenFeedTests : IDisposable
         Assert.Equal(
             [new MessageSnapshot(2, at.AddMinutes(1), "行ける充電ポートがありません", "AGV-2"), new MessageSnapshot(1, at, "搬送を中断しました", "搬送 #11")],
             snapshot.Messages);
+    }
+
+    [Fact]
+    public async Task マップの版か装置とステーションが変わったらマップの番号を進めて送る()
+    {
+        var map = TestMaps.TwoPanels();
+        _map = () => new ScreenMapState(1, map, []);
+        Attach();
+
+        var device = new EquipmentView("DEV-1", "device", "T", new OutlineView(1500, -800, 2000, 1600));
+        _map = () => new ScreenMapState(1, map, [device]);
+        await _feed.PublishIfChangedAsync(Token);
+        _map = () => new ScreenMapState(1, map, [device with { }]); // 同じ中身なら送らない
+        await _feed.PublishIfChangedAsync(Token);
+
+        var sent = Assert.Single(_broadcast.Sent);
+        Assert.Equal(ScreenFeed.MapMethod, sent.Method);
+        var snapshot = Assert.IsType<MapViewSnapshot>(sent.Payload);
+        Assert.Equal(2, snapshot.Version);
+        Assert.Equal(1, snapshot.MapVersion);
+        Assert.Equal(1000, snapshot.PanelSizeMm);
+        Assert.Equal(new PanelView("T", "Transfer", HasChargingPin: false, CarrierLoweringHeading: null, Column: 1, Row: 0, CrossOffsetEastMm: 0, CrossOffsetSouthMm: 0), snapshot.Panels[1]);
+        Assert.Equal(new ConnectionView("A", "T", 1000, 90, OneWay: false), Assert.Single(snapshot.Connections));
+        Assert.Equal([device], snapshot.Equipment);
     }
 
     [Fact]
@@ -220,6 +246,7 @@ public sealed class ScreenFeedTests : IDisposable
         {
             ({ Payload: AgvsSnapshot a }, { Payload: AgvsSnapshot b }) => x.Method == y.Method && a.Version == b.Version && a.Agvs.SequenceEqual(b.Agvs),
             ({ Payload: MessagesSnapshot a }, { Payload: MessagesSnapshot b }) => x.Method == y.Method && a.Version == b.Version && a.Messages.SequenceEqual(b.Messages),
+            ({ Payload: MapViewSnapshot a }, { Payload: MapViewSnapshot b }) => x.Method == y.Method && a.Version == b.Version && a.MapVersion == b.MapVersion && a.Panels.Count == b.Panels.Count && a.Equipment.SequenceEqual(b.Equipment),
             _ => object.Equals(x, y),
         };
 

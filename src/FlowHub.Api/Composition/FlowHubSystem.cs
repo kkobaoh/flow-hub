@@ -7,6 +7,7 @@ using FlowHub.Consumables.Application;
 using FlowHub.Consumables.Infrastructure;
 using FlowHub.Dispatching.Application;
 using FlowHub.Dispatching.Infrastructure;
+using FlowHub.Map;
 using FlowHub.Map.Infrastructure;
 using FlowHub.Notifications;
 using FlowHub.Notifications.Infrastructure;
@@ -35,6 +36,7 @@ internal sealed partial class FlowHubSystem : IDisposable
 {
     private readonly AgvEndpointOptions _agvEndpoints;
     private readonly TimeProvider _timeProvider;
+    private readonly IMapStore _map;
     private volatile ScreenFeed? _screen;
 
     private FlowHubSystem(
@@ -44,6 +46,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ConsumablesService consumables,
         ToolPlanningService toolPlanning,
         INoticeBoard notices,
+        IMapStore map,
         AgvEndpointOptions agvEndpoints,
         TimeProvider timeProvider)
     {
@@ -53,6 +56,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         Consumables = consumables;
         ToolPlanning = toolPlanning;
         Notices = notices;
+        _map = map;
         _agvEndpoints = agvEndpoints;
         _timeProvider = timeProvider;
     }
@@ -112,7 +116,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ToolPlanningSubscriptions.Register(subscriptions, toolPlanning);
         ApiSubscriptions.Register(subscriptions, loggerFactory, notices);
 
-        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, settings.AgvEndpoints, timeProvider);
+        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, map, settings.AgvEndpoints, timeProvider);
 
         // シミュレーターの通知も、処理を終えたあとに後始末をする
         simulator.Attach(new ConsumablesSimulationTarget(consumables), system.AfterWorkAsync);
@@ -156,6 +160,29 @@ internal sealed partial class FlowHubSystem : IDisposable
     }
 
     /// <summary>
+    /// 画面へ送るマップの様子を読む。公開中の版と、消耗品の管理の装置とステーションを、受け渡しパネルで結び付ける（それぞれ別々に読む）。
+    /// 外形のない受け渡しパネルの装置とステーションは、マップに描けないので入れない。
+    /// </summary>
+    private ScreenMapState ReadMap()
+    {
+        var map = _map.Current;
+        var placements = map?.Drawing?.Placements;
+        if (map is null || placements is null)
+        {
+            return ScreenMapState.Empty;
+        }
+
+        var endpoints = Consumables.Devices.Select(d => (Id: d.Value, Kind: "device", Consumables.DeviceEndpoint(d).Panel))
+            .Concat(Consumables.Stations.Select(s => (Id: s.Value, Kind: "station", Consumables.StationEndpoint(s).Panel)));
+        var equipment = endpoints
+            .Where(e => placements.TryGetValue(e.Panel, out var placement) && placement.Outline is not null)
+            .Select(e => new EquipmentView(e.Id, e.Kind, e.Panel.Value, OutlineView.From(placements[e.Panel].Outline!)))
+            .OrderBy(e => e.Id, StringComparer.Ordinal)
+            .ToArray();
+        return new ScreenMapState(_map.CurrentVersion, map, equipment);
+    }
+
+    /// <summary>
     /// 処理のあとの後始末。たまったイベントを届けてから、画面へ様子を送る（変わっていれば）。
     /// HTTP のリクエスト、シミュレーターの通知、交通整理のタイマーのあとは、すべてここを通す。
     /// </summary>
@@ -177,7 +204,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ArgumentNullException.ThrowIfNull(app);
 
         var screen = app.Services.GetRequiredService<ScreenFeed>();
-        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent));
+        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent, ReadMap));
         _screen = screen;
 
         app.Use(async (context, next) =>
