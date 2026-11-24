@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+/*
+ * デザインの試作（Artifact「FlowHub 画面デザイン」）の色と字。
+ * 色は状態を表すときにだけ使う（標示灯、経路、緊急停止）。
+ */
+@theme {
+  /* 床と面 */
+  --color-floor: #bdbdb6;
+  --color-ground: #e4e4df;
+  --color-paper: #f2f2ee;
+  --color-graphite: #23262b;
+  --color-ink-muted: #4f545b;
+  --color-line: #c9c9c2;
+  --color-control-border: #8b9097;
+  --color-disabled-border: #d4d4ce;
+  --color-disabled-text: #5e636a;
+  --color-track: #d4d4ce;
+  --color-header-muted: #d4d6d9;
+  --color-header-border: #5e636a;
+  --color-running: #1e7b45;
+  --color-running-dot: #7ce3a1;
+  --color-stopped-dot: #5e636a;
+  --color-focus: #1d4ed8;
+  --color-panel: #000000;
+  --color-panel-edge: #3a3a3a;
+  --color-panel-line: #ffffff;
+  --color-hole: #8a94a3;
+  --color-pin: #c88a3a;
+  --color-pin-charging: #3fd07a;
+  --color-lowering: #fbbf24;
+  --color-agv-body: #3f4650;
+
+  /* カードとメッセージの列の出方（押した操作に答える動きなので、動きを減らす設定では止める） */
+  --animate-drawer-in: drawer-in 200ms ease-out;
+  --animate-sheet-in: sheet-in 200ms ease-out;
+  @keyframes drawer-in {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
+  @keyframes sheet-in {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
+  /* 標示灯の点滅（標示灯の状態を表すので、動きを減らす設定でも止めない） */
+  --animate-agv-blink: agv-blink 1s ease-in-out infinite;
+  @keyframes agv-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
+
+  /* 状態 */
+  --color-route: #f97316;
+  --color-attention: #c2410c;
+  --color-selection: #38bdf8;
+  --color-estop: #c8102e;
+  --color-estop-plate: #f5c400;
+
+  /* AGV の標示灯 */
+  --color-light-moving: #2563eb;
+  --color-light-waiting: #facc15;
+  --color-light-charging: #16a34a;
+  --color-light-charge-failed: #9333ea;
+
+  /* 字：本文はユニバーサルデザインの BIZ UDPGothic、番号は標識のような Barlow Semi Condensed */
+  --font-sans: "BIZ UDPGothic", system-ui, sans-serif;
+  --font-number: "Barlow Semi Condensed", "BIZ UDPGothic", sans-serif;
+}

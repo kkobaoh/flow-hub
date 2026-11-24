@@ -1,0 +1,73 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Api",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "ビルド: Api",
+      "program": "${workspaceFolder}/src/FlowHub.Api/bin/Debug/net10.0/FlowHub.Api.dll",
+      // dotnet run と同じく、プロジェクトのフォルダーで起こす（SQLite の DB は src/FlowHub.Api/data/ にできる）
+      "cwd": "${workspaceFolder}/src/FlowHub.Api",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5020"
+      },
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
+      "name": "画面（Edge）",
+      "type": "msedge",
+      "request": "launch",
+      "preLaunchTask": "画面: 開発用のサーバー",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/frontend"
+    },
+    {
+      "name": "テスト（プロジェクトと名前を選んで）",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "ビルド",
+      "program": "${workspaceFolder}/tests/${input:testProject}/bin/Debug/net10.0/${input:testProject}.dll",
+      // テストの dll を直に起こすと xUnit の実行器が動くので、絞り方は dotnet test の --filter-method ではなく -method で書く
+      "args": ["-method", "${input:testMethod}"],
+      "cwd": "${workspaceFolder}/tests/${input:testProject}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Api + 画面",
+      "configurations": ["Api", "画面（Edge）"],
+      "stopAll": true
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testProject",
+      "type": "pickString",
+      "description": "テストのプロジェクト",
+      "options": [
+        "FlowHub.Map.Tests",
+        "FlowHub.Routing.Tests",
+        "FlowHub.PathPlanning.Tests",
+        "FlowHub.Traffic.Tests",
+        "FlowHub.Dispatching.Tests",
+        "FlowHub.ToolPlanning.Tests",
+        "FlowHub.Consumables.Tests",
+        "FlowHub.Simulator.Tests",
+        "FlowHub.Api.Tests",
+        "FlowHub.BuildingBlocks.Tests",
+        "FlowHub.ArchitectureTests"
+      ]
+    },
+    {
+      "id": "testMethod",
+      "type": "promptString",
+      "description": "テストのメソッドの名前（* を使える。例：*Reserve*）",
+      "default": "*"
+    }
+  ]
+}

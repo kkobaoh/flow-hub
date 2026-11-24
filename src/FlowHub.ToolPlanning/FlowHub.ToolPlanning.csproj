@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FlowHub.ToolPlanning.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlowHub.BuildingBlocks\FlowHub.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\FlowHub.Consumables\FlowHub.Consumables.csproj" />
+    <ProjectReference Include="..\FlowHub.Dispatching\FlowHub.Dispatching.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,162 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    // ---- サーバー（.NET） ----
+    {
+      "label": "ビルド",
+      "detail": "ソリューション全体をビルドする",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "FlowHub.slnx", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "ビルド: Api",
+      "detail": "デバッグで Api を起こす前のビルド",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "src/FlowHub.Api", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "ビルド: テストのプロジェクト",
+      "detail": "デバッグでテストを流す前のビルド",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "tests/${input:testProject}", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "テスト",
+      "detail": "全テストを流す（統合テストは含まない）",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "テスト: プロジェクトと名前を選んで",
+      "detail": "テストのプロジェクトを1つ選び、メソッドの名前で絞って流す（* で全部）",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "--project", "tests/${input:testProject}", "--filter-method", "${input:testMethod}"],
+      "problemMatcher": "$msCompile",
+      "group": "test"
+    },
+    {
+      "label": "統合テスト（PostgreSQL）",
+      "detail": "ローカルの PostgreSQL で流す。接続文字列はユーザーシークレット（tests/FlowHub.IntegrationTests/README.md）",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "--project", "tests/FlowHub.IntegrationTests", "-p:RunIntegrationTests=true"],
+      "problemMatcher": "$msCompile",
+      "group": "test"
+    },
+    {
+      "label": "マイグレーションを作る",
+      "detail": "PostgreSQL 用のマイグレーションを作る（初めてのときは dotnet tool restore）",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "ef", "migrations", "add", "${input:migrationName}",
+        "--project", "src/FlowHub.${input:dbContext}",
+        "--startup-project", "src/FlowHub.Api",
+        "--context", "${input:dbContext}DbContext",
+        "--output-dir", "Infrastructure/Migrations"
+      ],
+      "problemMatcher": []
+    },
+
+    // ---- 画面（frontend） ----
+    {
+      "label": "画面: 開発用のサーバー",
+      "detail": "npm run dev（http://localhost:5173）。Api は別に起こしておく",
+      "type": "npm",
+      "script": "dev",
+      "path": "frontend",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": { "regexp": "^__never_matches__$" },
+        "background": {
+          "activeBegins": true,
+          "beginsPattern": "VITE v",
+          "endsPattern": "Local:"
+        }
+      }
+    },
+    {
+      "label": "画面: 型を確かめる",
+      "type": "npm",
+      "script": "typecheck",
+      "path": "frontend",
+      "problemMatcher": "$tsc",
+      "group": "build"
+    },
+    {
+      "label": "画面: テスト",
+      "type": "npm",
+      "script": "test",
+      "path": "frontend",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "画面: E2E テスト",
+      "detail": "Api と開発用のサーバーは、テストが自分で起こす",
+      "type": "npm",
+      "script": "e2e",
+      "path": "frontend",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "画面: Storybook",
+      "detail": "http://localhost:6006",
+      "type": "npm",
+      "script": "storybook",
+      "path": "frontend",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testProject",
+      "type": "pickString",
+      "description": "テストのプロジェクト",
+      "options": [
+        "FlowHub.Map.Tests",
+        "FlowHub.Routing.Tests",
+        "FlowHub.PathPlanning.Tests",
+        "FlowHub.Traffic.Tests",
+        "FlowHub.Dispatching.Tests",
+        "FlowHub.ToolPlanning.Tests",
+        "FlowHub.Consumables.Tests",
+        "FlowHub.Simulator.Tests",
+        "FlowHub.Api.Tests",
+        "FlowHub.BuildingBlocks.Tests",
+        "FlowHub.ArchitectureTests"
+      ]
+    },
+    {
+      "id": "testMethod",
+      "type": "promptString",
+      "description": "テストのメソッドの名前（* を使える。例：*Reserve*）",
+      "default": "*"
+    },
+    {
+      "id": "migrationName",
+      "type": "promptString",
+      "description": "マイグレーションの名前"
+    },
+    {
+      "id": "dbContext",
+      "type": "pickString",
+      "description": "コンテキスト",
+      "options": ["Map", "Traffic", "Dispatching", "Consumables"]
+    }
+  ]
+}

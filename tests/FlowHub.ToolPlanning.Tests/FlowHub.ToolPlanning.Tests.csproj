@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FlowHub.ToolPlanning\FlowHub.ToolPlanning.csproj" />
+  </ItemGroup>
+
+</Project>

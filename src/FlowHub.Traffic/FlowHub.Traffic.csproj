@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FlowHub.Traffic.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlowHub.BuildingBlocks\FlowHub.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\FlowHub.Map\FlowHub.Map.csproj" />
+    <ProjectReference Include="..\FlowHub.Routing\FlowHub.Routing.csproj" />
+    <ProjectReference Include="..\FlowHub.PathPlanning\FlowHub.PathPlanning.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+</Project>

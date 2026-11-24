@@ -1,0 +1,34 @@
+using FlowHub.BuildingBlocks;
+using FlowHub.Map;
+
+namespace FlowHub.Traffic;
+
+/// <summary>AGV が頼まれたパネルに着いた。</summary>
+public sealed record AgvArrived(EventMetadata Metadata, AgvId Agv, PanelId Panel) : IIntegrationEvent;
+
+/// <summary>キャリアが下がった。</summary>
+public sealed record CarrierLowered(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
+
+/// <summary>キャリアが上がった。</summary>
+public sealed record CarrierRaised(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
+
+/// <summary>AGV が緊急停止中になった（緊急停止、または位置はずれていない種類のエラー）。</summary>
+public sealed record AgvStopped(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
+
+/// <summary>AGV のアラームクリアが完了し、続きを走れるようになった。</summary>
+public sealed record AgvResumed(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
+
+/// <summary>AGV が「異常」になった（位置リセットが必要）。</summary>
+public sealed record AgvFaulted(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
+
+/// <summary>AGV の位置リセットが完了した（AGV は待機中になった）。</summary>
+public sealed record AgvPositionResetCompleted(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
+
+/// <summary>マニュアルで並べた1つずつの動作を、渡すときに予約が取れなかったので、そこで止めて残りを捨てた（画面で知らせる）。</summary>
+public sealed record ManualStepsDropped(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;
+
+/// <summary>充電ポート（充電ピンのあるパネル）にいた AGV が離れて、予約を外した（ほかの AGV が向かえるようになった）。</summary>
+public sealed record ChargingPortReleased(EventMetadata Metadata, PanelId Panel) : IIntegrationEvent;
+
+/// <summary>AGV の充電残量が変わった。</summary>
+public sealed record AgvBatteryChanged(EventMetadata Metadata, AgvId Agv, int Percent) : IIntegrationEvent;

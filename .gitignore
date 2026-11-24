@@ -55,3 +55,12 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Claude Code の個人設定（コミットしない）
+.claude/settings.local.json
+.claude/skills/
+
+# SQLite（テストとデバッグ用の DB）
+*.db
+*.db-shm
+*.db-wal

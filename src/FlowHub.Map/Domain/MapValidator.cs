@@ -1,0 +1,291 @@
+namespace FlowHub.Map.Domain;
+
+/// <summary>
+/// マップの検証。違反をすべて集めて返す。
+/// </summary>
+internal static class MapValidator
+{
+    public static IReadOnlyList<MapValidationError> Validate(
+        IReadOnlyList<Panel> panels,
+        IReadOnlyList<Connection> connections,
+        MapDrawing? drawing,
+        MapValidationOptions options)
+    {
+        var errors = new List<MapValidationError>();
+
+        var panelsById = ValidatePanels(panels, errors);
+        var validConnections = ValidateConnections(connections, panelsById, errors);
+        ValidateDeadEnds(panelsById, validConnections, errors);
+        ValidateReachableWithinIslands(panelsById, validConnections, errors);
+
+        if (options.RequireConnected)
+        {
+            ValidateConnected(panelsById, validConnections, errors);
+        }
+
+        if (drawing is not null)
+        {
+            MapDrawingValidator.Validate(panelsById, validConnections, drawing, options.MinimumCrossDistanceMm, errors);
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// すべてのパネルが1つにつながっているかを検証する。つながりの向き（一方通行）は問わない。
+    /// </summary>
+    private static void ValidateConnected(
+        Dictionary<PanelId, Panel> panelsById,
+        List<Connection> connections,
+        List<MapValidationError> errors)
+    {
+        var islands = FindIslands(panelsById.Keys, connections);
+        if (islands.Count <= 1)
+        {
+            return;
+        }
+
+        var description = string.Join(" / ", islands.Select(island => $"{{{string.Join("、", island)}}}"));
+        errors.Add(new(
+            MapValidationErrorCode.NotConnected,
+            $"マップが {islands.Count} つの離れ島に分かれています：{description}"));
+    }
+
+    /// <summary>
+    /// それぞれの島の中で、一方通行の向きも守ったうえで、どのパネルからどのパネルへも行けるかを検証する。
+    /// 行けない島があれば、互いに行き来できるパネルのまとまりを示す。
+    /// </summary>
+    private static void ValidateReachableWithinIslands(
+        Dictionary<PanelId, Panel> panelsById,
+        List<Connection> connections,
+        List<MapValidationError> errors)
+    {
+        var forward = panelsById.Keys.ToDictionary(id => id, _ => new List<PanelId>());
+        var backward = panelsById.Keys.ToDictionary(id => id, _ => new List<PanelId>());
+        foreach (var connection in connections)
+        {
+            forward[connection.From].Add(connection.To);
+            backward[connection.To].Add(connection.From);
+            if (!connection.OneWay)
+            {
+                forward[connection.To].Add(connection.From);
+                backward[connection.From].Add(connection.To);
+            }
+        }
+
+        foreach (var island in FindIslands(panelsById.Keys, connections))
+        {
+            var members = island.ToHashSet();
+            var start = island[0];
+            if (Reach(start, forward, members).Count == members.Count && Reach(start, backward, members).Count == members.Count)
+            {
+                continue;
+            }
+
+            var groups = MutuallyReachableGroups(island, forward, backward);
+            var description = string.Join(" / ", groups.Select(group => $"{{{string.Join("、", group)}}}"));
+            errors.Add(new(
+                MapValidationErrorCode.NotStronglyConnected,
+                $"一方通行のせいで、行き来できないパネルがあります。互いに行き来できるまとまり：{description}"));
+        }
+    }
+
+    /// <summary>
+    /// 島を、互いに行き来できるパネルのまとまりに分ける。まとまりの中のパネルは、島の中の順に並べる。
+    /// </summary>
+    private static List<List<PanelId>> MutuallyReachableGroups(
+        List<PanelId> island,
+        Dictionary<PanelId, List<PanelId>> forward,
+        Dictionary<PanelId, List<PanelId>> backward)
+    {
+        var unassigned = island.ToHashSet();
+        var groups = new List<List<PanelId>>();
+
+        foreach (var panel in island.Where(unassigned.Contains))
+        {
+            var reachable = Reach(panel, forward, unassigned);
+            var reaching = Reach(panel, backward, unassigned);
+            var group = island.Where(p => reachable.Contains(p) && reaching.Contains(p)).ToList();
+
+            groups.Add(group);
+            unassigned.ExceptWith(group);
+        }
+
+        return groups;
+    }
+
+    /// <summary>
+    /// start から、範囲の中のパネルだけを通ってたどり着けるパネル（start を含む）。
+    /// </summary>
+    private static HashSet<PanelId> Reach(PanelId start, Dictionary<PanelId, List<PanelId>> edges, HashSet<PanelId> scope)
+    {
+        var visited = new HashSet<PanelId> { start };
+        var pending = new Stack<PanelId>([start]);
+        while (pending.TryPop(out var current))
+        {
+            foreach (var next in edges[current].Where(n => scope.Contains(n) && visited.Add(n)))
+            {
+                pending.Push(next);
+            }
+        }
+
+        return visited;
+    }
+
+    private static List<List<PanelId>> FindIslands(IEnumerable<PanelId> panelIds, List<Connection> connections)
+    {
+        var neighbors = panelIds.ToDictionary(id => id, _ => new List<PanelId>());
+        foreach (var connection in connections)
+        {
+            neighbors[connection.From].Add(connection.To);
+            neighbors[connection.To].Add(connection.From);
+        }
+
+        var islands = new List<List<PanelId>>();
+        var visited = new HashSet<PanelId>();
+
+        foreach (var start in neighbors.Keys)
+        {
+            if (!visited.Add(start))
+            {
+                continue;
+            }
+
+            var island = new List<PanelId>();
+            var pending = new Queue<PanelId>([start]);
+            while (pending.TryDequeue(out var current))
+            {
+                island.Add(current);
+                foreach (var next in neighbors[current].Where(visited.Add))
+                {
+                    pending.Enqueue(next);
+                }
+            }
+
+            islands.Add(island);
+        }
+
+        return islands;
+    }
+
+    private static Dictionary<PanelId, Panel> ValidatePanels(IReadOnlyList<Panel> panels, List<MapValidationError> errors)
+    {
+        var panelsById = new Dictionary<PanelId, Panel>();
+
+        foreach (var panel in panels)
+        {
+            if (!panelsById.TryAdd(panel.Id, panel))
+            {
+                errors.Add(new(MapValidationErrorCode.DuplicatePanelId, $"パネル {panel.Id} の ID が重複しています。"));
+            }
+
+            if (panel.HasChargingPin && panel.Type == PanelType.Normal)
+            {
+                errors.Add(new(MapValidationErrorCode.ChargingPinOnNormalPanel, $"通常パネル {panel.Id} には充電ピンを設置できません。"));
+            }
+
+            if (panel.Type == PanelType.SpecialTransfer)
+            {
+                if (panel.CarrierLoweringHeading is null)
+                {
+                    errors.Add(new(MapValidationErrorCode.MissingCarrierLoweringHeading, $"特殊消耗品受け渡しパネル {panel.Id} に、キャリアを下ろす角度を設定してください。"));
+                }
+
+                if (panel.HasChargingPin)
+                {
+                    errors.Add(new(MapValidationErrorCode.ChargingPinOnSpecialTransferPanel, $"特殊消耗品受け渡しパネル {panel.Id} には充電ピンを設置できません。"));
+                }
+            }
+            else if (panel.CarrierLoweringHeading is not null)
+            {
+                errors.Add(new(MapValidationErrorCode.CarrierLoweringHeadingOnOtherPanel, $"パネル {panel.Id} は特殊消耗品受け渡しパネルでないので、キャリアを下ろす角度は設定できません。"));
+            }
+        }
+
+        return panelsById;
+    }
+
+    /// <summary>
+    /// つながりを検証し、パネルの組として正しいつながり（存在するパネルどうしで、自分自身でも重複でもないもの）を返す。
+    /// </summary>
+    private static List<Connection> ValidateConnections(
+        IReadOnlyList<Connection> connections,
+        Dictionary<PanelId, Panel> panelsById,
+        List<MapValidationError> errors)
+    {
+        var validConnections = new List<Connection>();
+        var connectedPairs = new HashSet<(PanelId, PanelId)>();
+
+        foreach (var connection in connections)
+        {
+            if (connection.DistanceMm <= 0)
+            {
+                errors.Add(new(MapValidationErrorCode.NonPositiveDistance, $"{Describe(connection)} の距離は正の値にしてください。"));
+            }
+
+            var unknown = new[] { connection.From, connection.To }.Where(id => !panelsById.ContainsKey(id)).Distinct().ToArray();
+            if (unknown.Length > 0)
+            {
+                errors.Add(new(MapValidationErrorCode.UnknownPanel, $"{Describe(connection)} のパネル {string.Join("、", unknown)} が存在しません。"));
+                continue;
+            }
+
+            if (connection.From == connection.To)
+            {
+                errors.Add(new(MapValidationErrorCode.SelfConnection, $"パネル {connection.From} を自分自身につなげることはできません。"));
+                continue;
+            }
+
+            if (!connectedPairs.Add(UnorderedPair(connection.From, connection.To)))
+            {
+                errors.Add(new(MapValidationErrorCode.DuplicateConnection, $"{Describe(connection)} が二重につながっています。"));
+                continue;
+            }
+
+            validConnections.Add(connection);
+        }
+
+        return validConnections;
+    }
+
+    private static void ValidateDeadEnds(
+        Dictionary<PanelId, Panel> panelsById,
+        List<Connection> connections,
+        List<MapValidationError> errors)
+    {
+        foreach (var deadEnd in panelsById.Values.Where(p => p.IsDeadEnd))
+        {
+            var own = connections.Where(c => c.From == deadEnd.Id || c.To == deadEnd.Id).ToArray();
+
+            if (own.Length != 1)
+            {
+                errors.Add(new(
+                    MapValidationErrorCode.DeadEndMustHaveSingleConnection,
+                    $"行き止まりのパネル {deadEnd.Id} のつながりは1つにしてください（今は {own.Length} つです）。"));
+            }
+
+            foreach (var connection in own)
+            {
+                var neighbor = panelsById[connection.From == deadEnd.Id ? connection.To : connection.From];
+                if (neighbor.Type != PanelType.Normal)
+                {
+                    errors.Add(new(
+                        MapValidationErrorCode.DeadEndMustConnectToNormalPanel,
+                        $"行き止まりのパネル {deadEnd.Id} の隣（{neighbor.Id}）は通常パネルにしてください。"));
+                }
+
+                if (connection.OneWay)
+                {
+                    errors.Add(new(
+                        MapValidationErrorCode.OneWayToDeadEnd,
+                        $"行き止まりのパネル {deadEnd.Id} へのつながりは、一方通行にできません（前進で入り、後退で出るため）。"));
+                }
+            }
+        }
+    }
+
+    private static (PanelId, PanelId) UnorderedPair(PanelId a, PanelId b) =>
+        string.CompareOrdinal(a.Value, b.Value) <= 0 ? (a, b) : (b, a);
+
+    private static string Describe(Connection connection) => $"パネル {connection.From} と {connection.To} のつながり";
+}
