@@ -4,6 +4,7 @@ import { COMMAND_TIMEOUT_MS, retryDelayMs, type ServerHandlers, type ServerLink 
 import { sendAgvCommand } from '../../features/fleet/api/agvCommands';
 import { parseAgvs } from '../../features/fleet/api/agvSnapshots';
 import { parseMap } from '../../features/routing/api/mapSnapshot';
+import { parseEquipmentStatus } from '../../features/tool/api/equipmentStatus';
 import { parseMessages } from '../../features/alarm/api/messages';
 import { parseSystemStatus } from '../../features/system/systemStatus';
 
@@ -18,6 +19,9 @@ const MESSAGES = 'messages';
 
 /** マップの様子を受け取る名前（サーバーの ScreenFeed.MapMethod と同じ）。 */
 const MAP = 'map';
+
+/** 装置とステーションの様子を受け取る名前（サーバーの ScreenFeed.EquipmentMethod と同じ）。 */
+const EQUIPMENT = 'equipment';
 
 /**
  * 本物のつながり。SignalR のハブ（/hubs/screen）で様子を受け取り、操作は HTTP の窓口へ送る。
@@ -89,6 +93,14 @@ function connect(baseUrl: string, handlers: ServerHandlers): () => void {
     } catch (error) {
       // 形の正しくない様子は使わず、今の様子のままにする
       console.error('サーバーから届いたマップの様子を使えませんでした。', error);
+    }
+  });
+  connection.on(EQUIPMENT, (value: unknown) => {
+    try {
+      handlers.onEquipment(parseEquipmentStatus(value));
+    } catch (error) {
+      // 形の正しくない様子は使わず、今の様子のままにする
+      console.error('サーバーから届いた装置とステーションの様子を使えませんでした。', error);
     }
   });
   connection.onreconnecting(() => handlers.onConnection('reconnecting'));

@@ -3,6 +3,7 @@ import type { AgvId } from '../../features/fleet/agv';
 import type { AgvCommand, AgvCommandResult } from '../../features/fleet/api/agvCommands';
 import type { AgvsSnapshot } from '../../features/fleet/api/agvSnapshots';
 import type { MapSnapshot } from '../../features/routing/api/mapSnapshot';
+import type { EquipmentStatusSnapshot } from '../../features/tool/api/equipmentStatus';
 import type { MessagesSnapshot } from '../../features/alarm/api/messages';
 import type { SystemStatusSnapshot } from '../../features/system/systemStatus';
 
@@ -21,6 +22,7 @@ export interface ServerHandlers {
   readonly onAgvs: (snapshot: AgvsSnapshot) => void;
   readonly onMessages: (snapshot: MessagesSnapshot) => void;
   readonly onMap: (snapshot: MapSnapshot) => void;
+  readonly onEquipment: (snapshot: EquipmentStatusSnapshot) => void;
 }
 
 /**

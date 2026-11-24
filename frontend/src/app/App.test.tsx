@@ -80,10 +80,32 @@ describe('App', () => {
     window.location.hash = '';
   });
 
-  it('マップ、運転状態、AGV、メッセージのほかは、見本のデータで動かしていることを知らせる', () => {
+  it('マップの画面と、運転状態、AGV、メッセージのほかは、見本のデータで動かしていることを知らせる', () => {
     const { container } = render(<App link={connected()} />);
 
-    expect(container.textContent).toContain('マップ、運転状態、AGV、メッセージのほかは、見本のデータです');
+    expect(container.textContent).toContain('マップの画面と、運転状態、AGV、メッセージのほかは、見本のデータです');
+  });
+
+  it('サーバーから届いた装置とステーションの様子で、マップの札とカードを出す', () => {
+    window.location.hash = '';
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    const dev1 = () => container.querySelector('[data-equipment="DEV-1"]');
+    expect(dev1()?.getAttribute('aria-label')).toBe('DEV-1'); // 様子が届くまでは、札がない
+
+    act(() =>
+      link.emitEquipment({
+        version: 1,
+        devices: [{ id: 'DEV-1', shortage: 2, collectWaiting: 0, mismatchedSlots: [], setupErrors: [], stocker: [{ variety: 'DR-5', target: 3, have: 1 }], slots: { total: 10, free: 8, delivering: 0 } }],
+        stations: [],
+      }),
+    );
+
+    expect(dev1()?.getAttribute('aria-label')).toBe('DEV-1（不足 2）');
+    click(dev1()!);
+    const card = container.querySelector('[data-agv-card]');
+    expect(card?.textContent).toContain('まだ 2個足りません');
+    expect(card?.textContent).toContain('DR-5');
   });
 
   it('マップが届くまでは、読み込んでいることを出す。届いたら、サーバーのマップと装置とステーションを描き、版を出す', () => {

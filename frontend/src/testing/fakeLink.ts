@@ -4,6 +4,7 @@ import type { AgvId } from '../features/fleet/agv';
 import type { AgvCommand, AgvCommandResult } from '../features/fleet/api/agvCommands';
 import type { AgvsSnapshot } from '../features/fleet/api/agvSnapshots';
 import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
+import type { EquipmentStatusSnapshot } from '../features/tool/api/equipmentStatus';
 import type { MessagesSnapshot } from '../features/alarm/api/messages';
 import type { SystemStatusSnapshot } from '../features/system/systemStatus';
 
@@ -30,6 +31,7 @@ export interface FakeLink extends ServerLink {
   emitAgvs(snapshot: AgvsSnapshot): void;
   emitMessages(snapshot: MessagesSnapshot): void;
   emitMap(snapshot: MapSnapshot): void;
+  emitEquipment(snapshot: EquipmentStatusSnapshot): void;
 }
 
 /**
@@ -42,6 +44,7 @@ export function createFakeLink(initial?: {
   readonly agvs?: AgvsSnapshot;
   readonly messages?: MessagesSnapshot;
   readonly map?: MapSnapshot;
+  readonly equipment?: EquipmentStatusSnapshot;
 }): FakeLink {
   let handlers: ServerHandlers | null = null;
   let result: CommandResult = 'ok';
@@ -95,6 +98,9 @@ export function createFakeLink(initial?: {
         if (initial.map) {
           h.onMap(initial.map);
         }
+        if (initial.equipment) {
+          h.onEquipment(initial.equipment);
+        }
       }
       return () => {
         if (handlers === h) {
@@ -130,6 +136,9 @@ export function createFakeLink(initial?: {
     },
     emitMap(snapshot) {
       handlers?.onMap(snapshot);
+    },
+    emitEquipment(snapshot) {
+      handlers?.onEquipment(snapshot);
     },
   };
 }

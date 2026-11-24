@@ -10,7 +10,6 @@ import {
   demoDevices,
   demoHeights,
   demoMapDraft,
-  demoEquipment,
   demoProcessKinds,
   demoRecords,
   demoRoles,
@@ -139,7 +138,8 @@ export function App({ link }: AppProps) {
   const serverMap = server.map.kind === 'waiting' ? null : server.map.snapshot;
   const layout = serverMap?.layout ?? EMPTY_LAYOUT;
   const destinations = useMemo(() => panelOptions(layout), [layout]);
-  const equipment = useMemo(() => equipmentDetails(serverMap?.equipment ?? [], demoEquipment), [serverMap]);
+  const equipmentStatus = server.equipment.kind === 'waiting' ? null : server.equipment.snapshot;
+  const equipment = useMemo(() => equipmentDetails(serverMap?.equipment ?? [], equipmentStatus), [serverMap, equipmentStatus]);
   // AGV は、サーバーから届いた様子を、描いているマップに合わせて使う（まだ届いていなければ、いない）
   const agvs = useMemo(
     () => (server.agvs.kind === 'waiting' ? [] : toAgvDetails(server.agvs.snapshot.agvs, layout)),
@@ -397,7 +397,7 @@ export function App({ link }: AppProps) {
     <>
       <ConnectionBanner connection={server.connection} />
       <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">
-        マップ、運転状態、AGV、メッセージのほかは、見本のデータです
+        マップの画面と、運転状態、AGV、メッセージのほかは、見本のデータです
       </p>
       {route.screen === 'map' && layout.panels.length === 0 ? (
         <MainLayout {...frame} current="map" title="全体の様子（マップ）">
