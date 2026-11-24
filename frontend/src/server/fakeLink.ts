@@ -2,6 +2,7 @@ import type { CommandResult, ConnectionState, ServerHandlers, ServerLink } from 
 import type { AgvId } from '../map/agv';
 import type { AgvCommand, AgvCommandResult } from './agvCommands';
 import type { AgvsSnapshot } from './agvs';
+import type { MessagesSnapshot } from './messages';
 import type { SystemStatusSnapshot } from './systemStatus';
 
 type Command = 'start' | 'stop';
@@ -25,6 +26,7 @@ export interface FakeLink extends ServerLink {
   emitConnection(state: ConnectionState): void;
   emitSystemStatus(snapshot: SystemStatusSnapshot): void;
   emitAgvs(snapshot: AgvsSnapshot): void;
+  emitMessages(snapshot: MessagesSnapshot): void;
 }
 
 /**
@@ -35,6 +37,7 @@ export function createFakeLink(initial?: {
   readonly connection: ConnectionState;
   readonly status?: SystemStatusSnapshot;
   readonly agvs?: AgvsSnapshot;
+  readonly messages?: MessagesSnapshot;
 }): FakeLink {
   let handlers: ServerHandlers | null = null;
   let result: CommandResult = 'ok';
@@ -82,6 +85,9 @@ export function createFakeLink(initial?: {
         if (initial.agvs) {
           h.onAgvs(initial.agvs);
         }
+        if (initial.messages) {
+          h.onMessages(initial.messages);
+        }
       }
       return () => {
         if (handlers === h) {
@@ -111,6 +117,9 @@ export function createFakeLink(initial?: {
     },
     emitAgvs(snapshot) {
       handlers?.onAgvs(snapshot);
+    },
+    emitMessages(snapshot) {
+      handlers?.onMessages(snapshot);
     },
   };
 }

@@ -22,7 +22,7 @@ describe('useServer', () => {
     const { latest } = watch(link);
 
     expect(link.connected).toBe(true);
-    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' } });
+    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' }, messages: { kind: 'waiting' } });
   });
 
   it('届いた運転状態の様子と、つながりの様子を持つ', () => {
@@ -80,6 +80,21 @@ describe('useServer', () => {
 
     act(() => link.emitConnection('reconnecting'));
     expect(latest().agvs).toEqual({ kind: 'stale', snapshot: { version: 2, agvs: [agv] } });
+  });
+
+  it('メッセージの様子も、番号の古いものは捨て、切れたら古いものにする', () => {
+    const link = createFakeLink();
+    const { latest } = watch(link);
+    const message = { sequence: 1, at: new Date('2026-11-24T01:00:00Z'), title: '搬送を中断しました', detail: '' };
+
+    act(() => {
+      link.emitMessages({ version: 2, messages: [message] });
+      link.emitMessages({ version: 1, messages: [] });
+    });
+    expect(latest().messages).toEqual({ kind: 'live', snapshot: { version: 2, messages: [message] } });
+
+    act(() => link.emitConnection('reconnecting'));
+    expect(latest().messages).toEqual({ kind: 'stale', snapshot: { version: 2, messages: [message] } });
   });
 
   it('消したら切る', () => {

@@ -11,7 +11,6 @@ import {
   demoHeights,
   demoMapDraft,
   demoEquipment,
-  demoMessages,
   demoProcessKinds,
   demoRecords,
   demoRoles,
@@ -41,7 +40,7 @@ import { TransportsScreen } from './app/TransportsScreen';
 import { UsersScreen } from './app/UsersScreen';
 import { agvId, type AgvId } from './map/agv';
 import { panelOptions } from './app/panelOptions';
-import type { Message } from './app/MessageRail';
+import { latestSequence, railMessages, readSeenUpTo, writeSeenUpTo, type LocalMessage } from './app/messageList';
 import type { CommandResult, ServerLink } from './server/link';
 import { commandNotice, toManualOutcome, type AgvCommand, type AgvCommandResult } from './server/agvCommands';
 import { mapOverlays, toAgvDetails } from './server/agvs';
@@ -57,6 +56,15 @@ function demoPassword(): string {
   const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
   return Array.from(crypto.getRandomValues(new Uint32Array(12)), (n) => letters[n % letters.length]).join('');
 }
+/** ブラウザーの置き場（使えないときは null）。 */
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 const transferPanels = sampleLayout.panels.filter((p) => p.type === 'Transfer' || p.type === 'SpecialTransfer').map((p): string => p.id);
 
 /** 運転の切り替えを送れなかったときに出すメッセージ。 */
@@ -71,7 +79,7 @@ export interface AppProps {
 }
 
 /**
- * 画面の入り口。運転状態はサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
+ * 画面の入り口。運転状態、AGV、メッセージはサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
  * 見本のデータを操作した結果は、この中で覚えて、画面が切り替わるようにしている。
  */
 export function App({ link }: AppProps) {
@@ -79,8 +87,19 @@ export function App({ link }: AppProps) {
   const server = useServer(link);
   const run = runIndicator(server.status);
   const [sending, setSending] = useState(false);
-  const [messages, setMessages] = useState<readonly Message[]>(demoMessages);
+  // メッセージは、サーバーに残しているものと、その画面だけの知らせ（操作が届かなかった、など）を混ぜて出す
+  const [localMessages, setLocalMessages] = useState<readonly LocalMessage[]>([]);
   const messageCount = useRef(0);
+  // どこまで見たか（メッセージの番号）は、ログインができるまではブラウザーごとに覚える
+  const [seenUpTo, setSeenUpTo] = useState(() => readSeenUpTo(browserStorage()));
+  const serverMessages = server.messages.kind === 'waiting' ? [] : server.messages.snapshot.messages;
+  const messages = railMessages(serverMessages, seenUpTo, localMessages, new Date());
+  const markAllSeen = () => {
+    const latest = Math.max(seenUpTo, latestSequence(serverMessages));
+    writeSeenUpTo(browserStorage(), latest);
+    setSeenUpTo(latest);
+    setLocalMessages((ms) => ms.map((m) => ({ ...m, unread: false })));
+  };
   // AGV ごとの、送って結果を待っている操作の数と、受け付けられなかったときの知らせ
   const [sendingAgvs, setSendingAgvs] = useState<ReadonlyMap<AgvId, number>>(new Map());
   const [agvNotices, setAgvNotices] = useState<ReadonlyMap<AgvId, string>>(new Map());
@@ -168,8 +187,8 @@ export function App({ link }: AppProps) {
     }
     if (result === 'failed') {
       messageCount.current += 1;
-      const time = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-      setMessages((ms) => [{ id: `run-${messageCount.current}`, time, ...commandFailed[kind], unread: true }, ...ms]);
+      const id = `run-${messageCount.current}`;
+      setLocalMessages((ms) => [...ms, { id, at: new Date(), ...commandFailed[kind], unread: true }]);
     }
   };
   const frame = {
@@ -178,7 +197,7 @@ export function App({ link }: AppProps) {
     permissions,
     mapVersion: `マップ 版${published.version}（公開済み）`,
     messages,
-    onMarkAllSeen: () => setMessages((ms) => ms.map((m) => ({ ...m, unread: false }))),
+    onMarkAllSeen: markAllSeen,
     onNavigate: go,
     onChangePassword: () => {},
     onLogout: () => {},
@@ -358,7 +377,7 @@ export function App({ link }: AppProps) {
     <>
       <ConnectionBanner connection={server.connection} />
       <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">
-        運転状態と AGV のほかは、見本のデータです
+        運転状態と AGV とメッセージのほかは、見本のデータです
       </p>
       {route.screen === 'map' ? (
         <MapScreen

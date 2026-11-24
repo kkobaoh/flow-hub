@@ -75,10 +75,10 @@ describe('App', () => {
     window.location.hash = '';
   });
 
-  it('運転状態と AGV のほかは、見本のデータで動かしていることを知らせる', () => {
+  it('運転状態と AGV とメッセージのほかは、見本のデータで動かしていることを知らせる', () => {
     const { container } = render(<App link={connected()} />);
 
-    expect(container.textContent).toContain('運転状態と AGV のほかは、見本のデータです');
+    expect(container.textContent).toContain('運転状態と AGV とメッセージのほかは、見本のデータです');
   });
 
   // ---- AGV の様子 ----
@@ -224,6 +224,42 @@ describe('App', () => {
 
     expect(container.textContent).toContain('停止できたかわかりません');
     expect(link.sent).toEqual(['stop']); // やり直さない
+  });
+
+  it('サーバーから届いたメッセージを出し、まだ見ていない件数をタブに出す。見たことにすると、ブラウザーに覚える', () => {
+    window.localStorage.clear();
+    window.location.hash = '#/transports';
+    const link = connected();
+    const { container, rerender } = render(<App link={link} />);
+    const tab = () => container.querySelector('button[aria-controls="message-rail"]')!;
+
+    act(() =>
+      link.emitMessages({
+        version: 1,
+        messages: [
+          { sequence: 2, at: new Date(), title: '行ける充電ポートがありません', detail: 'AGV-2 は、充電ポートが空いたら向かいます。' },
+          { sequence: 1, at: new Date(), title: '搬送を中断しました', detail: '搬送 #11' },
+        ],
+      }),
+    );
+    expect(tab().textContent).toContain('2'); // 初めて開いたブラウザーでは、すべて「まだ見ていない」
+
+    click(tab());
+    expect(container.querySelector('#message-rail')?.textContent).toContain('行ける充電ポートがありません');
+    click(buttonByText(container.querySelector('#message-rail')!, 'すべて見たことにする'));
+    click(tab());
+    expect(tab().getAttribute('aria-label')).toContain('0件');
+
+    // 開き直しても、見たところを覚えている。新しく届いたものだけ「まだ見ていない」
+    rerender(<App key="again" link={link} />);
+    act(() =>
+      link.emitMessages({
+        version: 2,
+        messages: [{ sequence: 3, at: new Date(), title: '予約が取れずに止まっています', detail: '' }, { sequence: 2, at: new Date(), title: '行ける充電ポートがありません', detail: '' }],
+      }),
+    );
+    expect(container.querySelector('button[aria-controls="message-rail"]')!.getAttribute('aria-label')).toContain('1件');
+    window.location.hash = '';
   });
 
   it('画面を閉じたら、サーバーとのつながりを切る', () => {
