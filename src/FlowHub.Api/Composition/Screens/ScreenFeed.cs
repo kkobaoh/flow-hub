@@ -1,3 +1,4 @@
+using FlowHub.Consumables;
 using FlowHub.Notifications;
 using Microsoft.Extensions.Logging;
 
@@ -10,13 +11,19 @@ namespace FlowHub.Api.Composition.Screens;
 /// <param name="Agvs">すべての AGV の今の様子（ID の順）。</param>
 /// <param name="Notices">残しているメッセージ（新しい順）。</param>
 /// <param name="Map">公開中のマップと、その上に描く装置とステーション。</param>
-internal sealed record ScreenSources(Func<bool> IsRunning, Func<IReadOnlyList<AgvSnapshot>> Agvs, Func<IReadOnlyList<Notice>> Notices, Func<ScreenMapState> Map);
+/// <param name="Equipment">装置とステーションの様子（気をつけること、ストッカー、在庫）。</param>
+internal sealed record ScreenSources(
+    Func<bool> IsRunning,
+    Func<IReadOnlyList<AgvSnapshot>> Agvs,
+    Func<IReadOnlyList<Notice>> Notices,
+    Func<ScreenMapState> Map,
+    Func<ConsumablesStatuses> Equipment);
 
 /// <summary>画面へ送るもの（受け取る名前と、中身）。</summary>
 internal sealed record ScreenMessage(string Method, object Payload);
 
 /// <summary>
-/// 画面へ送る様子を持つ。様子の種類（運転状態、AGV、メッセージ、マップ）ごとに番号を付け、変わったら番号を進めて、つないでいるすべての画面へ丸ごと送る。
+/// 画面へ送る様子を持つ。様子の種類（運転状態、AGV、メッセージ、マップ、装置とステーション）ごとに番号を付け、変わったら番号を進めて、つないでいるすべての画面へ丸ごと送る。
 /// </summary>
 /// <remarks>
 /// 様子は、処理のあと（<see cref="FlowHubSystem"/> の後始末）に読み直して、変わったときだけ送る。
@@ -40,6 +47,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     /// <summary>マップの様子を送るときの名前（画面の側も、この名前で受け取る）。</summary>
     public const string MapMethod = "map";
 
+    /// <summary>装置とステーションの様子を送るときの名前（画面の側も、この名前で受け取る）。</summary>
+    public const string EquipmentMethod = "equipment";
+
     /// <summary>送るのを待つ長さ。</summary>
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
 
@@ -49,6 +59,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     private Topic<IReadOnlyList<AgvSnapshot>>? _agvs;
     private Topic<IReadOnlyList<Notice>>? _messages;
     private Topic<ScreenMapState>? _map;
+    private Topic<ConsumablesStatuses>? _equipment;
     private long _issuedTickets;
     private long _appliedTicket;
 
@@ -64,6 +75,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         var agvs = sources.Agvs();
         var notices = sources.Notices();
         var map = sources.Map();
+        var equipment = sources.Equipment();
         lock (_lock)
         {
             if (_sources is not null)
@@ -76,6 +88,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             _agvs = new Topic<IReadOnlyList<AgvSnapshot>>(AgvsMethod, agvs, (version, list) => new AgvsSnapshot(version, list), AgvListComparer.Instance);
             _messages = new Topic<IReadOnlyList<Notice>>(MessagesMethod, notices, ToMessages, NoticeListComparer.Instance);
             _map = new Topic<ScreenMapState>(MapMethod, map, (version, state) => state.ToSnapshot(version), MapComparer.Instance);
+            _equipment = new Topic<ConsumablesStatuses>(EquipmentMethod, equipment, EquipmentStatusSnapshot.From, StatusesComparer.Instance);
         }
     }
 
@@ -84,7 +97,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     {
         lock (_lock)
         {
-            return _systemStatus is null || _agvs is null || _messages is null || _map is null ? [] : [_systemStatus.Current, _agvs.Current, _messages.Current, _map.Current];
+            return _systemStatus is null || _agvs is null || _messages is null || _map is null || _equipment is null
+                ? []
+                : [_systemStatus.Current, _agvs.Current, _messages.Current, _map.Current, _equipment.Current];
         }
     }
 
@@ -111,6 +126,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         var agvs = sources.Agvs();
         var notices = sources.Notices();
         var map = sources.Map();
+        var equipment = sources.Equipment();
 
         List<ScreenMessage> changed = [];
         lock (_lock)
@@ -139,6 +155,11 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             if (_map!.TryAdvance(map, out var mapMessage))
             {
                 changed.Add(mapMessage);
+            }
+
+            if (_equipment!.TryAdvance(equipment, out var equipmentMessage))
+            {
+                changed.Add(equipmentMessage);
             }
         }
 
@@ -206,6 +227,17 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             ReferenceEquals(x, y) || (x is not null && y is not null && x.SequenceEqual(y));
 
         public int GetHashCode(IReadOnlyList<AgvSnapshot> obj) => obj.Count;
+    }
+
+    /// <summary>装置とステーションの様子を、中身で比べる。</summary>
+    private sealed class StatusesComparer : IEqualityComparer<ConsumablesStatuses>
+    {
+        public static readonly StatusesComparer Instance = new();
+
+        public bool Equals(ConsumablesStatuses? x, ConsumablesStatuses? y) =>
+            ReferenceEquals(x, y) || (x is not null && y is not null && x.Devices.SequenceEqual(y.Devices) && x.Stations.SequenceEqual(y.Stations));
+
+        public int GetHashCode(ConsumablesStatuses obj) => obj.Devices.Count;
     }
 
     /// <summary>マップの様子を比べる（版と、装置とステーションが同じなら同じ）。</summary>

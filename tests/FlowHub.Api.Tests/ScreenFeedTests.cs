@@ -1,4 +1,5 @@
 using FlowHub.Api.Composition.Screens;
+using FlowHub.Consumables;
 using FlowHub.Notifications;
 using Microsoft.Extensions.Logging;
 
@@ -20,6 +21,7 @@ public sealed class ScreenFeedTests : IDisposable
     private Func<IReadOnlyList<AgvSnapshot>> _agvs = () => [];
     private Func<IReadOnlyList<Notice>> _notices = () => [];
     private Func<ScreenMapState> _map = () => ScreenMapState.Empty;
+    private Func<ConsumablesStatuses> _equipment = () => new([], []);
 
     public ScreenFeedTests()
     {
@@ -35,7 +37,7 @@ public sealed class ScreenFeedTests : IDisposable
         _logs.Dispose();
     }
 
-    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices(), () => _map()));
+    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices(), () => _map(), () => _equipment()));
 
     [Fact]
     public void つなぐ前は様子がない()
@@ -56,6 +58,7 @@ public sealed class ScreenFeedTests : IDisposable
                 new ScreenMessage(ScreenFeed.AgvsMethod, new AgvsSnapshot(1, [Agv1AtP1])),
                 new ScreenMessage(ScreenFeed.MessagesMethod, new MessagesSnapshot(1, [])),
                 new ScreenMessage(ScreenFeed.MapMethod, ScreenMapState.Empty.ToSnapshot(1)),
+                new ScreenMessage(ScreenFeed.EquipmentMethod, EquipmentStatusSnapshot.From(1, new([], []))),
             ],
             _feed.Current(),
             MessageComparer.Instance);
@@ -138,6 +141,30 @@ public sealed class ScreenFeedTests : IDisposable
         Assert.Equal(new PanelView("T", "Transfer", HasChargingPin: false, CarrierLoweringHeading: null, Column: 1, Row: 0, CrossOffsetEastMm: 0, CrossOffsetSouthMm: 0), snapshot.Panels[1]);
         Assert.Equal(new ConnectionView("A", "T", 1000, 90, OneWay: false), Assert.Single(snapshot.Connections));
         Assert.Equal([device], snapshot.Equipment);
+    }
+
+    [Fact]
+    public async Task 装置とステーションの様子が変わったら番号を進めて送る()
+    {
+        static ConsumablesStatuses Statuses(int shortage) => new(
+            [new DeviceStatus(new DeviceId("DEV-1"), shortage, 1, [new SlotRef(1, 2)], [new VarietyId("DR-8")], [new StockerLine(new VarietyId("DR-5"), 2, 1)], new SlotSummary(10, 7, 1))],
+            [new StationStatus(new StationId("ST-1"), 1, 2, [new StationLine(new VarietyId("DR-5"), 3, 2)])]);
+        _equipment = () => Statuses(shortage: 1);
+        Attach();
+
+        _equipment = () => Statuses(shortage: 1); // 中身が同じなら送らない
+        await _feed.PublishIfChangedAsync(Token);
+        _equipment = () => Statuses(shortage: 2);
+        await _feed.PublishIfChangedAsync(Token);
+
+        var sent = Assert.Single(_broadcast.Sent);
+        Assert.Equal(ScreenFeed.EquipmentMethod, sent.Method);
+        var snapshot = Assert.IsType<EquipmentStatusSnapshot>(sent.Payload);
+        Assert.Equal(2, snapshot.Version);
+        Assert.Equal(
+            new DeviceStatusView("DEV-1", 2, 1, [new SlotView(1, 2)], ["DR-8"], [new StockerLineView("DR-5", 2, 1)], new SlotSummaryView(10, 7, 1)),
+            Assert.Single(snapshot.Devices));
+        Assert.Equal(new StationStatusView("ST-1", 1, 2, [new StationLineView("DR-5", 3, 2)]), Assert.Single(snapshot.Stations));
     }
 
     [Fact]
@@ -246,6 +273,7 @@ public sealed class ScreenFeedTests : IDisposable
         {
             ({ Payload: AgvsSnapshot a }, { Payload: AgvsSnapshot b }) => x.Method == y.Method && a.Version == b.Version && a.Agvs.SequenceEqual(b.Agvs),
             ({ Payload: MessagesSnapshot a }, { Payload: MessagesSnapshot b }) => x.Method == y.Method && a.Version == b.Version && a.Messages.SequenceEqual(b.Messages),
+            ({ Payload: EquipmentStatusSnapshot a }, { Payload: EquipmentStatusSnapshot b }) => x.Method == y.Method && a.Version == b.Version && a.Devices.SequenceEqual(b.Devices) && a.Stations.SequenceEqual(b.Stations),
             ({ Payload: MapViewSnapshot a }, { Payload: MapViewSnapshot b }) => x.Method == y.Method && a.Version == b.Version && a.MapVersion == b.MapVersion && a.Panels.Count == b.Panels.Count && a.Equipment.SequenceEqual(b.Equipment),
             _ => object.Equals(x, y),
         };
