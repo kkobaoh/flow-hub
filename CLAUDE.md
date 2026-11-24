@@ -205,6 +205,7 @@ flowchart LR
 | 配車 | `FlowHub.Dispatching` | 搬送の要求の受け付け、要求の間の調停（必要時刻の順）、AGV の割り当て、搬送の実行（状態遷移）、充電の判断、システムの運転状態（停止とスタート）。**運ぶものを知りません** | 持つ |
 | 消耗品の搬送計画 | `FlowHub.ToolPlanning` | 消耗品の搬送の必要時刻（優先順位）の計算、加工の種類でまとめること、届ける順番 | 持つ |
 | 消耗品の管理 | `FlowHub.Consumables` | 消耗品、在庫、所在、ストッカーの設定、不足と設定外の判断、段取り替え | 持つ |
+| 画面のメッセージ | `FlowHub.Notifications` | 画面で知らせるメッセージを残し、新しいほうから決まった件数を出す。何を知らせるか（イベントを文にすること）は組み立て（FlowHub.Api）の購読者が決める | 持つ |
 | （将来）ワークの搬送計画 | `FlowHub.WorkPlanning` | ワークの搬送の必要時刻の計算、まとめ方。ワーク搬送を扱うときに作ります | － |
 
 依存の向き（矢印は参照の向き）：
@@ -217,6 +218,7 @@ flowchart LR
 | Traffic | Routing、PathPlanning、Map |
 | Routing | なし |
 | PathPlanning | なし |
+| Notifications | なし |
 | Map | なし |
 
 ```mermaid
@@ -230,6 +232,7 @@ flowchart TD
     Routing["Routing<br/>ルーティング"]
     PathPlanning["PathPlanning<br/>全台の経路の計画"]
     Map["Map<br/>マップ"]
+    Notifications["Notifications<br/>画面のメッセージ"]
 
     Api --> Simulator
     Simulator --> Consumables
@@ -248,7 +251,7 @@ flowchart TD
 ```
 
 - 図の矢印は「参照してよい」向きです。イベントは、矢印と逆の向き（参照される側から、参照する側へ）に届きます。
-- BuildingBlocks は、Routing と PathPlanning 以外のすべてが参照します（図では省略）。
+- BuildingBlocks は、Routing と PathPlanning 以外のすべてが参照してかまいません（図では省略）。Notifications は、どのコンテキストにも BuildingBlocks にも依存せず、組み立て（FlowHub.Api）だけが参照します。
 
 - **配車は、運ぶもの（消耗品やワーク）を知りません。** 搬送の要求は、運ぶものに依存しない汎用の形で受け取ります。
   - 要求には、要求元、運ぶものの参照（配車にとっては中身のわからない ID）、搬送元と搬送先、必要なキャリアの種類、まとめてよい組を表すキー、量、**必要時刻** を持たせます。
@@ -323,6 +326,7 @@ src/
   FlowHub.Map/
   FlowHub.Routing/
   FlowHub.PathPlanning/
+  FlowHub.Notifications/
   FlowHub.Traffic/
   FlowHub.Dispatching/
   FlowHub.ToolPlanning/
@@ -335,6 +339,7 @@ tests/
   FlowHub.Map.Tests/
   FlowHub.Routing.Tests/
   FlowHub.PathPlanning.Tests/
+  FlowHub.Notifications.Tests/
   FlowHub.Traffic.Tests/
   FlowHub.Dispatching.Tests/
   FlowHub.ToolPlanning.Tests/

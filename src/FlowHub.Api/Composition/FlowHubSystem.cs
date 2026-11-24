@@ -8,6 +8,8 @@ using FlowHub.Consumables.Infrastructure;
 using FlowHub.Dispatching.Application;
 using FlowHub.Dispatching.Infrastructure;
 using FlowHub.Map.Infrastructure;
+using FlowHub.Notifications;
+using FlowHub.Notifications.Infrastructure;
 using FlowHub.Simulator;
 using FlowHub.ToolPlanning.Application;
 using FlowHub.Traffic;
@@ -41,6 +43,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         DispatchingService dispatching,
         ConsumablesService consumables,
         ToolPlanningService toolPlanning,
+        INoticeBoard notices,
         AgvEndpointOptions agvEndpoints,
         TimeProvider timeProvider)
     {
@@ -49,6 +52,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         Dispatching = dispatching;
         Consumables = consumables;
         ToolPlanning = toolPlanning;
+        Notices = notices;
         _agvEndpoints = agvEndpoints;
         _timeProvider = timeProvider;
     }
@@ -62,6 +66,9 @@ internal sealed partial class FlowHubSystem : IDisposable
     public ConsumablesService Consumables { get; }
 
     public ToolPlanningService ToolPlanning { get; }
+
+    /// <summary>画面で知らせるメッセージの置き場。</summary>
+    public INoticeBoard Notices { get; }
 
     /// <summary>
     /// DB を開いて構成を読み、各コンテキストを組み立てる。
@@ -81,6 +88,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         var trafficStore = await TrafficDatabase.OpenAsync(b => Configure(b, TrafficDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
         var dispatchingStore = await DispatchingDatabase.OpenAsync(b => Configure(b, DispatchingDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
         var consumablesStore = await ConsumablesDatabase.OpenAsync(b => Configure(b, ConsumablesDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
+        var notices = await NotificationsDatabase.OpenAsync(b => Configure(b, NotificationsDatabase.Schema), Initialize, timeProvider, settings.NoticeCapacity, cancellationToken).ConfigureAwait(false);
         var logger = loggerFactory.CreateLogger<FlowHubSystem>();
         if (settings.InitialDataPath is { } initialData)
         {
@@ -93,7 +101,7 @@ internal sealed partial class FlowHubSystem : IDisposable
 
         var traffic = new TrafficService(map, events, timeProvider, trafficStore, settings.Planning, controlStatuses: trafficStore);
         var dispatching = new DispatchingService(traffic, map, events, timeProvider);
-        await RegisterAgvsAsync(traffic, trafficStore, dispatching, dispatchingStore, logger, cancellationToken).ConfigureAwait(false);
+        await RegisterAgvsAsync(traffic, trafficStore, dispatching, dispatchingStore, notices, logger, cancellationToken).ConfigureAwait(false);
 
         var consumables = new ConsumablesService(dispatching, simulator, simulator, simulator, events, timeProvider, consumablesStore);
         consumables.LoadConfiguration(await consumablesStore.LoadAsync(cancellationToken).ConfigureAwait(false));
@@ -102,9 +110,9 @@ internal sealed partial class FlowHubSystem : IDisposable
         DispatchingSubscriptions.Register(subscriptions, dispatching);
         ConsumablesSubscriptions.Register(subscriptions, consumables);
         ToolPlanningSubscriptions.Register(subscriptions, toolPlanning);
-        ApiSubscriptions.Register(subscriptions, loggerFactory);
+        ApiSubscriptions.Register(subscriptions, loggerFactory, notices);
 
-        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, settings.AgvEndpoints, timeProvider);
+        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, settings.AgvEndpoints, timeProvider);
 
         // シミュレーターの通知も、処理を終えたあとに後始末をする
         simulator.Attach(new ConsumablesSimulationTarget(consumables), system.AfterWorkAsync);
@@ -169,7 +177,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ArgumentNullException.ThrowIfNull(app);
 
         var screen = app.Services.GetRequiredService<ScreenFeed>();
-        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs));
+        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent));
         _screen = screen;
 
         app.Use(async (context, next) =>
@@ -195,13 +203,14 @@ internal sealed partial class FlowHubSystem : IDisposable
     }
 
     /// <summary>
-    /// 交通整理と配車の両方に登録されている AGV だけを登録する。片方にしかない AGV は、ログで警告する（画面での通知は backlog #10）。
+    /// 交通整理と配車の両方に登録されている AGV だけを登録する。片方にしかない AGV は、ログで警告し、画面で知らせる。
     /// </summary>
     private static async Task RegisterAgvsAsync(
         TrafficService traffic,
         TrafficStore trafficStore,
         DispatchingService dispatching,
         DispatchingStore dispatchingStore,
+        INoticeBoard notices,
         ILogger logger,
         CancellationToken cancellationToken)
     {
@@ -213,6 +222,7 @@ internal sealed partial class FlowHubSystem : IDisposable
             if (!inDispatching.Remove(agv.Id, out var dispatchingAgv))
             {
                 LogMissingIn(logger, agv.Id.ToString(), "配車");
+                await PostMismatchAsync(notices, agv.Id.ToString(), "走行", cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -223,8 +233,17 @@ internal sealed partial class FlowHubSystem : IDisposable
         foreach (var id in inDispatching.Keys.OrderBy(id => id.Value, StringComparer.Ordinal))
         {
             LogMissingIn(logger, id.ToString(), "交通整理");
+            await PostMismatchAsync(notices, id.ToString(), "配車", cancellationToken).ConfigureAwait(false);
         }
     }
+
+    /// <summary>登録の食い違いを画面で知らせる。</summary>
+    /// <param name="registeredIn">登録されている側（画面の言葉で「走行」か「配車」）。</param>
+    private static Task<Notice> PostMismatchAsync(INoticeBoard notices, string agv, string registeredIn, CancellationToken cancellationToken) =>
+        notices.PostAsync(
+            "AGV の登録が食い違っています",
+            $"{agv} は{registeredIn}の側にだけ登録されているので、動かしていません。AGV と AGV の種類の登録の画面で、登録をそろえてください。",
+            cancellationToken);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Agv} は {Missing} に登録されていないので、登録しませんでした。交通整理と配車の両方に登録してください。")]
     private static partial void LogMissingIn(ILogger logger, string agv, string missing);

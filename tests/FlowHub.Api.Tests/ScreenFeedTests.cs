@@ -1,4 +1,5 @@
 using FlowHub.Api.Composition.Screens;
+using FlowHub.Notifications;
 using Microsoft.Extensions.Logging;
 
 namespace FlowHub.Api.Tests;
@@ -17,6 +18,7 @@ public sealed class ScreenFeedTests : IDisposable
     private readonly ScreenFeed _feed;
     private bool _running;
     private Func<IReadOnlyList<AgvSnapshot>> _agvs = () => [];
+    private Func<IReadOnlyList<Notice>> _notices = () => [];
 
     public ScreenFeedTests()
     {
@@ -32,7 +34,7 @@ public sealed class ScreenFeedTests : IDisposable
         _logs.Dispose();
     }
 
-    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs()));
+    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices()));
 
     [Fact]
     public void つなぐ前は様子がない()
@@ -51,6 +53,7 @@ public sealed class ScreenFeedTests : IDisposable
             [
                 new ScreenMessage(ScreenFeed.SystemStatusMethod, new SystemStatusSnapshot(1, "started")),
                 new ScreenMessage(ScreenFeed.AgvsMethod, new AgvsSnapshot(1, [Agv1AtP1])),
+                new ScreenMessage(ScreenFeed.MessagesMethod, new MessagesSnapshot(1, [])),
             ],
             _feed.Current(),
             MessageComparer.Instance);
@@ -86,6 +89,29 @@ public sealed class ScreenFeedTests : IDisposable
         Assert.Equal(2, snapshot.Version);
         Assert.Equal([Agv1AtP2], snapshot.Agvs);
         Assert.Contains(_feed.Current(), m => m.Payload is SystemStatusSnapshot { Version: 1 }); // 運転状態の番号は進めない
+    }
+
+    [Fact]
+    public async Task 知らせが増えたらメッセージの番号を進めて新しい順に送る()
+    {
+        var at = new DateTimeOffset(2026, 11, 24, 9, 0, 0, TimeSpan.Zero);
+        var first = new Notice(1, at, "搬送を中断しました", "搬送 #11");
+        _notices = () => [first];
+        Attach();
+
+        var second = new Notice(2, at.AddMinutes(1), "行ける充電ポートがありません", "AGV-2");
+        _notices = () => [second, first];
+        await _feed.PublishIfChangedAsync(Token);
+        _notices = () => [second, first]; // 同じ知らせを読み直しても送らない
+        await _feed.PublishIfChangedAsync(Token);
+
+        var sent = Assert.Single(_broadcast.Sent);
+        Assert.Equal(ScreenFeed.MessagesMethod, sent.Method);
+        var snapshot = Assert.IsType<MessagesSnapshot>(sent.Payload);
+        Assert.Equal(2, snapshot.Version);
+        Assert.Equal(
+            [new MessageSnapshot(2, at.AddMinutes(1), "行ける充電ポートがありません", "AGV-2"), new MessageSnapshot(1, at, "搬送を中断しました", "搬送 #11")],
+            snapshot.Messages);
     }
 
     [Fact]
@@ -193,6 +219,7 @@ public sealed class ScreenFeedTests : IDisposable
         public bool Equals(ScreenMessage? x, ScreenMessage? y) => (x, y) switch
         {
             ({ Payload: AgvsSnapshot a }, { Payload: AgvsSnapshot b }) => x.Method == y.Method && a.Version == b.Version && a.Agvs.SequenceEqual(b.Agvs),
+            ({ Payload: MessagesSnapshot a }, { Payload: MessagesSnapshot b }) => x.Method == y.Method && a.Version == b.Version && a.Messages.SequenceEqual(b.Messages),
             _ => object.Equals(x, y),
         };
 

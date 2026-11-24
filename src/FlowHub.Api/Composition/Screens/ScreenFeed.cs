@@ -1,3 +1,4 @@
+using FlowHub.Notifications;
 using Microsoft.Extensions.Logging;
 
 namespace FlowHub.Api.Composition.Screens;
@@ -7,13 +8,14 @@ namespace FlowHub.Api.Composition.Screens;
 /// </summary>
 /// <param name="IsRunning">運転状態がスタートか。</param>
 /// <param name="Agvs">すべての AGV の今の様子（ID の順）。</param>
-internal sealed record ScreenSources(Func<bool> IsRunning, Func<IReadOnlyList<AgvSnapshot>> Agvs);
+/// <param name="Notices">残しているメッセージ（新しい順）。</param>
+internal sealed record ScreenSources(Func<bool> IsRunning, Func<IReadOnlyList<AgvSnapshot>> Agvs, Func<IReadOnlyList<Notice>> Notices);
 
 /// <summary>画面へ送るもの（受け取る名前と、中身）。</summary>
 internal sealed record ScreenMessage(string Method, object Payload);
 
 /// <summary>
-/// 画面へ送る様子を持つ。様子の種類（運転状態、AGV）ごとに番号を付け、変わったら番号を進めて、つないでいるすべての画面へ丸ごと送る。
+/// 画面へ送る様子を持つ。様子の種類（運転状態、AGV、メッセージ）ごとに番号を付け、変わったら番号を進めて、つないでいるすべての画面へ丸ごと送る。
 /// </summary>
 /// <remarks>
 /// 様子は、処理のあと（<see cref="FlowHubSystem"/> の後始末）に読み直して、変わったときだけ送る。
@@ -31,6 +33,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     /// <summary>AGV の様子を送るときの名前（画面の側も、この名前で受け取る）。</summary>
     public const string AgvsMethod = "agvs";
 
+    /// <summary>メッセージの様子を送るときの名前（画面の側も、この名前で受け取る）。</summary>
+    public const string MessagesMethod = "messages";
+
     /// <summary>送るのを待つ長さ。</summary>
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
 
@@ -38,6 +43,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     private ScreenSources? _sources;
     private Topic<string>? _systemStatus;
     private Topic<IReadOnlyList<AgvSnapshot>>? _agvs;
+    private Topic<IReadOnlyList<Notice>>? _messages;
     private long _issuedTickets;
     private long _appliedTicket;
 
@@ -51,6 +57,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         // 読み元は lock の外で読む
         var running = RunText(sources.IsRunning());
         var agvs = sources.Agvs();
+        var notices = sources.Notices();
         lock (_lock)
         {
             if (_sources is not null)
@@ -61,6 +68,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             _sources = sources;
             _systemStatus = new Topic<string>(SystemStatusMethod, running, (version, state) => new SystemStatusSnapshot(version, state), StringComparer.Ordinal);
             _agvs = new Topic<IReadOnlyList<AgvSnapshot>>(AgvsMethod, agvs, (version, list) => new AgvsSnapshot(version, list), AgvListComparer.Instance);
+            _messages = new Topic<IReadOnlyList<Notice>>(MessagesMethod, notices, ToMessages, NoticeListComparer.Instance);
         }
     }
 
@@ -69,7 +77,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     {
         lock (_lock)
         {
-            return _systemStatus is null || _agvs is null ? [] : [_systemStatus.Current, _agvs.Current];
+            return _systemStatus is null || _agvs is null || _messages is null ? [] : [_systemStatus.Current, _agvs.Current, _messages.Current];
         }
     }
 
@@ -94,6 +102,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         // 読み元は lock の外で読む
         var running = RunText(sources.IsRunning());
         var agvs = sources.Agvs();
+        var notices = sources.Notices();
 
         List<ScreenMessage> changed = [];
         lock (_lock)
@@ -112,6 +121,11 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             if (_agvs!.TryAdvance(agvs, out var agvMessage))
             {
                 changed.Add(agvMessage);
+            }
+
+            if (_messages!.TryAdvance(notices, out var messages))
+            {
+                changed.Add(messages);
             }
         }
 
@@ -137,6 +151,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     }
 
     private static string RunText(bool running) => running ? "started" : "stopped";
+
+    private static MessagesSnapshot ToMessages(long version, IReadOnlyList<Notice> notices) =>
+        new(version, [.. notices.Select(MessageSnapshot.From)]);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "画面へ様子（{Method}）を送れませんでした。画面は、次に変わったときか、つなぎ直したときに最新を受け取ります。")]
     private static partial void LogSendFailed(ILogger logger, Exception exception, string method);
@@ -176,5 +193,16 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             ReferenceEquals(x, y) || (x is not null && y is not null && x.SequenceEqual(y));
 
         public int GetHashCode(IReadOnlyList<AgvSnapshot> obj) => obj.Count;
+    }
+
+    /// <summary>メッセージの並びを比べる（知らせは変わらないので、番号の並びが同じなら同じ）。</summary>
+    private sealed class NoticeListComparer : IEqualityComparer<IReadOnlyList<Notice>>
+    {
+        public static readonly NoticeListComparer Instance = new();
+
+        public bool Equals(IReadOnlyList<Notice>? x, IReadOnlyList<Notice>? y) =>
+            ReferenceEquals(x, y) || (x is not null && y is not null && x.Select(n => n.Sequence).SequenceEqual(y.Select(n => n.Sequence)));
+
+        public int GetHashCode(IReadOnlyList<Notice> obj) => obj.Count;
     }
 }

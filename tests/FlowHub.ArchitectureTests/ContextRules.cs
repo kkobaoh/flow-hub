@@ -16,6 +16,7 @@ internal static class ContextRules
         ["FlowHub.Map"] = ["FlowHub.BuildingBlocks"],
         ["FlowHub.Routing"] = [],
         ["FlowHub.PathPlanning"] = [],
+        ["FlowHub.Notifications"] = [],
         ["FlowHub.Traffic"] = ["FlowHub.BuildingBlocks", "FlowHub.Routing", "FlowHub.PathPlanning", "FlowHub.Map"],
         ["FlowHub.Dispatching"] = ["FlowHub.BuildingBlocks", "FlowHub.Traffic", "FlowHub.Routing", "FlowHub.Map"],
         ["FlowHub.Consumables"] = ["FlowHub.BuildingBlocks", "FlowHub.Dispatching", "FlowHub.Map"],

@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\src\FlowHub.Consumables\FlowHub.Consumables.csproj" />
     <ProjectReference Include="..\..\src\FlowHub.Api\FlowHub.Api.csproj" />
     <ProjectReference Include="..\..\src\FlowHub.Simulator\FlowHub.Simulator.csproj" />
+    <ProjectReference Include="..\..\src\FlowHub.Notifications\FlowHub.Notifications.csproj" />
   </ItemGroup>
 
 </Project>

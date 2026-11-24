@@ -5,6 +5,7 @@
     <Project Path="src/FlowHub.Consumables/FlowHub.Consumables.csproj" />
     <Project Path="src/FlowHub.Dispatching/FlowHub.Dispatching.csproj" />
     <Project Path="src/FlowHub.Map/FlowHub.Map.csproj" />
+    <Project Path="src/FlowHub.Notifications/FlowHub.Notifications.csproj" />
     <Project Path="src/FlowHub.PathPlanning/FlowHub.PathPlanning.csproj" />
     <Project Path="src/FlowHub.Routing/FlowHub.Routing.csproj" />
     <Project Path="src/FlowHub.Simulator/FlowHub.Simulator.csproj" />
@@ -19,6 +20,7 @@
     <Project Path="tests/FlowHub.Dispatching.Tests/FlowHub.Dispatching.Tests.csproj" />
     <Project Path="tests/FlowHub.IntegrationTests/FlowHub.IntegrationTests.csproj" />
     <Project Path="tests/FlowHub.Map.Tests/FlowHub.Map.Tests.csproj" />
+    <Project Path="tests/FlowHub.Notifications.Tests/FlowHub.Notifications.Tests.csproj" />
     <Project Path="tests/FlowHub.PathPlanning.Tests/FlowHub.PathPlanning.Tests.csproj" />
     <Project Path="tests/FlowHub.Routing.Tests/FlowHub.Routing.Tests.csproj" />
     <Project Path="tests/FlowHub.Simulator.Tests/FlowHub.Simulator.Tests.csproj" />

@@ -124,7 +124,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task 交通整理と配車の両方に登録されているAGVだけを登録し食い違いを警告としてログに残す()
+    public async Task 交通整理と配車の両方に登録されているAGVだけを登録し食い違いを警告としてログに残し画面で知らせる()
     {
         await SeedAsync(trafficAgvs: [Agv1, Agv2], dispatchingAgvs: [Agv1, Agv3]);
 
@@ -136,6 +136,11 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var warnings = _logs.Entries.Where(e => e.Level == LogLevel.Warning).Select(e => e.Message).ToArray();
         Assert.Contains(warnings, m => m.Contains("AGV-2", StringComparison.Ordinal) && m.Contains("配車", StringComparison.Ordinal));
         Assert.Contains(warnings, m => m.Contains("AGV-3", StringComparison.Ordinal) && m.Contains("交通整理", StringComparison.Ordinal));
+
+        var notices = system.Notices.Recent;
+        Assert.All(notices, n => Assert.Equal("AGV の登録が食い違っています", n.Title));
+        Assert.Contains(notices, n => n.Detail.Contains("AGV-2", StringComparison.Ordinal) && n.Detail.Contains("走行", StringComparison.Ordinal));
+        Assert.Contains(notices, n => n.Detail.Contains("AGV-3", StringComparison.Ordinal) && n.Detail.Contains("配車", StringComparison.Ordinal));
     }
 
     [Fact]
