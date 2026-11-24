@@ -26,6 +26,33 @@
 | 400 | 形式が読めない（知らない種類、項目が足りない、壊れた内容）。システムはログに残す |
 | 404 | 登録されていない AGV |
 
+## やり取りの流れ（例）
+
+システムから AGV へ送る経路はないので、コマンドはいつも、AGV が取りに来た GET の応答で渡します。
+
+```mermaid
+sequenceDiagram
+    participant AGV
+    participant System as システム
+
+    AGV->>System: GET /agv/{agvId}/commands?lastReceived=11
+    Note over System: 渡すコマンドがなければ、25秒待って空の配列を返す
+    System-->>AGV: 200 commands: [ 12 motion（B へ前進、C へ前進、90度へ回転） ]
+    AGV->>System: GET …/commands?lastReceived=12（次を取りに来る）
+    AGV->>System: POST …/notifications motionReceived（12）
+    AGV->>System: POST …/notifications moved（12、forward、B）
+    AGV->>System: POST …/notifications moved（12、forward、C）
+    AGV->>System: POST …/notifications rotated（12、90）
+    Note over System: 最後の動作の完了で、コマンド 12 を終えたとわかる
+
+    Note over System: 緊急停止を決めた
+    System-->>AGV: 200 commands: [ 13 emergencyStop ]（取りに来ている GET に、すぐ返す）
+    AGV->>System: POST …/notifications error（serverRequestedStop）
+    Note over AGV: 緊急停止には完了の通知がない。かわりにアラームを発報し、エラーを通知する
+```
+
+- 再起動した AGV は、`lastReceived=-1` で取りに来て、`GET /agv/{agvId}/position` で位置を聞きます。システムは、走りかけだった動作コマンドを渡し直しません（[domain.md](domain.md) の「動作コマンドの受信の確認」）。
+
 ## 1. コマンドを取りに来る（ロングポーリング）
 
 ```

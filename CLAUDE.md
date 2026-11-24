@@ -48,6 +48,12 @@
 ### クリーンアーキテクチャ
 
 - 依存の向きは外側から内側への一方向に限ります（内側の層は外側の層を知りません）。
+
+```mermaid
+flowchart LR
+    Infrastructure["Infrastructure<br/>（DB、通信、ポートの実装）"] --> Application["Application<br/>（ロック、通信・DB・イベントの実行）"] --> Domain["Domain<br/>（判断。副作用のない計算）"]
+    Infrastructure --> Domain
+```
 - ドメイン（配車ロジックなどのビジネスルール）を、フレームワーク・DB・外部機器との通信から切り離します。
 - 外部とのやり取りはインターフェース（ポート）を内側の層で定義し、外側の層で実装します。
 
@@ -166,6 +172,24 @@
 | bradlc.vscode-tailwindcss | Tailwind のクラスの補完 | MIT |
 | editorconfig.editorconfig | `.editorconfig` に従わせる | MIT |
 
+開発のときのつながり：
+
+```mermaid
+flowchart LR
+    subgraph dev["開発（デバッグの「Api + 画面」）"]
+        Edge["Edge"] -->|"http://localhost:5173"| Vite["Vite の開発用のサーバー<br/>（frontend）"]
+        Vite -->|"/hubs（SignalR）、/system、<br/>/transports、/agvs を渡す"| Api["FlowHub.Api<br/>http://localhost:5020<br/>（装置・ステーション・上位システムは<br/>中のシミュレーターが代わりをする）"]
+        AGV["AGV"] -->|"/agv/{agvId}/…（HTTP）"| Api
+        Api --> Sqlite[("SQLite<br/>src/FlowHub.Api/data/<br/>コンテキストごとに1ファイル")]
+    end
+    subgraph e2e["E2E テスト（npm run e2e）"]
+        Chromium["Playwright<br/>（Chromium）"] --> ViteE2E["Vite<br/>:5190"] --> ApiE2E["FlowHub.Api<br/>:5199"] --> SqliteE2E[("SQLite<br/>frontend/.e2e-data/")]
+    end
+    subgraph it["統合テスト"]
+        IntegrationTests["FlowHub.IntegrationTests"] --> Postgres[("ローカルの PostgreSQL<br/>接続文字列はユーザーシークレット")]
+    end
+```
+
 ### プロジェクトの構成（モジュラモノリス）
 
 将来、既存の AGV 搬送システムと統合し、ルート計算を置き換える可能性があります。このため、サーバーサイドは **コンテキストごとにプロジェクトを分けたモジュラモノリス** にし、ルーティングを取り外したり差し替えたりできるようにします。
@@ -194,6 +218,37 @@
 | Routing | なし |
 | PathPlanning | なし |
 | Map | なし |
+
+```mermaid
+flowchart TD
+    Api["FlowHub.Api<br/>（組み立てとエントリーポイント。すべてを参照する。線は省略）"]
+    Simulator["FlowHub.Simulator<br/>（装置・ステーション・上位システムの代わり）"]
+    ToolPlanning["ToolPlanning<br/>消耗品の搬送計画"]
+    Consumables["Consumables<br/>消耗品の管理"]
+    Dispatching["Dispatching<br/>配車"]
+    Traffic["Traffic<br/>交通整理"]
+    Routing["Routing<br/>ルーティング"]
+    PathPlanning["PathPlanning<br/>全台の経路の計画"]
+    Map["Map<br/>マップ"]
+
+    Api --> Simulator
+    Simulator --> Consumables
+    Simulator --> Dispatching
+    ToolPlanning --> Consumables
+    ToolPlanning --> Dispatching
+    ToolPlanning --> Map
+    Consumables --> Dispatching
+    Consumables --> Map
+    Dispatching --> Traffic
+    Dispatching --> Routing
+    Dispatching --> Map
+    Traffic --> Routing
+    Traffic --> PathPlanning
+    Traffic --> Map
+```
+
+- 図の矢印は「参照してよい」向きです。イベントは、矢印と逆の向き（参照される側から、参照する側へ）に届きます。
+- BuildingBlocks は、Routing と PathPlanning 以外のすべてが参照します（図では省略）。
 
 - **配車は、運ぶもの（消耗品やワーク）を知りません。** 搬送の要求は、運ぶものに依存しない汎用の形で受け取ります。
   - 要求には、要求元、運ぶものの参照（配車にとっては中身のわからない ID）、搬送元と搬送先、必要なキャリアの種類、まとめてよい組を表すキー、量、**必要時刻** を持たせます。
