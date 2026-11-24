@@ -217,6 +217,7 @@ public sealed partial class ConsumablesService(
             var setting = new Dictionary<VarietyId, int>(counts);
             _persistence.SaveStockerSetting(device, setting);
             _settings[device] = setting;
+            _setupErrors.Remove(device); // 設定を変えたら、段取り替えのエラーは片付いたものとする
             return Task.CompletedTask;
         }, cancellationToken).ConfigureAwait(false);
 
@@ -248,7 +249,10 @@ public sealed partial class ConsumablesService(
     /// <remarks>
     /// 取り込み中の元のスロットは、届ける数の上限では空きとして数える（足りなければ入れ先に使うため）。
     /// </remarks>
-    public DeviceNeeds EvaluateDevice(DeviceId device) => Locked(() =>
+    public DeviceNeeds EvaluateDevice(DeviceId device) => Locked(() => Evaluate(device));
+
+    /// <summary>装置の不足と回収を判断する（ロックの中で呼ぶ）。</summary>
+    private DeviceNeeds Evaluate(DeviceId device)
     {
         var layout = Layout(device);
         var capacity = layout.SlotsPerStocker.Sum();
@@ -298,7 +302,7 @@ public sealed partial class ConsumablesService(
             .ToArray();
 
         return new DeviceNeeds(evaluation.Shortages, recoveries, free);
-    });
+    }
 
     // ---- ステーションの在庫と予約 ----
 

@@ -92,7 +92,20 @@ public sealed partial class ConsumablesService
         {
             Layout(device);
             var included = _settings.TryGetValue(device, out var counts) && counts.GetValueOrDefault(variety) >= 1;
-            return included ? Task.CompletedTask : upstream.NotifySetupErrorAsync(device, variety, cancellationToken);
+            if (included)
+            {
+                _setupErrors.Remove(device); // リクエストが通ったら、前のエラーは片付いたものとする
+                return Task.CompletedTask;
+            }
+
+            if (!_setupErrors.TryGetValue(device, out var errors))
+            {
+                errors = [];
+                _setupErrors[device] = errors;
+            }
+
+            errors.Add(variety);
+            return upstream.NotifySetupErrorAsync(device, variety, cancellationToken);
         }, cancellationToken);
 
     /// <summary>
