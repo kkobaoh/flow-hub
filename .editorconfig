@@ -1,0 +1,23 @@
+# エディターの間で、字下げ・文字コード・行末の空白をそろえる。
+# 書き方（整形）だけを決める。コード分析の指摘の重さ（dotnet_diagnostic.*.severity）や、
+# コードのスタイルの規則（csharp_style_* など）は、ここでは変えない。
+# 改行の種類は git（core.autocrlf）に任せる（リポジトリの中は LF）。
+
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{ts,tsx,js,mjs,cjs,json,jsonc,css,html,yml,yaml}]
+indent_size = 2
+
+[*.{csproj,props,targets,slnx,xml}]
+indent_size = 2
+
+[*.md]
+# 行末の空白2つは改行の意味になるので、消さない
+trim_trailing_whitespace = false

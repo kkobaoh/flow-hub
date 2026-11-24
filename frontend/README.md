@@ -18,6 +18,9 @@ React + TypeScript で作り、Vite でビルドします。見た目は Tailwin
 | Storybook を開く（http://localhost:6006） | `npm run storybook` |
 | Storybook をビルドする（`storybook-static/` に出る） | `npm run build-storybook` |
 
+- Windows では、**ドライブ文字を大文字（`C:\`）にした場所** から流します。小文字の `c:\` から流すと、Vitest がすべてのテストで「suite not found」になって落ちます。VS Code の拡張機能（Vitest）から流すときも、リポジトリを `C:\` の形で開きます。
+- VS Code では、上のコマンドをタスク（「画面: …」）からも流せます。デバッグの「Api + 画面」は、Api と開発用のサーバーを起こしてから、Edge で画面を開きます。
+
 ## サーバーとのつながり
 
 画面は、サーバー（`src/FlowHub.Api`）と SignalR と HTTP でつながります（決まりは [docs/screens.md](../docs/screens.md) の「画面とサーバーの通信」）。

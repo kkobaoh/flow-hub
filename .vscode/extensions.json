@@ -1,0 +1,14 @@
+{
+  // このリポジトリで使う拡張機能。ライセンスは CLAUDE.md の「開発の道具」の表を参照。
+  "recommendations": [
+    "ms-dotnettools.csharp",
+    "vitest.explorer",
+    "ms-playwright.playwright",
+    "bradlc.vscode-tailwindcss",
+    "editorconfig.editorconfig"
+  ],
+  // C# Dev Kit は、商用の組織で使うのに Visual Studio の契約が要るため使わない
+  "unwantedRecommendations": [
+    "ms-dotnettools.csdevkit"
+  ]
+}

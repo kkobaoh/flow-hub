@@ -1,0 +1,30 @@
+{
+  // C# の拡張機能が開くソリューション
+  "dotnet.defaultSolution": "FlowHub.slnx",
+
+  // ビルドやテストの出力を、エクスプローラーと検索から外す
+  "files.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/TestResults": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "frontend/dist": true,
+    "frontend/storybook-static": true,
+    "frontend/test-results": true,
+    "frontend/playwright-report": true,
+    "frontend/.e2e-data": true
+  },
+
+  // C# は、保存したときに整形する（.editorconfig に従う）
+  "[csharp]": {
+    "editor.defaultFormatter": "ms-dotnettools.csharp",
+    "editor.formatOnSave": true
+  },
+
+  // TypeScript の補完は、VS Code に組み込みの TypeScript を使う。
+  // frontend の TypeScript 7 には言語サーバー（tsserver）が入っていないため、typescript.tsdk は指定しない。
+  // 型の確かめは、タスクの「画面: 型を確かめる」（npm run typecheck）で行う。
+  "typescript.enablePromptUseWorkspaceTsdk": false
+}
