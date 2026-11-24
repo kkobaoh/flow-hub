@@ -223,7 +223,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    Api["FlowHub.Api<br/>（組み立てとエントリーポイント。すべてを参照する。線は省略）"]
+    Api["FlowHub.Api<br/>（組み立てとエントリーポイント。すべてを参照する。<br/>Simulator と Notifications のほかは線を省略）"]
     Simulator["FlowHub.Simulator<br/>（装置・ステーション・上位システムの代わり）"]
     ToolPlanning["ToolPlanning<br/>消耗品の搬送計画"]
     Consumables["Consumables<br/>消耗品の管理"]
@@ -235,6 +235,7 @@ flowchart TD
     Notifications["Notifications<br/>画面のメッセージ"]
 
     Api --> Simulator
+    Api -->|"購読者がイベントを文にして渡す"| Notifications
     Simulator --> Consumables
     Simulator --> Dispatching
     ToolPlanning --> Consumables
