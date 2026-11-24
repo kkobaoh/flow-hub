@@ -5,6 +5,7 @@
     "lib": ["ES2023", "DOM"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "types": [],
     "skipLibCheck": true,
     "noEmit": true,
@@ -15,5 +16,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["vite.config.ts", "playwright.config.ts", "e2e"]
+  "include": ["vite.config.ts", "vitest.config.ts", "playwright.config.ts", "e2e"]
 }

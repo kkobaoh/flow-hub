@@ -1,4 +1,3 @@
-/// <reference types="vitest/config" />
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -16,11 +15,6 @@ export default defineConfig(({ mode }) => {
         '/transports': { target: api },
       '/agvs': { target: api },
       },
-    },
-    test: {
-      include: ['src/**/*.test.{ts,tsx}'],
-      environment: 'jsdom',
-      setupFiles: ['src/test/setup.ts'],
     },
   };
 });
