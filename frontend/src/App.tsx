@@ -46,7 +46,10 @@ import { commandNotice, toManualOutcome, type AgvCommand, type AgvCommandResult 
 import { mapOverlays, toAgvDetails } from './server/agvs';
 import { runIndicator } from './server/systemStatus';
 import { useServer } from './server/useServer';
+import type { MapLayout } from './map/model';
 import { sampleLayout } from './map/sampleLayout';
+import type { MapSnapshot } from './server/map';
+import { equipmentDetails } from './app/equipmentDetails';
 
 const user = { name: '[ユーザー名]', role: '管理者' } as const;
 const permissions = initialRoles.管理者;
@@ -56,6 +59,17 @@ function demoPassword(): string {
   const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
   return Array.from(crypto.getRandomValues(new Uint32Array(12)), (n) => letters[n % letters.length]).join('');
 }
+/** マップが届くまで、またはまだ公開されていないときのマップ（パネルがない）。 */
+const EMPTY_LAYOUT: MapLayout = { panelSizeMm: 1000, panels: [], connections: [] };
+
+/** メニューに出す、公開中のマップの版。 */
+function mapVersionLabel(map: MapSnapshot | null): string {
+  if (map === null) {
+    return 'マップ（読み込んでいます）';
+  }
+  return map.mapVersion > 0 ? `マップ 版${map.mapVersion}（公開済み）` : 'マップ（まだ公開していません）';
+}
+
 /** ブラウザーの置き場（使えないときは null）。 */
 function browserStorage(): Storage | null {
   try {
@@ -79,7 +93,7 @@ export interface AppProps {
 }
 
 /**
- * 画面の入り口。運転状態、AGV、メッセージはサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
+ * 画面の入り口。マップ、運転状態、AGV、メッセージはサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
  * 見本のデータを操作した結果は、この中で覚えて、画面が切り替わるようにしている。
  */
 export function App({ link }: AppProps) {
@@ -118,17 +132,22 @@ export function App({ link }: AppProps) {
   const [roles, setRoles] = useState(demoRoles);
   const [mapDraft, setMapDraft] = useState(demoMapDraft);
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
-  const [published, setPublished] = useState({ version: 3, layout: sampleLayout });
-  const destinations = useMemo(() => panelOptions(published.layout), [published.layout]);
+  // マップの編集の画面は、まだ見本の下書きで動かす（画面からの公開は backlog #5）
+  const [demoPublished, setDemoPublished] = useState({ version: 3, layout: sampleLayout });
+  // マップの画面は、サーバーから届いた公開中のマップを描く（届くまでは、まだない）
+  const serverMap = server.map.kind === 'waiting' ? null : server.map.snapshot;
+  const layout = serverMap?.layout ?? EMPTY_LAYOUT;
+  const destinations = useMemo(() => panelOptions(layout), [layout]);
+  const equipment = useMemo(() => equipmentDetails(serverMap?.equipment ?? [], demoEquipment), [serverMap]);
   // AGV は、サーバーから届いた様子を、描いているマップに合わせて使う（まだ届いていなければ、いない）
   const agvs = useMemo(
-    () => (server.agvs.kind === 'waiting' ? [] : toAgvDetails(server.agvs.snapshot.agvs, published.layout)),
-    [server.agvs, published.layout],
+    () => (server.agvs.kind === 'waiting' ? [] : toAgvDetails(server.agvs.snapshot.agvs, layout)),
+    [server.agvs, layout],
   );
   // 予約しているパネルと走る予定の経路も、サーバーから届いた AGV の様子から描く
   const overlays = useMemo(
-    () => (server.agvs.kind === 'waiting' ? { reservedPanels: [], routes: [] } : mapOverlays(server.agvs.snapshot.agvs, published.layout)),
-    [server.agvs, published.layout],
+    () => (server.agvs.kind === 'waiting' ? { reservedPanels: [], routes: [] } : mapOverlays(server.agvs.snapshot.agvs, layout)),
+    [server.agvs, layout],
   );
   const [heights, setHeights] = useState(demoHeights);
   const [mapDirty, setMapDirty] = useState(false);
@@ -195,7 +214,7 @@ export function App({ link }: AppProps) {
     run,
     user,
     permissions,
-    mapVersion: `マップ 版${published.version}（公開済み）`,
+    mapVersion: mapVersionLabel(serverMap),
     messages,
     onMarkAllSeen: markAllSeen,
     onNavigate: go,
@@ -346,9 +365,9 @@ export function App({ link }: AppProps) {
         return (
           <MapEditScreen
             saved={mapDraft}
-            draftVersion={published.version + 1}
+            draftVersion={demoPublished.version + 1}
             savedAt={draftSavedAt}
-            publishedVersion={published.version}
+            publishedVersion={demoPublished.version}
             equipment={[...deviceConfigs, ...stationConfigs]}
             heights={heights}
             running={run !== 'stopped'} // わからないときは、運転中として扱う（公開の決まりが厳しい側）
@@ -360,7 +379,7 @@ export function App({ link }: AppProps) {
             }}
             onValidate={(d) => Promise.resolve(demoValidate(d))}
             onPublish={(d) => {
-              setPublished((p) => ({ version: p.version + 1, layout: d.layout }));
+              setDemoPublished((p) => ({ version: p.version + 1, layout: d.layout }));
               setMapDraft(d);
               setDraftSavedAt(null);
             }}
@@ -377,14 +396,20 @@ export function App({ link }: AppProps) {
     <>
       <ConnectionBanner connection={server.connection} />
       <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">
-        運転状態と AGV とメッセージのほかは、見本のデータです
+        マップ、運転状態、AGV、メッセージのほかは、見本のデータです
       </p>
-      {route.screen === 'map' ? (
+      {route.screen === 'map' && layout.panels.length === 0 ? (
+        <ScreenFrame {...frame} current="map" title="全体の様子（マップ）">
+          <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">
+            {serverMap === null ? 'マップを読み込んでいます。' : 'マップがまだ公開されていません。マップの編集の画面で公開してください。'}
+          </p>
+        </ScreenFrame>
+      ) : route.screen === 'map' ? (
         <MapScreen
           {...frame}
-          layout={published.layout}
+          layout={layout}
           agvs={agvs}
-          equipment={demoEquipment.filter((e) => published.layout.panels.some((p) => p.id === e.panel))}
+          equipment={equipment}
           reservedPanels={overlays.reservedPanels}
           routes={overlays.routes}
           destinations={destinations}

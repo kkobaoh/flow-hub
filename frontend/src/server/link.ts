@@ -1,6 +1,7 @@
 import type { AgvId } from '../map/agv';
 import type { AgvCommand, AgvCommandResult } from './agvCommands';
 import type { AgvsSnapshot } from './agvs';
+import type { MapSnapshot } from './map';
 import type { MessagesSnapshot } from './messages';
 import type { SystemStatusSnapshot } from './systemStatus';
 
@@ -21,6 +22,7 @@ export interface ServerHandlers {
   readonly onSystemStatus: (snapshot: SystemStatusSnapshot) => void;
   readonly onAgvs: (snapshot: AgvsSnapshot) => void;
   readonly onMessages: (snapshot: MessagesSnapshot) => void;
+  readonly onMap: (snapshot: MapSnapshot) => void;
 }
 
 /**

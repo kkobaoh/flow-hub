@@ -2,6 +2,7 @@ import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { COMMAND_TIMEOUT_MS, postCommand, retryDelayMs, type ServerHandlers, type ServerLink } from './link';
 import { sendAgvCommand } from './agvCommands';
 import { parseAgvs } from './agvs';
+import { parseMap } from './map';
 import { parseMessages } from './messages';
 import { parseSystemStatus } from './systemStatus';
 
@@ -13,6 +14,9 @@ const AGVS = 'agvs';
 
 /** メッセージの様子を受け取る名前（サーバーの ScreenFeed.MessagesMethod と同じ）。 */
 const MESSAGES = 'messages';
+
+/** マップの様子を受け取る名前（サーバーの ScreenFeed.MapMethod と同じ）。 */
+const MAP = 'map';
 
 /**
  * 本物のつながり。SignalR のハブ（/hubs/screen）で様子を受け取り、操作は HTTP の窓口へ送る。
@@ -76,6 +80,14 @@ function connect(baseUrl: string, handlers: ServerHandlers): () => void {
     } catch (error) {
       // 形の正しくない様子は使わず、今の様子のままにする
       console.error('サーバーから届いたメッセージの様子を使えませんでした。', error);
+    }
+  });
+  connection.on(MAP, (value: unknown) => {
+    try {
+      handlers.onMap(parseMap(value));
+    } catch (error) {
+      // 形の正しくない様子は使わず、今の様子のままにする
+      console.error('サーバーから届いたマップの様子を使えませんでした。', error);
     }
   });
   connection.onreconnecting(() => handlers.onConnection('reconnecting'));

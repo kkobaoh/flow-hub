@@ -3,9 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { click, render } from './test/render';
 import { App } from './App';
 import { createFakeLink, type FakeLink } from './server/fakeLink';
+import type { MapSnapshot } from './server/map';
+import { sampleEquipment, sampleLayout } from './map/sampleLayout';
+
+/** サーバーから届いたことにするマップ（見本と同じ並び。気をつけることは、まだ届かないので空）。 */
+const serverMap: MapSnapshot = { version: 1, mapVersion: 3, layout: sampleLayout, equipment: sampleEquipment.map((e) => ({ ...e, attentions: [] })) };
 
 /** つながって、運転中の様子が届いた偽物のつながり。 */
-const connected = (): FakeLink => createFakeLink({ connection: 'connected', status: { version: 1, state: 'started' } });
+const connected = (): FakeLink => createFakeLink({ connection: 'connected', status: { version: 1, state: 'started' }, map: serverMap });
 
 function buttonByText(root: ParentNode, text: string): HTMLButtonElement {
   const found = [...root.querySelectorAll('button')].find((b) => b.textContent === text);
@@ -75,10 +80,33 @@ describe('App', () => {
     window.location.hash = '';
   });
 
-  it('運転状態と AGV とメッセージのほかは、見本のデータで動かしていることを知らせる', () => {
+  it('マップ、運転状態、AGV、メッセージのほかは、見本のデータで動かしていることを知らせる', () => {
     const { container } = render(<App link={connected()} />);
 
-    expect(container.textContent).toContain('運転状態と AGV とメッセージのほかは、見本のデータです');
+    expect(container.textContent).toContain('マップ、運転状態、AGV、メッセージのほかは、見本のデータです');
+  });
+
+  it('マップが届くまでは、読み込んでいることを出す。届いたら、サーバーのマップと装置とステーションを描き、版を出す', () => {
+    window.location.hash = '';
+    const link = createFakeLink({ connection: 'connected', status: { version: 1, state: 'started' } });
+    const { container } = render(<App link={link} />);
+    expect(container.textContent).toContain('マップを読み込んでいます');
+    expect(container.querySelector('svg[aria-label="マップ"]')).toBeNull();
+
+    act(() =>
+      link.emitMap({
+        version: 1,
+        mapVersion: 7,
+        layout: { panelSizeMm: 1000, panels: sampleLayout.panels.filter((p) => p.id !== 'SP'), connections: sampleLayout.connections.filter((c) => c.to !== 'SP') },
+        equipment: [{ id: sampleEquipment[2]!.id, kind: 'device', panel: sampleEquipment[2]!.panel, outlineMm: sampleEquipment[2]!.outlineMm, attentions: [] }],
+      }),
+    );
+
+    expect(container.querySelector('svg[aria-label="マップ"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-equipment]')).toHaveLength(1);
+    expect(container.querySelector('[data-panel="SP"]')).toBeNull();
+    click(container.querySelector('button[aria-controls="main-menu"]')!);
+    expect(container.textContent).toContain('マップ 版7');
   });
 
   // ---- AGV の様子 ----
@@ -115,6 +143,7 @@ describe('App', () => {
   it('予約しているパネルと走る予定の経路、割り当て済みの搬送を、サーバーから届いた様子で出す', () => {
     const link = createFakeLink({
       connection: 'connected',
+      map: serverMap,
       status: { version: 1, state: 'started' },
       agvs: {
         version: 1,
@@ -140,6 +169,7 @@ describe('App', () => {
   it('位置がわからない AGV を押すと、カードを開き、位置を「わからない」と出す', () => {
     const link = createFakeLink({
       connection: 'connected',
+      map: serverMap,
       status: { version: 1, state: 'started' },
       agvs: { version: 1, agvs: [{ id: 'AGV-2', panel: null, heading: null, state: 'unregistered', control: 'detached', carrierMoving: false, batteryPercent: null, reservedPanels: [], route: [], transport: null }] },
     });
@@ -165,7 +195,7 @@ describe('App', () => {
   });
 
   it('運転状態が届くまでは、確かめていることを出し、切り替えを押せない', () => {
-    const { container } = render(<App link={createFakeLink({ connection: 'connected' })} />);
+    const { container } = render(<App link={createFakeLink({ connection: 'connected', map: serverMap })} />);
 
     expect(headerStatus(container)).toBe('運転状態を確かめています');
     expect(buttonByText(runSwitch(container), '停止').disabled).toBe(true);
@@ -277,6 +307,7 @@ describe('App', () => {
   function openAgv1(control: 'auto' | 'manual' = 'auto') {
     const link = createFakeLink({
       connection: 'connected',
+      map: serverMap,
       status: { version: 1, state: 'started' },
       agvs: { version: 1, agvs: [{ id: 'AGV-1', panel: 'P3', heading: 90, state: 'idle', control, carrierMoving: false, batteryPercent: 72, reservedPanels: [], route: [], transport: null }] },
     });
