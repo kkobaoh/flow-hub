@@ -38,28 +38,33 @@ describe('PositionDialog', () => {
 
     expect(dialog(container).textContent).toContain('十字の上');
     expect([...select(container, 'パネル').options].map((o) => o.value)).toEqual(['', 'SB', 'P3']);
-    expect([...select(container, '向き').options].map((o) => o.value)).toEqual(['0', '90', '180', '270']);
+    expect([...select(container, '向き').options].map((o) => o.value)).toEqual(['', '0', '90', '180', '270']);
   });
 
-  it('パネルを選ぶまでは決められない', () => {
+  it('パネルと向きの両方を選ぶまでは決められない（位置がわからないときは、どちらも未選択から）', () => {
     const onConfirm = vi.fn();
     const { container } = render(<PositionDialog {...props({ onConfirm })} />);
 
+    expect(select(container, 'パネル').value).toBe('');
+    expect(select(container, '向き').value).toBe('');
     expect(byText(container, '位置リセットする').disabled).toBe(true);
     choose(select(container, 'パネル'), 'P3');
+    expect(byText(container, '位置リセットする').disabled).toBe(true);
     choose(select(container, '向き'), '180');
     click(byText(container, '位置リセットする'));
 
     expect(onConfirm).toHaveBeenCalledWith({ panel: 'P3', heading: 180 });
   });
 
-  it('今わかっている位置を、最初から選んでおく（向きが 0・90・180・270 度でなければ、向きは 0 度）', () => {
+  it('今わかっている位置を、最初から選んでおく（向きが 0・90・180・270 度でなければ、向きは未選択）', () => {
     const { container, rerender } = render(<PositionDialog {...props({ initial: { panel: panelId('SB'), heading: heading(270) } })} />);
     expect(select(container, 'パネル').value).toBe('SB');
     expect(select(container, '向き').value).toBe('270');
 
     rerender(<PositionDialog key="other" {...props({ initial: { panel: panelId('P3'), heading: heading(45) } })} />);
-    expect(select(container, '向き').value).toBe('0');
+    expect(select(container, 'パネル').value).toBe('P3');
+    expect(select(container, '向き').value).toBe('');
+    expect(byText(container, '位置リセットする').disabled).toBe(true);
   });
 
   it('「やめる」か Esc で、何もせずに閉じる', () => {

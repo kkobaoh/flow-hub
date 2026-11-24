@@ -35,7 +35,8 @@ export function PositionDialog({ title, confirmLabel, panels, initial, onConfirm
   const bodyId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [panel, setPanel] = useState<string>(initial !== null && panels.some((p) => p.id === initial.panel) ? initial.panel : '');
-  const [direction, setDirection] = useState<string>(String(initial !== null && initial.heading % 90 === 0 ? initial.heading : 0));
+  // 向きは、今わかっている向きが 0・90・180・270 度のどれかのときだけ選んでおく。斜めのときやわからないときは未選択（docs/screens.md）
+  const [direction, setDirection] = useState<string>(initial !== null && initial.heading % 90 === 0 ? String(initial.heading) : '');
 
   useEffect(() => {
     cancelRef.current?.focus();
@@ -79,6 +80,7 @@ export function PositionDialog({ title, confirmLabel, panels, initial, onConfirm
             向き
           </label>
           <select id={`${titleId}-heading`} aria-label="向き" value={direction} onChange={(e) => setDirection(e.target.value)} className={selectClass}>
+            <option value="">選んでください</option>
             {CARDINALS.map(([deg, dir]) => (
               <option key={deg} value={deg}>
                 {deg}°（{dir}）
@@ -92,8 +94,12 @@ export function PositionDialog({ title, confirmLabel, panels, initial, onConfirm
           </button>
           <button
             type="button"
-            disabled={chosen === undefined}
-            onClick={() => chosen && onConfirm({ panel: chosen.id as PanelId, heading: toHeading(Number(direction)) })}
+            disabled={chosen === undefined || direction === ''}
+            onClick={() => {
+              if (chosen !== undefined && direction !== '') {
+                onConfirm({ panel: chosen.id as PanelId, heading: toHeading(Number(direction)) });
+              }
+            }}
             className={`${buttonBase} bg-graphite text-white`}
           >
             {confirmLabel}

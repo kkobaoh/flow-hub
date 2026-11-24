@@ -145,9 +145,11 @@ describe('AgvCard', () => {
     const d = dialog(container)!;
     expect(d.textContent).toContain('AGV-1 を「オート」に戻しますか');
     choose(d.querySelector<HTMLSelectElement>('select[aria-label="パネル"]')!, 'SB');
+    expect(byText(d, 'オートに戻す').disabled).toBe(true); // 位置がわからないので、向きも選ぶまで戻せない
+    choose(d.querySelector<HTMLSelectElement>('select[aria-label="向き"]')!, '90');
     click(byText(d, 'オートに戻す'));
 
-    expect(onChangeControl).toHaveBeenCalledWith('AGV-1', 'auto', { panel: 'SB', heading: 0 });
+    expect(onChangeControl).toHaveBeenCalledWith('AGV-1', 'auto', { panel: 'SB', heading: 90 });
   });
 
   it('アラームクリアは確かめてから送り、位置リセットは位置を選んでから送る（今の位置を最初から選んでおく）', () => {
