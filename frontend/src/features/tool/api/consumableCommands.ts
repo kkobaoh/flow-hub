@@ -5,13 +5,16 @@ import type { Condition } from '../station';
 export type ConsumableCommand =
   | { readonly kind: 'stockerSetting'; readonly device: string; readonly counts: readonly { readonly variety: string; readonly count: number }[] }
   | { readonly kind: 'ship'; readonly consumable: string }
-  | { readonly kind: 'correct'; readonly consumable: string; readonly variety: string; readonly condition: Condition };
+  | { readonly kind: 'correct'; readonly consumable: string; readonly variety: string; readonly condition: Condition }
+  | { readonly kind: 'designate'; readonly consumable: string; readonly device: string }
+  | { readonly kind: 'cancelDesignation'; readonly consumable: string };
 
 /**
  * 操作の結果。
- * - saved・requested・corrected：受け付けた。
+ * - saved・requested・corrected・designated・canceled：受け付けた。
  * - exceedsSlots：個数の合計がスロットの数を超えている。notAtStation：ステーションにない。
- *   inAssignedTransport：AGV を割り当て済みの、届ける搬送に入っている。notNeedingCheck：もう要確認ではない。どれも、何も変えていない。
+ *   inAssignedTransport：AGV を割り当て済みの、届ける搬送に入っている。notNeedingCheck：もう要確認ではない。
+ *   notDesignatable：指名できるものではない。どれも、何も変えていない。
  * - failed：応答がない、または思わない応答（届いたかわからない。やり直さない）。
  */
 export type ConsumableCommandResult =
@@ -22,6 +25,9 @@ export type ConsumableCommandResult =
   | 'inAssignedTransport'
   | 'corrected'
   | 'notNeedingCheck'
+  | 'designated'
+  | 'notDesignatable'
+  | 'canceled'
   | 'failed';
 
 const SERVER_RESULTS: ReadonlySet<Exclude<ConsumableCommandResult, 'failed'>> = new Set([
@@ -32,6 +38,9 @@ const SERVER_RESULTS: ReadonlySet<Exclude<ConsumableCommandResult, 'failed'>> = 
   'inAssignedTransport',
   'corrected',
   'notNeedingCheck',
+  'designated',
+  'notDesignatable',
+  'canceled',
 ] as const);
 
 /** 操作を、サーバーの HTTP の窓口へ送る形にする。 */
@@ -46,6 +55,10 @@ export function consumableCommandRequest(command: ConsumableCommand): { readonly
         path: `/consumables/${encodeURIComponent(command.consumable)}/correct`,
         body: { variety: command.variety, condition: command.condition === '新品' ? 'new' : 'used' },
       };
+    case 'designate':
+      return { path: `/consumables/${encodeURIComponent(command.consumable)}/designate`, body: { device: command.device } };
+    case 'cancelDesignation':
+      return { path: `/consumables/${encodeURIComponent(command.consumable)}/cancel-designation`, body: {} };
     default:
       throw new Error(`知らない操作です: ${JSON.stringify(command satisfies never)}`);
   }
@@ -59,19 +72,25 @@ export async function sendConsumableCommand(baseUrl: string, command: Consumable
   return result === 'refused' ? 'failed' : result;
 }
 
-/** 画面に出す、操作の結果の知らせ（受け付けたときは null）。 */
-export function consumableNotice(result: ConsumableCommandResult): string | null {
+/** 画面に出す、操作の結果の知らせ（受け付けたときは null）。同じ結果でも、操作によって文を変える。 */
+export function consumableNotice(kind: ConsumableCommand['kind'], result: ConsumableCommandResult): string | null {
   switch (result) {
     case 'saved':
     case 'requested':
     case 'corrected':
+    case 'designated':
+    case 'canceled':
       return null;
     case 'exceedsSlots':
       return '個数の合計がスロットの数を超えているので、保存できませんでした。';
     case 'notAtStation':
       return 'ステーションにないので、出庫できませんでした。表示を確かめてください。';
     case 'inAssignedTransport':
-      return '届ける搬送に AGV を割り当て済みなので、出庫できませんでした。';
+      return kind === 'cancelDesignation'
+        ? '届ける搬送に AGV を割り当て済みなので、指名を取り消せませんでした。'
+        : '届ける搬送に AGV を割り当て済みなので、出庫できませんでした。';
+    case 'notDesignatable':
+      return '指名できませんでした。指名できるのは、ステーションにある、要確認でない新品で、届ける予約も出庫の頼みも指名もないものです。表示を確かめてください。';
     case 'notNeedingCheck':
       return 'もう要確認ではないので、直しませんでした（ほかの人が直したか、出庫したなど）。表示を確かめてください。';
     case 'failed':

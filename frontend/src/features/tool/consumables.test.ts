@@ -27,7 +27,6 @@ function record(overrides: Partial<ConsumableRecord> = {}): ConsumableRecord {
     reservation: null,
     nomination: null,
     shipping: false,
-    history: [],
     ...overrides,
   };
 }
@@ -43,6 +42,7 @@ describe('locationLabel', () => {
     expect(locationLabel({ kind: 'processing', device: 'DEV-1' })).toBe('DEV-1 の加工部');
     expect(locationLabel({ kind: 'handover', device: 'DEV-1' })).toBe('DEV-1 の受け渡し部');
     expect(locationLabel({ kind: 'agv', agv: 'AGV-1' })).toBe('AGV-1 の中');
+    expect(locationLabel({ kind: 'agv', agv: null })).toBe('AGV の中');
     expect(locationLabel({ kind: 'unknown' })).toBe('所在不明');
   });
 });

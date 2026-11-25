@@ -78,7 +78,7 @@
 - [ ] [Api/Database](../src/FlowHub.Api/Database/) → [Composition/FlowHubSystem.cs](../src/FlowHub.Api/Composition/FlowHubSystem.cs) → [Subscriptions.cs](../src/FlowHub.Api/Subscriptions.cs) → [InitialData](../src/FlowHub.Api/InitialData/) → [Program.cs](../src/FlowHub.Api/Program.cs)
 - [ ] [ScreenFeed.cs](../src/FlowHub.Api/Composition/Screens/ScreenFeed.cs) → [ScreenHub.cs](../src/FlowHub.Api/Composition/Screens/ScreenHub.cs)
   - [ScreenFeedTests.cs](../tests/FlowHub.Api.Tests/ScreenFeedTests.cs) と一緒に、運転状態・AGV・メッセージ・マップ・装置とステーション・搬送の一覧の変更が番号付きで配信される流れを追います。
-  - 送る形は [Screens](../src/FlowHub.Api/Composition/Screens/) にあります（[EquipmentStatusView.cs](../src/FlowHub.Api/Composition/Screens/EquipmentStatusView.cs)、[TransportsView.cs](../src/FlowHub.Api/Composition/Screens/TransportsView.cs) など）。搬送の一覧は、配車の一覧と搬送計画の中身を、組み立てで結び付けています。
+  - 送る形は [Screens](../src/FlowHub.Api/Composition/Screens/) にあります（[EquipmentStatusView.cs](../src/FlowHub.Api/Composition/Screens/EquipmentStatusView.cs)、[TransportsView.cs](../src/FlowHub.Api/Composition/Screens/TransportsView.cs)、[ConsumablesView.cs](../src/FlowHub.Api/Composition/Screens/ConsumablesView.cs) など）。搬送の一覧は、配車の一覧と搬送計画の中身を、組み立てで結び付けています。
 - [ ] 画面から呼ぶ HTTP の窓口：[AgvOperationEndpoints.cs](../src/FlowHub.Api/Composition/AgvOperationEndpoints.cs)、[ConsumableEndpoints.cs](../src/FlowHub.Api/Composition/ConsumableEndpoints.cs)、[TransportEndpoints.cs](../src/FlowHub.Api/Composition/TransportEndpoints.cs)
 
 ## 第7段：画面（frontend、約10,200行）
@@ -93,7 +93,7 @@
   - [fleet/controlStatus.ts](../frontend/src/features/fleet/controlStatus.ts) → [AgvCard.tsx](../frontend/src/features/fleet/AgvCard.tsx) を写し、[AgvCard のテスト](../frontend/src/features/fleet/AgvCard.test.tsx) と [Story](../frontend/src/features/fleet/AgvCard.stories.tsx) で、状態ごとの表示と操作を確認します。
 - [ ] **API とリアルタイム通信**
   - [agvSnapshots.ts](../frontend/src/features/fleet/api/agvSnapshots.ts) で受信データの変換、[agvCommands.ts](../frontend/src/features/fleet/api/agvCommands.ts) で HTTP による操作の送信を追います。操作の送信の共通部分は [postCommand.ts](../frontend/src/shared/api/postCommand.ts) の `postOperation` です。
-  - 同じ形で、装置とステーション（[equipmentStatus.ts](../frontend/src/features/tool/api/equipmentStatus.ts)、[consumableCommands.ts](../frontend/src/features/tool/api/consumableCommands.ts)、画面の形にする [inside.ts](../frontend/src/features/tool/inside.ts)）と、搬送の一覧（[transportsSnapshot.ts](../frontend/src/features/dispatch/api/transportsSnapshot.ts)、[transportCommands.ts](../frontend/src/features/dispatch/api/transportCommands.ts)）があります。
+  - 同じ形で、装置とステーション（[equipmentStatus.ts](../frontend/src/features/tool/api/equipmentStatus.ts)、[consumableCommands.ts](../frontend/src/features/tool/api/consumableCommands.ts)、画面の形にする [inside.ts](../frontend/src/features/tool/inside.ts)）、消耗品の記録（[consumablesSnapshot.ts](../frontend/src/features/tool/api/consumablesSnapshot.ts)）と、搬送の一覧（[transportsSnapshot.ts](../frontend/src/features/dispatch/api/transportsSnapshot.ts)、[transportCommands.ts](../frontend/src/features/dispatch/api/transportCommands.ts)）があります。
   - [versioned.ts](../frontend/src/shared/realtime/versioned.ts) → [signalRLink.ts](../frontend/src/app/realtime/signalRLink.ts) → [useServer.ts](../frontend/src/app/realtime/useServer.ts) を、第6段の `ScreenFeed.cs` と見比べます。[fakeLink.ts](../frontend/src/testing/fakeLink.ts) を使うテストや Storybook から始められます。
 - [ ] **URL ごとの画面とアプリの組み立て**
   - [pages](../frontend/src/pages/) の [MapPage.tsx](../frontend/src/pages/MapPage.tsx) と [FleetPage.tsx](../frontend/src/pages/FleetPage.tsx) を題材に、業務の部品を画面として組み合わせる方法を学びます。

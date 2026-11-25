@@ -5,6 +5,7 @@ import type { AgvsSnapshot } from '../../features/fleet/api/agvSnapshots';
 import type { MapSnapshot } from '../../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../../features/tool/api/equipmentStatus';
 import type { TransportsSnapshot } from '../../features/dispatch/api/transportsSnapshot';
+import type { ConsumablesSnapshot } from '../../features/tool/api/consumablesSnapshot';
 import type { TransportCancelResult } from '../../features/dispatch/api/transportCommands';
 import type { ConsumableCommand, ConsumableCommandResult } from '../../features/tool/api/consumableCommands';
 import type { MessagesSnapshot } from '../../features/alarm/api/messages';
@@ -27,6 +28,7 @@ export interface ServerHandlers {
   readonly onMap: (snapshot: MapSnapshot) => void;
   readonly onEquipment: (snapshot: EquipmentStatusSnapshot) => void;
   readonly onTransports: (snapshot: TransportsSnapshot) => void;
+  readonly onConsumables: (snapshot: ConsumablesSnapshot) => void;
 }
 
 /**

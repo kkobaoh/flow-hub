@@ -6,6 +6,7 @@ import type { AgvsSnapshot } from '../features/fleet/api/agvSnapshots';
 import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../features/tool/api/equipmentStatus';
 import type { TransportsSnapshot } from '../features/dispatch/api/transportsSnapshot';
+import type { ConsumablesSnapshot } from '../features/tool/api/consumablesSnapshot';
 import type { TransportCancelResult } from '../features/dispatch/api/transportCommands';
 import type { ConsumableCommand, ConsumableCommandResult } from '../features/tool/api/consumableCommands';
 import type { MessagesSnapshot } from '../features/alarm/api/messages';
@@ -40,6 +41,7 @@ export interface FakeLink extends ServerLink {
   emitMap(snapshot: MapSnapshot): void;
   emitEquipment(snapshot: EquipmentStatusSnapshot): void;
   emitTransports(snapshot: TransportsSnapshot): void;
+  emitConsumables(snapshot: ConsumablesSnapshot): void;
   /** 取りやめを頼まれた搬送（頼まれた順）。 */
   readonly canceledTransports: readonly number[];
   /** 取りやめの結果を決める（既定は canceled）。holdResponses で止めておける。 */
@@ -58,6 +60,7 @@ export function createFakeLink(initial?: {
   readonly map?: MapSnapshot;
   readonly equipment?: EquipmentStatusSnapshot;
   readonly transports?: TransportsSnapshot;
+  readonly consumables?: ConsumablesSnapshot;
 }): FakeLink {
   let handlers: ServerHandlers | null = null;
   let result: CommandResult = 'ok';
@@ -70,7 +73,7 @@ export function createFakeLink(initial?: {
   const canceledTransports: number[] = [];
   let cancelResult: TransportCancelResult = 'canceled';
   let consumableResult: ConsumableCommandResult | null = null;
-  const accepted = { stockerSetting: 'saved', ship: 'requested', correct: 'corrected' } as const;
+  const accepted = { stockerSetting: 'saved', ship: 'requested', correct: 'corrected', designate: 'designated', cancelDesignation: 'canceled' } as const;
 
   const send = (command: Command): Promise<CommandResult> => {
     sent.push(command);
@@ -148,6 +151,9 @@ export function createFakeLink(initial?: {
         if (initial.transports) {
           h.onTransports(initial.transports);
         }
+        if (initial.consumables) {
+          h.onConsumables(initial.consumables);
+        }
       }
       return () => {
         if (handlers === h) {
@@ -189,6 +195,9 @@ export function createFakeLink(initial?: {
     },
     emitTransports(snapshot) {
       handlers?.onTransports(snapshot);
+    },
+    emitConsumables(snapshot) {
+      handlers?.onConsumables(snapshot);
     },
   };
 }

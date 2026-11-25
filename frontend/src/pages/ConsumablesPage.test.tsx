@@ -1,11 +1,10 @@
+import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { change, click, render } from '../testing/render';
 import type { ConsumableRecord } from '../features/tool/consumables';
 import { ConsumablesPage, type ConsumablesPageProps } from './ConsumablesPage';
 import { demoDevices } from '../app/demo/demo';
 import { initialRoles } from '../features/auth/permissions';
-
-const at = new Date('2026-11-21T09:58:00');
 
 const base: ConsumableRecord = {
   id: 'T-0101',
@@ -17,23 +16,19 @@ const base: ConsumableRecord = {
   reservation: null,
   nomination: null,
   shipping: false,
-  history: [
-    { at, what: 'DEV-1 のストッカー1・スロット1 に入れた', detail: '搬送 #10 で届けました' },
-    { at: new Date('2026-11-20T14:02:00'), what: 'ST-1 に入庫した', detail: '新品として登録しました' },
-  ],
 };
 
 const records: ConsumableRecord[] = [
   base,
-  { ...base, id: 'T-0110', location: { kind: 'station', station: 'ST-1' }, history: [] },
-  { ...base, id: 'T-0111', location: { kind: 'station', station: 'ST-1' }, nomination: { device: 'DEV-2', assigned: false }, history: [] },
+  { ...base, id: 'T-0110', location: { kind: 'station', station: 'ST-1' } },
+  { ...base, id: 'T-0111', location: { kind: 'station', station: 'ST-1' }, nomination: { device: 'DEV-2', assigned: false } },
 ];
 
 function setup(overrides: Partial<ConsumablesPageProps> = {}) {
   const handlers = {
     onOpen: vi.fn(),
-    onNominate: vi.fn(),
-    onCancelNomination: vi.fn(),
+    onNominate: vi.fn<ConsumablesPageProps['onNominate']>().mockResolvedValue(null),
+    onCancelNomination: vi.fn<ConsumablesPageProps['onCancelNomination']>().mockResolvedValue(null),
     onRegister: vi.fn(),
     onEdit: vi.fn(),
     onDelete: vi.fn(),
@@ -46,6 +41,8 @@ function setup(overrides: Partial<ConsumablesPageProps> = {}) {
       devices={demoDevices}
       varieties={['[品種A]', '[品種B]']}
       permissions={initialRoles.保守}
+      offline={false}
+      manualEntryNote={null}
       {...handlers}
       {...overrides}
     />,
@@ -87,24 +84,63 @@ describe('ConsumablesPage（消耗品の検索と手入力）', () => {
     expect(container.textContent).toContain('「Z」に合う消耗品はありません。');
   });
 
-  it('開いた消耗品の所在、予約、指名と、これまでの動きを出す', () => {
+  it('開いた消耗品の所在、予約、指名を出す。これまでの動きは、まだ記録していないと出す', () => {
     const { container } = setup({ selected: 'T-0101' });
     const item = container.querySelector('[aria-labelledby="item-title"]')!;
 
     expect(item.textContent).toContain('DEV-1 のストッカー1・スロット1');
     expect(item.textContent).toContain('[加工の種類A]');
-    expect([...container.querySelectorAll('[aria-labelledby="history-title"] li')].map((li) => li.textContent?.slice(0, 11))).toEqual(['11/21 09:58', '11/20 14:02']);
+    expect(container.querySelector('[aria-labelledby="history-title"]')?.textContent).toContain('これまでの動きは、まだ記録していません');
   });
 
-  it('ステーションにある新品は、装置を選んで指名できる', () => {
+  it('予約は、入っている搬送の番号と目的を出す。番号がわからなければ目的だけ', () => {
+    const reserved = (transport: number | null): ConsumableRecord => ({ ...base, reservation: { transport, assigned: false, purpose: 'DEV-1 へ届ける' } });
+
+    expect(setup({ records: [reserved(3)], selected: 'T-0101' }).container.textContent).toContain('搬送 #3（DEV-1 へ届ける）');
+    expect(setup({ records: [reserved(null)], selected: 'T-0101' }).container.textContent).toContain('予約DEV-1 へ届ける');
+  });
+
+  it('ステーションにある新品は、装置を選んで指名できる', async () => {
     const { container, onNominate } = setup({ selected: 'T-0110' });
     const nominate = byText(container, '指名する');
 
     expect(nominate.disabled).toBe(true);
     change(container.querySelector<HTMLSelectElement>('select[aria-label="届ける装置"]')!, 'DEV-2');
-    click(byText(container, '指名する'));
+    await act(async () => {
+      click(byText(container, '指名する'));
+      await Promise.resolve();
+    });
 
     expect(onNominate).toHaveBeenCalledWith('T-0110', 'DEV-2');
+  });
+
+  it('指名をサーバーが断ったら、理由を出す', async () => {
+    const onNominate = vi.fn<ConsumablesPageProps['onNominate']>().mockResolvedValue('指名できませんでした。');
+    const { container } = setup({ selected: 'T-0110', onNominate });
+
+    change(container.querySelector<HTMLSelectElement>('select[aria-label="届ける装置"]')!, 'DEV-2');
+    await act(async () => {
+      click(byText(container, '指名する'));
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[aria-labelledby="item-title"] [role="alert"]')?.textContent).toBe('指名できませんでした。');
+  });
+
+  it('サーバーとつながっていないときは、指名も取り消しもできず、理由を出す', () => {
+    const { container } = setup({ selected: 'T-0110', offline: true });
+
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="届ける装置"]')!.disabled).toBe(true);
+    expect(container.textContent).toContain('サーバーとつながっていないので、指名も取り消しもできません。');
+  });
+
+  it('在庫の手入力が使えないときは、登録も直すも消すも押せず、理由を出す', () => {
+    const { container } = setup({ selected: 'T-0110', manualEntryNote: '在庫の手入力は、まだ作っていません。' });
+
+    expect(byText(container, '手入力で登録する').disabled).toBe(true);
+    expect(byText(container, '記録を直す').disabled).toBe(true);
+    expect(byText(container, '記録を消す').disabled).toBe(true);
+    expect(container.textContent).toContain('在庫の手入力は、まだ作っていません。');
   });
 
   it('装置にあるものは指名できず、理由を出す', () => {
@@ -114,11 +150,14 @@ describe('ConsumablesPage（消耗品の検索と手入力）', () => {
     expect(container.textContent).toContain('指名できるのは、ステーションにある');
   });
 
-  it('指名してあれば、取り消せる', () => {
+  it('指名してあれば、取り消せる', async () => {
     const { container, onCancelNomination } = setup({ selected: 'T-0111' });
 
     expect(container.textContent).toContain('DEV-2 へ届けるものに指名');
-    click(byText(container, '指名を取り消す'));
+    await act(async () => {
+      click(byText(container, '指名を取り消す'));
+      await Promise.resolve();
+    });
 
     expect(onCancelNomination).toHaveBeenCalledWith('T-0111');
   });

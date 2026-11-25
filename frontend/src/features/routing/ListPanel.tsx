@@ -22,7 +22,8 @@ export interface ConsumableHit {
   /** 所在（画面に出す文）。 */
   readonly where: string;
   readonly status: string;
-  readonly at: { readonly kind: 'agv'; readonly id: AgvId } | { readonly kind: 'equipment'; readonly id: EquipmentId };
+  /** マップで目立たせる場所。所在不明や、積んでいる AGV がわからなければ null。 */
+  readonly at: { readonly kind: 'agv'; readonly id: AgvId } | { readonly kind: 'equipment'; readonly id: EquipmentId } | null;
 }
 
 export interface ListPanelProps {

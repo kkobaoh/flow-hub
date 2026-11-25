@@ -4,6 +4,7 @@ import type { AgvsSnapshot } from '../../features/fleet/api/agvSnapshots';
 import type { MapSnapshot } from '../../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../../features/tool/api/equipmentStatus';
 import type { TransportsSnapshot } from '../../features/dispatch/api/transportsSnapshot';
+import type { ConsumablesSnapshot } from '../../features/tool/api/consumablesSnapshot';
 import type { MessagesSnapshot } from '../../features/alarm/api/messages';
 import { receiveStatus, type StatusView } from '../../features/system/systemStatus';
 import { receiveSnapshot, type SnapshotInput, type SnapshotView } from '../../shared/realtime/versioned';
@@ -17,6 +18,7 @@ export interface ServerView {
   readonly map: SnapshotView<MapSnapshot>;
   readonly equipment: SnapshotView<EquipmentStatusSnapshot>;
   readonly transports: SnapshotView<TransportsSnapshot>;
+  readonly consumables: SnapshotView<ConsumablesSnapshot>;
 }
 
 const initialStatus: StatusView = { kind: 'waiting' };
@@ -30,6 +32,8 @@ const initialEquipment: SnapshotView<EquipmentStatusSnapshot> = { kind: 'waiting
 const receiveEquipment = (view: SnapshotView<EquipmentStatusSnapshot>, input: SnapshotInput<EquipmentStatusSnapshot>) => receiveSnapshot(view, input);
 const initialTransports: SnapshotView<TransportsSnapshot> = { kind: 'waiting' };
 const receiveTransports = (view: SnapshotView<TransportsSnapshot>, input: SnapshotInput<TransportsSnapshot>) => receiveSnapshot(view, input);
+const initialConsumables: SnapshotView<ConsumablesSnapshot> = { kind: 'waiting' };
+const receiveConsumables = (view: SnapshotView<ConsumablesSnapshot>, input: SnapshotInput<ConsumablesSnapshot>) => receiveSnapshot(view, input);
 
 /**
  * サーバーとつなぎ、つながりの様子と、届いた様子（運転状態、AGV、メッセージ、マップ）を持つ。部品を消したら切る。
@@ -43,6 +47,7 @@ export function useServer(link: ServerLink): ServerView {
   const [map, dispatchMap] = useReducer(receiveMap, initialMap);
   const [equipment, dispatchEquipment] = useReducer(receiveEquipment, initialEquipment);
   const [transports, dispatchTransports] = useReducer(receiveTransports, initialTransports);
+  const [consumables, dispatchConsumables] = useReducer(receiveConsumables, initialConsumables);
 
   useEffect(
     () =>
@@ -56,6 +61,7 @@ export function useServer(link: ServerLink): ServerView {
             dispatchMap({ type: 'disconnected' });
             dispatchEquipment({ type: 'disconnected' });
             dispatchTransports({ type: 'disconnected' });
+            dispatchConsumables({ type: 'disconnected' });
           }
         },
         onSystemStatus: (snapshot) => dispatch({ type: 'snapshot', snapshot }),
@@ -64,9 +70,10 @@ export function useServer(link: ServerLink): ServerView {
         onMap: (snapshot) => dispatchMap({ type: 'snapshot', snapshot }),
         onEquipment: (snapshot) => dispatchEquipment({ type: 'snapshot', snapshot }),
         onTransports: (snapshot) => dispatchTransports({ type: 'snapshot', snapshot }),
+        onConsumables: (snapshot) => dispatchConsumables({ type: 'snapshot', snapshot }),
       }),
     [link],
   );
 
-  return { connection, status, agvs, messages, map, equipment, transports };
+  return { connection, status, agvs, messages, map, equipment, transports, consumables };
 }

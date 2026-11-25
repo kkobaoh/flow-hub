@@ -4,24 +4,18 @@ import {
   demoAgvTypes,
   demoCarriers,
   demoConfigVarieties,
-  demoConsumables,
   demoDeviceConfigs,
-  demoDevices,
   demoHeights,
   demoMapDraft,
   demoProcessKinds,
-  demoRecords,
   demoRoles,
   demoStationConfigs,
-  demoStations,
   demoUsers,
   demoValidate,
-  demoVarieties,
 } from './demo/demo';
 import { FleetPage } from '../pages/FleetPage';
 import { ConnectionBanner } from './layouts/ConnectionBanner';
 import { ToolSettingsPage } from '../pages/ToolSettingsPage';
-import type { ConsumableRecord } from '../features/tool/consumables';
 import { ConsumablesPage } from '../pages/ConsumablesPage';
 import { ConfirmDialog } from '../shared/components/ConfirmDialog';
 import { DevicesPage } from '../pages/DevicesPage';
@@ -51,6 +45,7 @@ import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
 import { equipmentDetails } from '../features/tool/equipmentDetails';
 import { deviceInsideOf, stationInventoryOf } from '../features/tool/inside';
 import { toTransports } from '../features/dispatch/api/transportsSnapshot';
+import { toHit, toRecord } from '../features/tool/api/consumablesSnapshot';
 import { cancelNotice } from '../features/dispatch/api/transportCommands';
 import { consumableNotice, type ConsumableCommand } from '../features/tool/api/consumableCommands';
 
@@ -91,7 +86,10 @@ const commandFailed = {
 } as const;
 
 /** サーバーとつないだデータで出す画面（ほかの画面には、見本のデータだと帯で知らせる）。 */
-const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station']);
+const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables']);
+
+/** 在庫の手入力（登録・直す・消す）を、まだサーバーとつないでいないことの知らせ（CN-11 でつなぐ）。 */
+const MANUAL_ENTRY_NOTE = '在庫の手入力（登録・直す・消す）は、まだ使えません。';
 
 /** サーバーから様子が届くまで出す。 */
 function Loading({ what }: { readonly what: string }) {
@@ -104,7 +102,7 @@ export interface AppProps {
 }
 
 /**
- * 画面の入り口。マップ、運転状態、AGV、メッセージ、搬送の一覧、装置とストッカー、ステーションの在庫はサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
+ * 画面の入り口。マップ、運転状態、AGV、メッセージ、搬送の一覧、装置とストッカー、ステーションの在庫、消耗品の検索はサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
  * 見本のデータを操作した結果は、この中で覚えて、画面が切り替わるようにしている。
  */
 export function App({ link }: AppProps) {
@@ -129,7 +127,6 @@ export function App({ link }: AppProps) {
   const [sendingAgvs, setSendingAgvs] = useState<ReadonlyMap<AgvId, number>>(new Map());
   const [agvNotices, setAgvNotices] = useState<ReadonlyMap<AgvId, string>>(new Map());
   const offline = server.connection !== 'connected';
-  const [records, setRecords] = useState(demoRecords);
   const [agvEntries, setAgvEntries] = useState(demoAgvEntries);
   const [agvTypes, setAgvTypes] = useState(demoAgvTypes);
   const [processKinds, setProcessKinds] = useState(demoProcessKinds);
@@ -152,9 +149,13 @@ export function App({ link }: AppProps) {
   const deviceInsides = useMemo(() => equipmentStatus?.devices.map(deviceInsideOf) ?? [], [equipmentStatus]);
   const stationInventories = useMemo(() => equipmentStatus?.stations.map(stationInventoryOf) ?? [], [equipmentStatus]);
   /** 消耗品の操作を送り、断られたら理由の文を返す（やり直さない。表示は、届いた様子で変える）。 */
+  // 消耗品の検索と、マップの「消耗品を探す」も、届いた消耗品の記録から出す
+  const consumableData = useMemo(() => (server.consumables.kind === 'waiting' ? [] : server.consumables.snapshot.consumables), [server.consumables]);
+  const records = useMemo(() => consumableData.map(toRecord), [consumableData]);
+  const hits = useMemo(() => consumableData.map(toHit), [consumableData]);
   // 搬送の一覧も、届いた様子から出す
   const transportList = useMemo(() => (server.transports.kind === 'waiting' ? [] : toTransports(server.transports.snapshot.transports)), [server.transports]);
-  const operateConsumables = async (command: ConsumableCommand) => consumableNotice(await link.operateConsumables(command));
+  const operateConsumables = async (command: ConsumableCommand) => consumableNotice(command.kind, await link.operateConsumables(command));
   // AGV は、サーバーから届いた様子を、描いているマップに合わせて使う（まだ届いていなければ、いない）
   const agvs = useMemo(
     () => (server.agvs.kind === 'waiting' ? [] : toAgvDetails(server.agvs.snapshot.agvs, layout)),
@@ -175,7 +176,6 @@ export function App({ link }: AppProps) {
     }
     navigate(screen, target);
   };
-  const updateRecord = (id: string, change: (c: ConsumableRecord) => ConsumableRecord) => setRecords((rs) => rs.map((c) => (c.id === id ? change(c) : c)));
   /** AGV へ操作を送る。結果が返るまでは、その AGV の操作を押せなくする（緊急停止のほかは）。 */
   const operate = async (id: AgvId, command: AgvCommand): Promise<AgvCommandResult> => {
     const count = (delta: number) =>
@@ -285,24 +285,26 @@ export function App({ link }: AppProps) {
           />
         );
       case 'consumables':
-        return (
+        return server.consumables.kind === 'waiting' || equipmentStatus === null ? (
+          <Loading what="消耗品の記録" />
+        ) : (
           <ConsumablesPage
             key={r.target ?? ''}
             records={records}
             selected={r.target}
-            stations={demoStations.map((s) => s.id)}
-            devices={demoDevices}
-            varieties={demoVarieties}
+            stations={stationInventories.map((s) => s.id)}
+            devices={deviceInsides}
+            varieties={equipmentStatus.varieties}
             permissions={permissions}
+            offline={offline}
+            manualEntryNote={MANUAL_ENTRY_NOTE}
             onOpen={(id) => navigate('consumables', id)}
-            onNominate={(id, device) => updateRecord(id, (c) => ({ ...c, nomination: { device, assigned: false } }))}
-            onCancelNomination={(id) => updateRecord(id, (c) => ({ ...c, nomination: null }))}
-            onRegister={(input) => setRecords((rs) => [...rs, { ...input, processKind: null, needsCheck: false, reservation: null, nomination: null, shipping: false, history: [] }])}
-            onEdit={(input) => updateRecord(input.id, (c) => ({ ...c, ...input }))}
-            onDelete={(id) => {
-              setRecords((rs) => rs.filter((c) => c.id !== id));
-              navigate('consumables');
-            }}
+            onNominate={(id, device) => operateConsumables({ kind: 'designate', consumable: id, device })}
+            onCancelNomination={(id) => operateConsumables({ kind: 'cancelDesignation', consumable: id })}
+            // 在庫の手入力は、まだサーバーとつないでいない（CN-11）。押せないので、呼ばれない
+            onRegister={() => {}}
+            onEdit={() => {}}
+            onDelete={() => {}}
           />
         );
       case 'agvs':
@@ -431,7 +433,7 @@ export function App({ link }: AppProps) {
           reservedPanels={overlays.reservedPanels}
           routes={overlays.routes}
           destinations={destinations}
-          searchConsumables={(query) => demoConsumables.filter((c) => matchesQuery(c.id, query))}
+          searchConsumables={(query) => hits.filter((c) => matchesQuery(c.id, query))}
           onOpenEquipment={(screen, id) => navigate(screen, id)}
           onOpenConsumable={(id) => navigate('consumables', id)}
           runSwitchDisabled={server.connection !== 'connected' || sending}

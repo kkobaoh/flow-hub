@@ -11,14 +11,9 @@ export type ConsumableLocation =
   | { readonly kind: 'plate'; readonly device: string; readonly stocker: number }
   | { readonly kind: 'processing'; readonly device: string }
   | { readonly kind: 'handover'; readonly device: string }
-  | { readonly kind: 'agv'; readonly agv: string }
+  /** AGV の中。積んでいる AGV がわからなければ null。 */
+  | { readonly kind: 'agv'; readonly agv: string | null }
   | { readonly kind: 'unknown' };
-
-export interface HistoryEntry {
-  readonly at: Date;
-  readonly what: string;
-  readonly detail: string;
-}
 
 /** 1個の消耗品の記録。 */
 export interface ConsumableRecord {
@@ -28,12 +23,10 @@ export interface ConsumableRecord {
   readonly condition: Condition | null;
   readonly location: ConsumableLocation;
   readonly needsCheck: boolean;
-  /** 届ける・回収するの予約。assigned は、その搬送に AGV を割り当て済みか。 */
-  readonly reservation: { readonly transport: number; readonly assigned: boolean; readonly purpose: string } | null;
+  /** 届ける・回収するの予約。transport は入っている搬送の番号（わからなければ null）、assigned は、その搬送に AGV を割り当て済みか。 */
+  readonly reservation: { readonly transport: number | null; readonly assigned: boolean; readonly purpose: string } | null;
   readonly nomination: { readonly device: string; readonly assigned: boolean } | null;
   readonly shipping: boolean;
-  /** これまでの動き（新しい順）。 */
-  readonly history: readonly HistoryEntry[];
 }
 
 /** 登録・直すときの下書き。location は所在のキー（locationKey）、未選択は ''。 */
@@ -57,7 +50,7 @@ export function locationLabel(location: ConsumableLocation): string {
     case 'handover':
       return `${location.device} の受け渡し部`;
     case 'agv':
-      return `${location.agv} の中`;
+      return location.agv === null ? 'AGV の中' : `${location.agv} の中`;
     case 'unknown':
       return '所在不明';
   }
@@ -92,7 +85,7 @@ export function editBlockedReason(record: ConsumableRecord, permissions: Permiss
       break;
   }
   if (record.reservation?.assigned) {
-    return `搬送 #${record.reservation.transport} に AGV を割り当て済みなので、直したり消したりできません。`;
+    return `${record.reservation.transport === null ? '届ける・回収する搬送' : `搬送 #${record.reservation.transport}`} に AGV を割り当て済みなので、直したり消したりできません。`;
   }
   if (record.shipping) {
     return '出庫を頼んでいる消耗品は、直したり消したりできません。';

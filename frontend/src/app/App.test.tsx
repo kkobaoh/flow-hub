@@ -138,6 +138,49 @@ describe('App', () => {
     window.location.hash = '';
   });
 
+  it('消耗品の検索は、届いた消耗品の記録で開き、指名をサーバーへ送る', async () => {
+    window.location.hash = '#/consumables/T-5';
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    expect(container.textContent).toContain('消耗品の記録を読み込んでいます。');
+
+    act(() => {
+      link.emitEquipment(equipmentStatus);
+      link.emitConsumables({
+        version: 1,
+        consumables: [
+          {
+            id: 'T-5',
+            variety: 'DR-5',
+            processType: 'drill',
+            condition: 'new',
+            location: { kind: 'station', station: 'ST-1' },
+            checkReason: null,
+            reservation: null,
+            designation: null,
+            shipping: false,
+          },
+        ],
+      });
+    });
+    const item = container.querySelector('[aria-labelledby="item-title"]')!;
+    expect(item.textContent).toContain('ST-1');
+    expect(container.textContent).toContain('在庫の手入力（登録・直す・消す）は、まだ使えません。');
+
+    const select = item.querySelector<HTMLSelectElement>('select[aria-label="届ける装置"]')!;
+    act(() => {
+      select.value = 'DEV-2';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {
+      click(buttonByText(item, '指名する'));
+      await Promise.resolve();
+    });
+
+    expect(link.consumableCommands).toEqual([{ kind: 'designate', consumable: 'T-5', device: 'DEV-2' }]);
+    window.location.hash = '';
+  });
+
   it('URL で指定した装置を、装置とストッカーの画面で開く', () => {
     window.location.hash = '#/devices/DEV-2';
     const link = connected();
@@ -237,7 +280,8 @@ describe('App', () => {
     ['#/station', false],
     ['#/transports', false],
     ['#/agvs', true],
-    ['#/consumables', true],
+    ['#/consumables', false],
+    ['#/consumableConfig', true],
   ])('見本のデータで動かしている画面だけ、そのことを帯で知らせる（%s）', (hash, demo) => {
     window.location.hash = hash;
     const { container } = render(<App link={connected()} />);

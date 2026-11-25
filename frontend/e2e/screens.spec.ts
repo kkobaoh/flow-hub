@@ -93,3 +93,15 @@ test('ステーションの在庫：サーバーの品種ごとの数を出す',
   await expect(summary.getByRole('row', { name: /DR-8/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('消耗品の検索：サーバーの消耗品の記録から探す', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/#/consumables');
+
+  // 初期データには消耗品がないので、見つからないことを確かめる
+  await page.getByRole('searchbox').fill('NO-SUCH-ID');
+  await page.getByRole('button', { name: '探す' }).click();
+  await expect(page.getByText('「NO-SUCH-ID」に合う消耗品はありません。ID を確かめてください。')).toBeVisible();
+  await expect(page.getByText('この画面は、見本のデータです')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

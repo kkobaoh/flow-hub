@@ -22,7 +22,7 @@ describe('useServer', () => {
     const { latest } = watch(link);
 
     expect(link.connected).toBe(true);
-    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' }, messages: { kind: 'waiting' }, map: { kind: 'waiting' }, equipment: { kind: 'waiting' }, transports: { kind: 'waiting' } });
+    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' }, messages: { kind: 'waiting' }, map: { kind: 'waiting' }, equipment: { kind: 'waiting' }, transports: { kind: 'waiting' }, consumables: { kind: 'waiting' } });
   });
 
   it('届いた運転状態の様子と、つながりの様子を持つ', () => {
@@ -140,6 +140,21 @@ describe('useServer', () => {
 
     act(() => link.emitConnection('reconnecting'));
     expect(latest().transports).toEqual({ kind: 'stale', snapshot: transports });
+  });
+
+  it('消耗品の記録も、番号の古いものは捨て、切れたら古いものにする', () => {
+    const link = createFakeLink();
+    const { latest } = watch(link);
+    const consumables = { version: 2, consumables: [] };
+
+    act(() => {
+      link.emitConsumables(consumables);
+      link.emitConsumables({ version: 1, consumables: [] });
+    });
+    expect(latest().consumables).toEqual({ kind: 'live', snapshot: consumables });
+
+    act(() => link.emitConnection('reconnecting'));
+    expect(latest().consumables).toEqual({ kind: 'stale', snapshot: consumables });
   });
 
   it('消したら切る', () => {

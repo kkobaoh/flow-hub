@@ -6,6 +6,7 @@ import { parseAgvs } from '../../features/fleet/api/agvSnapshots';
 import { parseMap } from '../../features/routing/api/mapSnapshot';
 import { parseEquipmentStatus } from '../../features/tool/api/equipmentStatus';
 import { parseTransports } from '../../features/dispatch/api/transportsSnapshot';
+import { parseConsumables } from '../../features/tool/api/consumablesSnapshot';
 import { sendCancelTransport } from '../../features/dispatch/api/transportCommands';
 import { sendConsumableCommand } from '../../features/tool/api/consumableCommands';
 import { parseMessages } from '../../features/alarm/api/messages';
@@ -28,6 +29,9 @@ const EQUIPMENT = 'equipment';
 
 /** 搬送の一覧を受け取る名前（サーバーの ScreenFeed.TransportsMethod と同じ）。 */
 const TRANSPORTS = 'transports';
+
+/** 消耗品ごとの記録を受け取る名前（サーバーの ScreenFeed.ConsumablesMethod と同じ）。 */
+const CONSUMABLES = 'consumables';
 
 /**
  * 本物のつながり。SignalR のハブ（/hubs/screen）で様子を受け取り、操作は HTTP の窓口へ送る。
@@ -117,6 +121,14 @@ function connect(baseUrl: string, handlers: ServerHandlers): () => void {
     } catch (error) {
       // 形の正しくない様子は使わず、今の様子のままにする
       console.error('サーバーから届いた搬送の一覧を使えませんでした。', error);
+    }
+  });
+  connection.on(CONSUMABLES, (value: unknown) => {
+    try {
+      handlers.onConsumables(parseConsumables(value));
+    } catch (error) {
+      // 形の正しくない様子は使わず、今の様子のままにする
+      console.error('サーバーから届いた消耗品の記録を使えませんでした。', error);
     }
   });
   connection.onreconnecting(() => handlers.onConnection('reconnecting'));

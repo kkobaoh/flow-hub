@@ -113,18 +113,20 @@ export function MapPage(props: MapPageProps) {
   // 消耗品は、ある場所（AGV か、装置かステーション）を、マップで目立たせる
   const located = (ref: ListItemRef | null): ListItemRef | null =>
     ref?.kind === 'consumable' ? (ref.id === consumable?.id ? consumable.at : null) : ref;
-  const emphasis = located(hovered) ?? (chosenConsumable ? chosenConsumable.at : null);
+  // 所在不明や、積んでいる AGV がわからない消耗品は、マップで示さない
+  const place = chosenConsumable?.at ?? null;
+  const emphasis = located(hovered) ?? place;
   const focusPanel =
     (agv ? panelOnMap(agv) : null) ??
     chosenEquipment?.panel ??
-    (chosenConsumable
-      ? chosenConsumable.at.kind === 'agv'
+    (place === null
+      ? null
+      : place.kind === 'agv'
         ? (() => {
-            const carrier = agvs.find((a) => a.id === chosenConsumable.at.id);
+            const carrier = agvs.find((a) => a.id === place.id);
             return carrier ? panelOnMap(carrier) : null;
           })()
-        : equipment.find((e) => e.id === chosenConsumable.at.id)?.panel
-      : null) ??
+        : equipment.find((e) => e.id === place.id)?.panel) ??
     null;
 
   const close = () => {

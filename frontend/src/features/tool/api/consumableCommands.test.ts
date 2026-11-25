@@ -9,6 +9,11 @@ describe('consumableCommandRequest（消耗品の操作を、サーバーの窓�
     });
   });
 
+  it('指名と、指名の取り消し', () => {
+    expect(consumableCommandRequest({ kind: 'designate', consumable: 'T-1', device: 'DEV-1' })).toEqual({ path: '/consumables/T-1/designate', body: { device: 'DEV-1' } });
+    expect(consumableCommandRequest({ kind: 'cancelDesignation', consumable: 'T-1' })).toEqual({ path: '/consumables/T-1/cancel-designation', body: {} });
+  });
+
   it('出庫と、要確認を直す', () => {
     expect(consumableCommandRequest({ kind: 'ship', consumable: 'T-1' })).toEqual({ path: '/consumables/T-1/ship', body: {} });
     expect(consumableCommandRequest({ kind: 'correct', consumable: 'X-1', variety: 'DR-5', condition: '中古品' })).toEqual({
@@ -49,15 +54,19 @@ describe('sendConsumableCommand', () => {
 
 describe('consumableNotice（断られたときに出す知らせ）', () => {
   it.each([
-    ['saved', null],
-    ['requested', null],
-    ['corrected', null],
-    ['exceedsSlots', '個数の合計がスロットの数を超えているので、保存できませんでした。'],
-    ['notAtStation', 'ステーションにないので、出庫できませんでした。表示を確かめてください。'],
-    ['inAssignedTransport', '届ける搬送に AGV を割り当て済みなので、出庫できませんでした。'],
-    ['notNeedingCheck', 'もう要確認ではないので、直しませんでした（ほかの人が直したか、出庫したなど）。表示を確かめてください。'],
-    ['failed', 'サーバーから応答がなく、届いたかわかりません。表示を確かめてください。'],
-  ] as const)('%s', (result, notice) => {
-    expect(consumableNotice(result)).toBe(notice);
+    ['stockerSetting', 'saved', null],
+    ['ship', 'requested', null],
+    ['correct', 'corrected', null],
+    ['designate', 'designated', null],
+    ['cancelDesignation', 'canceled', null],
+    ['stockerSetting', 'exceedsSlots', '個数の合計がスロットの数を超えているので、保存できませんでした。'],
+    ['ship', 'notAtStation', 'ステーションにないので、出庫できませんでした。表示を確かめてください。'],
+    ['ship', 'inAssignedTransport', '届ける搬送に AGV を割り当て済みなので、出庫できませんでした。'],
+    ['cancelDesignation', 'inAssignedTransport', '届ける搬送に AGV を割り当て済みなので、指名を取り消せませんでした。'],
+    ['correct', 'notNeedingCheck', 'もう要確認ではないので、直しませんでした（ほかの人が直したか、出庫したなど）。表示を確かめてください。'],
+    ['designate', 'notDesignatable', '指名できませんでした。指名できるのは、ステーションにある、要確認でない新品で、届ける予約も出庫の頼みも指名もないものです。表示を確かめてください。'],
+    ['ship', 'failed', 'サーバーから応答がなく、届いたかわかりません。表示を確かめてください。'],
+  ] as const)('%s の %s', (kind, result, notice) => {
+    expect(consumableNotice(kind, result)).toBe(notice);
   });
 });

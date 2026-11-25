@@ -18,7 +18,6 @@ import {
 import type { DeviceInside } from '../features/tool/devices';
 import { byIdNumber } from '../shared/utils/listing';
 import type { Permissions } from '../features/auth/permissions';
-import { dateTimeOf } from '../shared/utils/dateTime';
 import type { Condition } from '../features/tool/station';
 
 /** 登録・直すときに送る記録。 */
@@ -37,9 +36,15 @@ export interface ConsumablesPageProps {
   readonly devices: readonly DeviceInside[];
   readonly varieties: readonly string[];
   readonly permissions: Permissions;
+  /** サーバーとつながっていない（指名と取り消しを送れない）。 */
+  readonly offline: boolean;
+  /** 在庫の手入力（登録・直す・消す）を使えない理由。使えるなら null。 */
+  readonly manualEntryNote: string | null;
   readonly onOpen: (id: string) => void;
-  readonly onNominate: (id: string, device: string) => void;
-  readonly onCancelNomination: (id: string) => void;
+  /** 指名する。受け付けたら null、断られたら理由の文を返す。 */
+  readonly onNominate: (id: string, device: string) => Promise<string | null>;
+  /** 指名を取り消す。受け付けたら null、断られたら理由の文を返す。 */
+  readonly onCancelNomination: (id: string) => Promise<string | null>;
   readonly onRegister: (record: RecordInput) => void;
   readonly onEdit: (record: RecordInput) => void;
   readonly onDelete: (id: string) => void;
@@ -63,7 +68,7 @@ export function ConsumablesPage(props: ConsumablesPageProps) {
   const [results, setResults] = useState<{ readonly query: string; readonly hits: readonly ConsumableRecord[] } | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const opened = records.find((r) => r.id === selected) ?? null;
-  const registerBlocked = permissions.has('stockEdit') ? null : '在庫の手入力は、保守以上のロールで使えます。';
+  const registerBlocked = permissions.has('stockEdit') ? props.manualEntryNote : '在庫の手入力は、保守以上のロールで使えます。';
 
   const submit = () => {
     const q = query.trim();
@@ -139,7 +144,7 @@ export function ConsumablesPage(props: ConsumablesPageProps) {
       ) : (
         <>
           <Detail key={opened.id} record={opened} {...props} onEditRecord={() => setDialog({ kind: 'edit', record: opened })} onDeleteRecord={() => setDialog({ kind: 'delete', record: opened })} />
-          <History record={opened} />
+          <History />
         </>
       )}
 
@@ -177,19 +182,36 @@ function Detail({
   record: r,
   devices,
   permissions,
+  offline,
+  manualEntryNote,
   onNominate,
   onCancelNomination,
   onEditRecord,
   onDeleteRecord,
 }: ConsumablesPageProps & { readonly record: ConsumableRecord; readonly onEditRecord: () => void; readonly onDeleteRecord: () => void }) {
   const [device, setDevice] = useState('');
-  const nominateBlocked = nominateBlockedReason(r, permissions);
-  const cancelBlocked = cancelNominationBlockedReason(r, permissions);
-  const editBlocked = editBlockedReason(r, permissions);
+  // 送って結果を待っているあいだは、指名と取り消しを押せなくする。断られたら、理由を出す（次に送ったら消す）
+  const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const offlineNote = offline ? 'サーバーとつながっていないので、指名も取り消しもできません。' : null;
+  const nominateBlocked = nominateBlockedReason(r, permissions) ?? offlineNote;
+  const cancelBlocked = cancelNominationBlockedReason(r, permissions) ?? offlineNote;
+  const editBlocked = editBlockedReason(r, permissions) ?? manualEntryNote;
+  const send = async (operation: () => Promise<string | null>) => {
+    setSending(true);
+    setNotice(null);
+    try {
+      setNotice(await operation());
+    } finally {
+      setSending(false);
+    }
+  };
+  const reservation =
+    r.reservation === null ? 'なし' : r.reservation.transport === null ? r.reservation.purpose : `搬送 #${r.reservation.transport}（${r.reservation.purpose}）`;
   const facts: readonly (readonly [string, string])[] = [
     ['所在', locationLabel(r.location)],
     ['加工の種類', r.processKind ?? '不明'],
-    ['予約', r.reservation === null ? 'なし' : `搬送 #${r.reservation.transport}（${r.reservation.purpose}）`],
+    ['予約', reservation],
     ['指名', r.nomination === null ? 'なし' : `${r.nomination.device} へ届けるものに指名`],
   ];
 
@@ -229,7 +251,7 @@ function Detail({
                       </option>
                     ))}
                 </select>
-                <button type="button" disabled={nominateBlocked !== null || device === ''} onClick={() => onNominate(r.id, device)} className={darkButton}>
+                <button type="button" disabled={nominateBlocked !== null || device === '' || sending} onClick={() => void send(() => onNominate(r.id, device))} className={darkButton}>
                   指名する
                 </button>
               </div>
@@ -238,12 +260,17 @@ function Detail({
           ) : (
             <>
               <div>
-                <button type="button" disabled={cancelBlocked !== null} onClick={() => onCancelNomination(r.id)} className={plainButton}>
+                <button type="button" disabled={cancelBlocked !== null || sending} onClick={() => void send(() => onCancelNomination(r.id))} className={plainButton}>
                   指名を取り消す
                 </button>
               </div>
               {cancelBlocked !== null && <p className={note}>{cancelBlocked}</p>}
             </>
+          )}
+          {notice !== null && (
+            <p role="alert" className="m-0 text-sm font-bold text-attention">
+              {notice}
+            </p>
           )}
           <h3 className="m-0 mt-1 text-sm font-bold text-ink-muted">記録</h3>
           <div className="flex flex-wrap gap-2">
@@ -261,31 +288,14 @@ function Detail({
   );
 }
 
-function History({ record }: { readonly record: ConsumableRecord }) {
+/** これまでの動き。記録のしかた（未決事項 #13）を決めるまで、まだ記録していないと出す（backlog）。 */
+function History() {
   return (
     <section aria-labelledby="history-title" className={section}>
       <h2 id="history-title" className="m-0 text-lg font-bold">
         これまでの動き
       </h2>
-      {record.history.length === 0 ? (
-        <p className="m-0 text-[15px] text-ink-muted">記録した動きはありません。</p>
-      ) : (
-        <ol className="m-0 flex list-none flex-col p-0">
-          {record.history.map((h, i) => (
-            <li key={`${h.at.getTime()}-${i}`} className="grid grid-cols-[96px_20px_minmax(0,1fr)] gap-x-3">
-              <span className="pt-0.5 font-number text-[15px] font-semibold text-ink-muted">{dateTimeOf(h.at)}</span>
-              <span aria-hidden="true" className="relative flex justify-center">
-                <span className={`relative z-1 mt-1.5 size-3 rounded-full ${i === 0 ? 'bg-graphite' : 'border-2 border-control-border bg-paper'}`} />
-                {i < record.history.length - 1 && <span className="absolute top-4 bottom-0 w-0.5 bg-line" />}
-              </span>
-              <span className="pb-4">
-                <span className="block text-[15px] font-bold">{h.what}</span>
-                <span className="block text-[13px] text-ink-muted">{h.detail}</span>
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
+      <p className="m-0 text-[15px] text-ink-muted">これまでの動きは、まだ記録していません（どこまで残すかを決めてから作ります）。</p>
     </section>
   );
 }
