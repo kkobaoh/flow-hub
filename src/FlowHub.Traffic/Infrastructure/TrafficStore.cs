@@ -17,6 +17,9 @@ public sealed record AgvConfiguration(AgvId Id, MotionProfile Motion, bool CanTr
 /// <param name="CanTravelSpecialTransfer">特殊消耗品受け渡しパネルを走れるか。</param>
 public sealed record AgvTypeSettings(string Id, string Name, MotionProfile Motion, bool CanTravelSpecialTransfer);
 
+/// <summary>交通整理に登録してある AGV と、使う AGV の種類。</summary>
+public sealed record TrafficAgvRegistration(AgvId Id, string TypeId);
+
 /// <summary>AGV の種類を保存した結果。断ったときは、何も変えていない。</summary>
 public enum AgvTypeSaveResult
 {
@@ -187,6 +190,14 @@ public sealed class TrafficStore : ICommandNumberStore, IControlStatusStore
             .OrderBy(r => r.Id, StringComparer.Ordinal)
             .Select(r => new AgvTypeSettings(r.Id, r.Name, new MotionProfile(r.ForwardSpeedMmPerSecond, r.BackwardSpeedMmPerSecond, r.RotationSpeedDegreesPerSecond), r.CanTravelSpecialTransfer))
             .ToArray();
+    }
+
+    /// <summary>登録してある AGV と、使う種類（ID の順）。</summary>
+    public async Task<IReadOnlyList<TrafficAgvRegistration>> LoadAgvRegistrationsAsync(CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        var rows = await context.Agvs.ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. rows.OrderBy(r => r.Id, StringComparer.Ordinal).Select(r => new TrafficAgvRegistration(new AgvId(r.Id), r.TypeId))];
     }
 
     /// <summary>その種類を使う AGV（ID の順）。</summary>

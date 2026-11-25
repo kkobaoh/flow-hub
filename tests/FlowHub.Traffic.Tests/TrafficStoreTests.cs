@@ -114,6 +114,17 @@ public sealed class TrafficStoreTests : IDisposable
         Assert.Equal(new MotionProfile(1000, 500, 180), service.MotionOf(Agv));
     }
 
+    [Fact]
+    public async Task 登録してあるAGVと使う種類をIDの順に読む()
+    {
+        var store = await OpenAsync();
+        await store.AddAgvTypeAsync("small", Motion, Token);
+        await store.AddAgvAsync(new AgvId("AGV-2"), "small", Token);
+        await store.AddAgvAsync(Agv, "small", Token);
+
+        Assert.Equal([new TrafficAgvRegistration(Agv, "small"), new TrafficAgvRegistration(new AgvId("AGV-2"), "small")], await store.LoadAgvRegistrationsAsync(Token));
+    }
+
     // ---- コマンドの番号 ----
 
     [Fact]

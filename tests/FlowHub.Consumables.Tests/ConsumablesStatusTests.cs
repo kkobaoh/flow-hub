@@ -277,6 +277,16 @@ public class ConsumablesStatusTests
     }
 
     [Fact]
+    public void 加工の種類にあるキャリアの種類を重ねずにIDの順に出す()
+    {
+        var service = Setup();
+        service.RegisterProcessType(new ProcessTypeSettings(new ProcessTypeId("Q"), new CarrierTypeId("A-carrier"), CarrierCapacity: 1));
+        service.RegisterProcessType(new ProcessTypeSettings(new ProcessTypeId("R"), new CarrierTypeId("X"), CarrierCapacity: 1));
+
+        Assert.Equal([new CarrierTypeId("A-carrier"), new CarrierTypeId("X")], service.CarrierTypes);
+    }
+
+    [Fact]
     public void 登録してある品種をIDの順に出す()
     {
         var service = Setup();

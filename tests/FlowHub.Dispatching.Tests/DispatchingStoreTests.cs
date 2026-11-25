@@ -61,6 +61,16 @@ public sealed class DispatchingStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task 登録してあるAGVと使う種類とキャリアの種類をIDの順に読む()
+    {
+        var store = await OpenAsync();
+        await store.AddAgvTypeAsync("small", null, null, Token);
+        await store.AddAgvAsync(Agv, "small", Carrier, Token);
+
+        Assert.Equal([new DispatchingAgvRegistration(Agv, "small", Carrier)], await store.LoadAgvRegistrationsAsync(Token));
+    }
+
+    [Fact]
     public async Task 充電の既定値を読む設定していなければ20と80()
     {
         var store = await OpenAsync();

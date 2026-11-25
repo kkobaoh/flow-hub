@@ -163,6 +163,10 @@ public sealed partial class ConsumablesService(
             _stations.TryGetValue(station, out var layout) ? layout.TransferPanel : throw new InvalidOperationException($"ステーション {station} は登録されていません。"),
             Endpoints.Station(station)));
 
+    /// <summary>加工の種類にあるキャリアの種類（重ねず、ID の順）。AGV に付けるキャリアの種類は、ここから選ぶ。</summary>
+    public IReadOnlyList<CarrierTypeId> CarrierTypes =>
+        Locked(() => _processTypes.Values.Select(p => p.Carrier).Distinct().OrderBy(c => c.Value, StringComparer.Ordinal).ToArray());
+
     /// <summary>品種が属する加工の種類の設定。</summary>
     public ProcessTypeSettings ProcessTypeOf(VarietyId variety) => Locked(() => ProcessType(VarietyProcessType(variety)));
 

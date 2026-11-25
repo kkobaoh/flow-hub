@@ -11,6 +11,9 @@ public sealed record DispatchingAgvConfiguration(AgvId Id, CarrierTypeId Carrier
 /// <summary>配車が持つ、AGV の種類の設定（充電に向かう値と、割り当てに戻す値）。</summary>
 public sealed record DispatchingAgvTypeSettings(string Id, int GoChargeBelowPercent, int ResumeAtPercent);
 
+/// <summary>配車に登録してある AGV と、使う AGV の種類とキャリアの種類。</summary>
+public sealed record DispatchingAgvRegistration(AgvId Id, string TypeId, CarrierTypeId Carrier);
+
 /// <summary>AGV の種類を変える・消した結果。断ったときは、何も変えていない。</summary>
 public enum AgvTypeChangeResult
 {
@@ -180,6 +183,14 @@ public sealed class DispatchingStore
         await using var context = _createContext();
         var rows = await context.AgvTypes.ToListAsync(cancellationToken).ConfigureAwait(false);
         return [.. rows.OrderBy(r => r.Id, StringComparer.Ordinal).Select(r => new DispatchingAgvTypeSettings(r.Id, r.GoChargeBelowPercent, r.ResumeAtPercent))];
+    }
+
+    /// <summary>登録してある AGV と、使う種類とキャリアの種類（ID の順）。</summary>
+    public async Task<IReadOnlyList<DispatchingAgvRegistration>> LoadAgvRegistrationsAsync(CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        var rows = await context.Agvs.ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. rows.OrderBy(r => r.Id, StringComparer.Ordinal).Select(r => new DispatchingAgvRegistration(new AgvId(r.Id), r.TypeId, new CarrierTypeId(r.CarrierType)))];
     }
 
     /// <summary>その種類を使う AGV（ID の順）。</summary>
