@@ -35,6 +35,7 @@
   "agvTypes": [
     {
       "id": "standard",
+      "name": "標準の AGV",
       "forwardSpeedMmPerSecond": 500,
       "backwardSpeedMmPerSecond": 250,
       "rotationSpeedDegreesPerSecond": 90

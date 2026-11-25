@@ -450,6 +450,51 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Empty(system.Consumables.ReadConsumables());
     }
 
+    // ---- AGV の種類（AGV と AGV の種類の登録の画面から） ----
+
+    [Fact]
+    public async Task AGVの種類を加え変え消し変えた値は動いているAGVに効く()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]); // 種類 small を AGV-1 が使う
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        var added = await OperateAsync(client, "/agv-types", """{ "id": "large", "name": "大きい", "forward": 800, "backward": 400, "rotation": 90, "chargeAt": null, "resumeAt": null, "special": false }""");
+        var sameId = await OperateAsync(client, "/agv-types", """{ "id": "large", "name": "別", "forward": 800, "backward": 400, "rotation": 90, "special": false }""");
+        var sameName = await OperateAsync(client, "/agv-types", """{ "id": "huge", "name": "大きい", "forward": 800, "backward": 400, "rotation": 90, "special": false }""");
+        var badId = await OperateAsync(client, "/agv-types", """{ "id": "大", "name": "とても大きい", "forward": 800, "backward": 400, "rotation": 90, "special": false }""");
+        var edited = await OperateAsync(client, "/agv-types/small/edit", """{ "name": "小さい", "forward": 600, "backward": 300, "rotation": 45, "chargeAt": 30, "resumeAt": 90, "special": true }""");
+        var inUse = await OperateAsync(client, "/agv-types/small/delete", "{}");
+        var deleted = await OperateAsync(client, "/agv-types/large/delete", "{}");
+
+        Assert.Equal((HttpStatusCode.OK, "saved"), added);
+        Assert.Equal((HttpStatusCode.OK, "idTaken"), sameId);
+        Assert.Equal((HttpStatusCode.OK, "nameTaken"), sameName);
+        Assert.Equal(HttpStatusCode.BadRequest, badId.Status);
+        Assert.Equal((HttpStatusCode.OK, "saved"), edited);
+        Assert.Equal((HttpStatusCode.OK, "inUse"), inUse);
+        Assert.Equal((HttpStatusCode.OK, "deleted"), deleted);
+        Assert.True(system.Traffic.GetAgv(Agv1).CanTravelSpecialTransfer); // 動いている AGV に効いた
+        Assert.Equal([new AgvTypeView("small", "小さい", 600, 300, 45, 30, 90, true)], system.Fleet.Current.Types);
+    }
+
+    [Fact]
+    public async Task AGVの種類を片方のDBに書けなかったら先に書いた方を元に戻す()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        var options = Database;
+        var dispatching = await DispatchingDatabase.OpenAsync(b => Databases.Configure(b, options, DispatchingDatabase.Schema), (c, t) => Databases.InitializeAsync(c, options, t), Token);
+        await dispatching.AddAgvTypeAsync("ghost", null, null, Token); // 配車の側にだけ、同じ ID の種類がある
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        var result = await OperateAsync(client, "/agv-types", """{ "id": "ghost", "name": "幽霊", "forward": 800, "backward": 400, "rotation": 90, "special": false }""");
+
+        Assert.Equal((HttpStatusCode.OK, "failed"), result);
+        var trafficStore = await TrafficDatabase.OpenAsync(b => Databases.Configure(b, options, TrafficDatabase.Schema), (c, t) => Databases.InitializeAsync(c, options, t), Token);
+        Assert.DoesNotContain(await trafficStore.LoadAgvTypesAsync(Token), t => t.Id == "ghost");
+    }
+
     private static async Task<(HttpStatusCode Status, string? Result)> OperateAsync(HttpClient client, string path, string body)
     {
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), new StringContent(body, Encoding.UTF8, "application/json"), Token);

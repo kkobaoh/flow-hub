@@ -99,6 +99,7 @@ public sealed class InitialDataTests : IDisposable
         Assert.Equal([new DeviceId("DEV-1"), new DeviceId("DEV-2")], system.Consumables.Devices);
         Assert.Equal([new StationId("ST-1")], system.Consumables.Stations);
         Assert.Equal(13, (await OpenMapAsync())!.Panels.Count);
+        Assert.Equal("標準の AGV", Assert.Single(system.Fleet.Current.Types).Name); // 初期データには、種類の名前も書ける
     }
 
     [Fact]

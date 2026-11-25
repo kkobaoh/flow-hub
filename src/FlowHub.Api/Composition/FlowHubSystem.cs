@@ -47,9 +47,11 @@ internal sealed partial class FlowHubSystem : IDisposable
         ToolPlanningService toolPlanning,
         INoticeBoard notices,
         IMapStore map,
+        FleetCatalog fleet,
         AgvEndpointOptions agvEndpoints,
         TimeProvider timeProvider)
     {
+        Fleet = fleet;
         Events = events;
         Traffic = traffic;
         Dispatching = dispatching;
@@ -70,6 +72,9 @@ internal sealed partial class FlowHubSystem : IDisposable
     public ConsumablesService Consumables { get; }
 
     public ToolPlanningService ToolPlanning { get; }
+
+    /// <summary>AGV と AGV の種類の登録（交通整理と配車の両方の DB にまたがる）。</summary>
+    internal FleetCatalog Fleet { get; }
 
     /// <summary>画面で知らせるメッセージの置き場。</summary>
     public INoticeBoard Notices { get; }
@@ -116,7 +121,9 @@ internal sealed partial class FlowHubSystem : IDisposable
         ToolPlanningSubscriptions.Register(subscriptions, toolPlanning);
         ApiSubscriptions.Register(subscriptions, loggerFactory, notices);
 
-        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, map, settings.AgvEndpoints, timeProvider);
+        var fleet = new FleetCatalog(trafficStore, dispatchingStore, traffic, dispatching, notices, loggerFactory.CreateLogger<FleetCatalog>());
+        await fleet.ReloadAsync(cancellationToken).ConfigureAwait(false);
+        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, map, fleet, settings.AgvEndpoints, timeProvider);
 
         // シミュレーターの通知も、処理を終えたあとに後始末をする
         simulator.Attach(new ConsumablesSimulationTarget(consumables), system.AfterWorkAsync);
@@ -179,6 +186,17 @@ internal sealed partial class FlowHubSystem : IDisposable
     }
 
     /// <summary>
+    /// 画面へ送る、AGV と AGV の種類の登録を読む。登録（メモリに写したもの）に、動いている AGV のコントロールステータスと、選べるキャリアの種類を合わせる。
+    /// </summary>
+    private FleetScreenState ReadFleet()
+    {
+        var fleet = Fleet.Current;
+        var controls = Traffic.ListAgvs().ToDictionary(a => a.Id.Value, a => AgvSnapshot.ControlText(a.Control));
+        var agvs = fleet.Agvs.Select(a => new FleetAgvView(a.Id, a.Type, a.Carrier, controls.GetValueOrDefault(a.Id), a.Registration)).ToArray();
+        return new FleetScreenState(fleet, agvs, [.. Consumables.CarrierTypes.Select(c => c.Value)]);
+    }
+
+    /// <summary>
     /// 画面へ送るマップの様子を読む。公開中の版と、消耗品の管理の装置とステーションを、受け渡しパネルで結び付ける（それぞれ別々に読む）。
     /// 外形のない受け渡しパネルの装置とステーションは、マップに描けないので入れない。
     /// </summary>
@@ -223,7 +241,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ArgumentNullException.ThrowIfNull(app);
 
         var screen = app.Services.GetRequiredService<ScreenFeed>();
-        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent, ReadMap, Consumables.ReadStatuses, ReadTransports, ReadConsumables));
+        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent, ReadMap, Consumables.ReadStatuses, ReadTransports, ReadConsumables, ReadFleet));
         _screen = screen;
 
         app.Use(async (context, next) =>
@@ -238,11 +256,13 @@ internal sealed partial class FlowHubSystem : IDisposable
         app.MapSystemEndpoints(Dispatching);
         app.MapTransportEndpoints(Dispatching);
         app.MapAgvOperationEndpoints(Traffic, Dispatching, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.AgvOperations"));
+        app.MapFleetEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.FleetOperations"));
         app.MapConsumableEndpoints(Consumables, ToolPlanning, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConsumableOperations"));
     }
 
     public void Dispose()
     {
+        Fleet.Dispose();
         ToolPlanning.Dispose();
         Consumables.Dispose();
         Dispatching.Dispose();

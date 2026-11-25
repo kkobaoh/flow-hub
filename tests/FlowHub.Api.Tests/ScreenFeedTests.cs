@@ -28,6 +28,7 @@ public sealed class ScreenFeedTests : IDisposable
     private Func<ConsumablesStatuses> _equipment = () => new([], [], []);
     private Func<IReadOnlyList<TransportSnapshot>> _transports = () => [];
     private Func<IReadOnlyList<ConsumableSnapshot>> _consumables = () => [];
+    private Func<FleetScreenState> _fleet = () => FleetScreenState.Empty;
 
     public ScreenFeedTests()
     {
@@ -43,7 +44,7 @@ public sealed class ScreenFeedTests : IDisposable
         _logs.Dispose();
     }
 
-    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices(), () => _map(), () => _equipment(), () => _transports(), () => _consumables()));
+    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices(), () => _map(), () => _equipment(), () => _transports(), () => _consumables(), () => _fleet()));
 
     [Fact]
     public void つなぐ前は様子がない()
@@ -67,6 +68,7 @@ public sealed class ScreenFeedTests : IDisposable
                 new ScreenMessage(ScreenFeed.EquipmentMethod, EquipmentStatusSnapshot.From(1, new([], [], []))),
                 new ScreenMessage(ScreenFeed.TransportsMethod, new TransportsSnapshot(1, [])),
                 new ScreenMessage(ScreenFeed.ConsumablesMethod, new ConsumablesSnapshot(1, [])),
+                new ScreenMessage(ScreenFeed.FleetMethod, FleetSnapshot.From(1, FleetScreenState.Empty)),
             ],
             _feed.Current(),
             MessageComparer.Instance);

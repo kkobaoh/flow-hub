@@ -14,6 +14,7 @@ namespace FlowHub.Api.Composition.Screens;
 /// <param name="Equipment">装置とステーションの様子（気をつけること、ストッカー、在庫）。</param>
 /// <param name="Transports">搬送の一覧（番号の順）。</param>
 /// <param name="Consumables">すべての消耗品の記録（ID の順）。</param>
+/// <param name="Fleet">AGV と AGV の種類の登録。</param>
 internal sealed record ScreenSources(
     Func<bool> IsRunning,
     Func<IReadOnlyList<AgvSnapshot>> Agvs,
@@ -21,7 +22,8 @@ internal sealed record ScreenSources(
     Func<ScreenMapState> Map,
     Func<ConsumablesStatuses> Equipment,
     Func<IReadOnlyList<TransportSnapshot>> Transports,
-    Func<IReadOnlyList<ConsumableSnapshot>> Consumables);
+    Func<IReadOnlyList<ConsumableSnapshot>> Consumables,
+    Func<FleetScreenState> Fleet);
 
 /// <summary>画面へ送るもの（受け取る名前と、中身）。</summary>
 internal sealed record ScreenMessage(string Method, object Payload);
@@ -60,6 +62,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     /// <summary>消耗品ごとの記録を送るときの名前（画面の側も、この名前で受け取る）。</summary>
     public const string ConsumablesMethod = "consumables";
 
+    /// <summary>AGV と AGV の種類の登録を送るときの名前（画面の側も、この名前で受け取る）。</summary>
+    public const string FleetMethod = "fleet";
+
     /// <summary>送るのを待つ長さ。</summary>
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
 
@@ -72,6 +77,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     private Topic<ConsumablesStatuses>? _equipment;
     private Topic<IReadOnlyList<TransportSnapshot>>? _transports;
     private Topic<IReadOnlyList<ConsumableSnapshot>>? _consumables;
+    private Topic<FleetScreenState>? _fleet;
     private long _issuedTickets;
     private long _appliedTicket;
 
@@ -90,6 +96,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         var equipment = sources.Equipment();
         var transports = sources.Transports();
         var consumables = sources.Consumables();
+        var fleet = sources.Fleet();
         lock (_lock)
         {
             if (_sources is not null)
@@ -105,6 +112,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             _equipment = new Topic<ConsumablesStatuses>(EquipmentMethod, equipment, EquipmentStatusSnapshot.From, StatusesComparer.Instance);
             _transports = new Topic<IReadOnlyList<TransportSnapshot>>(TransportsMethod, transports, (version, list) => new TransportsSnapshot(version, list), TransportListComparer.Instance);
             _consumables = new Topic<IReadOnlyList<ConsumableSnapshot>>(ConsumablesMethod, consumables, (version, list) => new ConsumablesSnapshot(version, list), ConsumableListComparer.Instance);
+            _fleet = new Topic<FleetScreenState>(FleetMethod, fleet, FleetSnapshot.From, EqualityComparer<FleetScreenState>.Default);
         }
     }
 
@@ -113,9 +121,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     {
         lock (_lock)
         {
-            return _systemStatus is null || _agvs is null || _messages is null || _map is null || _equipment is null || _transports is null || _consumables is null
+            return _systemStatus is null || _agvs is null || _messages is null || _map is null || _equipment is null || _transports is null || _consumables is null || _fleet is null
                 ? []
-                : [_systemStatus.Current, _agvs.Current, _messages.Current, _map.Current, _equipment.Current, _transports.Current, _consumables.Current];
+                : [_systemStatus.Current, _agvs.Current, _messages.Current, _map.Current, _equipment.Current, _transports.Current, _consumables.Current, _fleet.Current];
         }
     }
 
@@ -145,6 +153,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         var equipment = sources.Equipment();
         var transports = sources.Transports();
         var consumables = sources.Consumables();
+        var fleet = sources.Fleet();
 
         List<ScreenMessage> changed = [];
         lock (_lock)
@@ -188,6 +197,11 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             if (_consumables!.TryAdvance(consumables, out var consumablesMessage))
             {
                 changed.Add(consumablesMessage);
+            }
+
+            if (_fleet!.TryAdvance(fleet, out var fleetMessage))
+            {
+                changed.Add(fleetMessage);
             }
         }
 

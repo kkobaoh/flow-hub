@@ -76,7 +76,11 @@ internal static partial class InitialDataSeeder
         map.Publish(data.Map);
         foreach (var type in data.AgvTypes)
         {
-            await traffic.AddAgvTypeAsync(type.Id, type.Motion, type.CanTravelSpecialTransfer, cancellationToken).ConfigureAwait(false);
+            if (await traffic.AddAgvTypeAsync(new AgvTypeSettings(type.Id, type.Name, type.Motion, type.CanTravelSpecialTransfer), cancellationToken).ConfigureAwait(false) != AgvTypeSaveResult.Saved)
+            {
+                throw new InvalidDataException($"初期データの AGV の種類 {type.Id} の ID か名前が、ほかの種類と重なっています。");
+            }
+
             await dispatching.AddAgvTypeAsync(type.Id, type.GoChargeBelowPercent, type.ResumeAtPercent, cancellationToken).ConfigureAwait(false);
         }
 
@@ -202,7 +206,7 @@ internal static partial class InitialDataSeeder
                 throw new ArgumentException($"充電の設定値（充電に向かう値 {goBelow}%、割り当てに戻す値 {resumeAt}%）が正しくありません。");
             }
 
-            return new AgvTypeSeed(t.Id, motion, t.GoChargeBelowPercent, t.ResumeAtPercent, t.CanTravelSpecialTransfer);
+            return new AgvTypeSeed(t.Id, string.IsNullOrWhiteSpace(t.Name) ? t.Id : t.Name, motion, t.GoChargeBelowPercent, t.ResumeAtPercent, t.CanTravelSpecialTransfer);
         });
         Unique(agvTypes.Select(t => t.Id), errors, "AGV の種類");
 
@@ -327,7 +331,7 @@ internal static partial class InitialDataSeeder
     private static void Unique(IEnumerable<string> ids, List<string> errors, string what) =>
         errors.AddRange(ids.GroupBy(id => id, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => $"{what}の ID {g.Key} が重なっています。"));
 
-    private sealed record AgvTypeSeed(string Id, MotionProfile Motion, int? GoChargeBelowPercent, int? ResumeAtPercent, bool CanTravelSpecialTransfer);
+    private sealed record AgvTypeSeed(string Id, string Name, MotionProfile Motion, int? GoChargeBelowPercent, int? ResumeAtPercent, bool CanTravelSpecialTransfer);
 
     private sealed record AgvSeed(AgvId Id, string Type, CarrierTypeId Carrier);
 

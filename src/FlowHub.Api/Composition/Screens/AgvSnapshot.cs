@@ -97,7 +97,7 @@ internal sealed record AgvSnapshot(string Id, string? Panel, int? Heading, strin
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, "知らない AGV の状態です。"),
     };
 
-    private static string ControlText(ControlStatus control) => control switch
+    internal static string ControlText(ControlStatus control) => control switch
     {
         ControlStatus.Auto => "auto",
         ControlStatus.AssignmentPaused => "assignmentPaused",

@@ -84,6 +84,9 @@ internal sealed class AgvTypeData
 {
     public string Id { get; set; } = string.Empty;
 
+    /// <summary>画面に出す名前。省略したら ID と同じ。</summary>
+    public string? Name { get; set; }
+
     public double ForwardSpeedMmPerSecond { get; set; }
 
     public double BackwardSpeedMmPerSecond { get; set; }
