@@ -168,6 +168,28 @@ public class DispatchingServiceTests
         await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
     }
 
+    // ---- 搬送の一覧（画面に出す） ----
+
+    [Fact]
+    public async Task 搬送の一覧は待ち行列と割り当て済みの搬送を番号の順に出し終わったものは出さない()
+    {
+        var (service, traffic, _) = Setup(A);
+        var first = await service.RequestTransportAsync(Order(20), None); // AGV を割り当てる
+        var second = await service.RequestTransportAsync(Order(10) with { CargoRefs = ["C-2", "C-3"] }, None); // AGV がいないので待つ
+
+        Assert.Equal(
+            [
+                new TransportListing(first, "ToolPlanning", ["C-1"], new SourceTransferPoint(S, "station-1"), D, "device-1", Now.AddMinutes(20), new AssignedTo(Agv, AssignedTransportStage.MovingToSource, Paused: false)),
+                new TransportListing(second, "ToolPlanning", ["C-2", "C-3"], new SourceTransferPoint(S, "station-1"), D, "device-1", Now.AddMinutes(10), new WaitingForAgv()),
+            ],
+            service.ListTransports());
+
+        await service.CancelAsync(second, None);
+        await AdvanceToLoaded(service, traffic, first);
+        await CompleteTransport(service, traffic, first);
+        Assert.Empty(service.ListTransports());
+    }
+
     // ---- 割り当て済みの搬送の様子（画面に出す） ----
 
     [Fact]

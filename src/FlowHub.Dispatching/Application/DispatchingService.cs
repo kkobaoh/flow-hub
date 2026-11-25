@@ -76,12 +76,43 @@ public sealed class DispatchingService(
         }
     }
 
+    /// <summary>
+    /// 搬送の一覧（待ち行列にあるものと、AGV に割り当てているもの。中断したものも含む）を、搬送の番号の順に返す（画面に出すため）。
+    /// 終わった搬送と、取りやめた搬送は出さない。
+    /// </summary>
+    public IReadOnlyList<TransportListing> ListTransports()
+    {
+        _gate.Wait();
+        try
+        {
+            var assigned = _agvs
+                .Where(pair => pair.Value.Active is not null)
+                .Select(pair => ListingOf(pair.Value.Active!, AssignmentOf(pair.Key, pair.Value.Active!)));
+            var waiting = _queue.Waiting.Select(transport => ListingOf(transport, null));
+            return [.. assigned.Concat(waiting).OrderBy(listing => listing.Transport.Value)];
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private static TransportListing ListingOf(Transport transport, AgvAssignment? assignment)
+    {
+        var request = transport.Request;
+        var source = SourceOf(request);
+        TransportProgress progress = assignment is null ? new WaitingForAgv() : new AssignedTo(assignment.Agv, assignment.Stage, assignment.Paused);
+        return new TransportListing(transport.Id, request.Requester, [.. request.CargoRefs], source, request.Destination.Panel, request.Destination.Endpoint, request.NeededBy, progress);
+    }
+
+    /// <summary>搬送元（受け渡しをする場所か、ものを積んだまま止まっている AGV 自身）。</summary>
+    private static AssignmentSource SourceOf(TransportRequest request) =>
+        request.FromAgv is { } holder ? new SourceAgv(holder) : new SourceTransferPoint(request.Source.Panel, request.Source.Endpoint);
+
     private static AgvAssignment AssignmentOf(AgvId agv, Transport transport)
     {
         var request = transport.Request;
-        AssignmentSource source = request.FromAgv is { } holder
-            ? new SourceAgv(holder)
-            : new SourceTransferPoint(request.Source.Panel, request.Source.Endpoint);
+        var source = SourceOf(request);
         var stage = transport.Stage switch
         {
             TransportStage.MovingToSource => AssignedTransportStage.MovingToSource,
