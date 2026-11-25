@@ -577,6 +577,62 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(0, (int)(await GetJsonAsync(client, "/map/draft"))["revision"]!); // 検証では保存しない
     }
 
+    [Fact]
+    public async Task 停止中で走っているAGVがなければ下書きを公開してすぐ切り替えいるパネルがなくなったAGVは切り離しにし下書きを消す()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        await system.Dispatching.ChangeControlStatusAsync(Agv1, ControlStatus.AssignmentPaused, new Pose("A", 0), Token);
+        var reset = (await CommandsAsync(client, -1)).Single()!;
+        using (await client.PostAsync(
+            new Uri("/agv/AGV-1/notifications", UriKind.Relative),
+            new StringContent($$"""{ "type": "positionResetCompleted", "number": {{reset["number"]}} }""", Encoding.UTF8, "application/json"),
+            Token))
+        {
+        }
+
+        // A を P1 に置き換えた版（A にいる AGV-1 は、いるパネルがなくなる）
+        var draft = (await GetJsonAsync(client, "/map/draft"))["draft"]!.ToJsonString().Replace("\"A\"", "\"P1\"", StringComparison.Ordinal);
+        var stale = await PostJsonAsync(client, "/map/draft/publish", $$"""{ "revision": 5, "draft": {{draft}} }""");
+        var published = await PostJsonAsync(client, "/map/draft/publish", $$"""{ "revision": 0, "draft": {{draft}} }""");
+
+        Assert.Equal("stale", (string)stale["result"]!);
+        Assert.Equal("published", (string)published["result"]!);
+        Assert.Equal(2, (int)published["version"]!);
+        Assert.Equal(["AGV-1"], published["agvs"]!.AsArray().Select(a => (string)a!));
+        var agv = system.Traffic.GetAgv(Agv1);
+        Assert.Equal((ControlStatus.Detached, (Pose?)null), (agv.Control, agv.Position));
+        var after = await GetJsonAsync(client, "/map/draft");
+        Assert.Null(after["savedAt"]); // 下書きは消え、公開中の版の写しから始める
+        Assert.Equal(2, (int)after["publishedVersion"]!);
+        Assert.Contains(after["draft"]!["panels"]!.AsArray(), p => (string)p!["id"]! == "P1");
+    }
+
+    [Fact]
+    public async Task 運転中と装置の受け渡しパネルがなくなる版は公開しない()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        await SeedConsumablesAsync(); // 装置 DEV-1 は D、ステーション ST-1 は S
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        var published = (await GetJsonAsync(client, "/map/draft"))["draft"]!.ToJsonString();
+        var withoutD = published.Replace("\"D\"", "\"D9\"", StringComparison.Ordinal);
+
+        var validated = await PostJsonAsync(client, "/map/draft/validate", $$"""{ "draft": {{withoutD}} }""");
+        var refused = await PostJsonAsync(client, "/map/draft/publish", $$"""{ "revision": 0, "draft": {{withoutD}} }""");
+        using (await client.PostAsync(new Uri("/system/start", UriKind.Relative), null, Token))
+        {
+        }
+
+        var running = await PostJsonAsync(client, "/map/draft/publish", $$"""{ "revision": 0, "draft": {{published}} }""");
+
+        Assert.Contains(validated["problems"]!.AsArray(), p => ((string)p!).StartsWith("装置 DEV-1 の受け渡しパネル D が", StringComparison.Ordinal));
+        Assert.Equal("problems", (string)refused["result"]!);
+        Assert.Equal("running", (string)running["result"]!);
+        Assert.Equal(1, (int)(await GetJsonAsync(client, "/map/draft"))["publishedVersion"]!);
+    }
+
     private static async Task<JsonNode> PostJsonAsync(HttpClient client, string path, string body)
     {
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), new StringContent(body, Encoding.UTF8, "application/json"), Token);

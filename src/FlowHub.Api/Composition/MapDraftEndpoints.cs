@@ -15,15 +15,17 @@ namespace FlowHub.Api.Composition;
 /// - 保存する（<c>POST /map/draft</c>、<c>{ "revision": 読んだときの番号, "draft": … }</c>）：<c>{ "result": "saved" | "stale", "revision" }</c>。
 ///   <c>stale</c> は、読んだあとにほかの人が保存したか、公開して消した（上書きしていない。読み直してもらう）。下書きの形が正しくない：400。
 /// - 検証する（<c>POST /map/draft/validate</c>、<c>{ "draft": … }</c>）：<c>{ "problems": [ "…" ] }</c>。公開するときと同じに検証し、見つかった問題を文で返す（保存はしない）。
+/// - 公開する（<c>POST /map/draft/publish</c>、<c>{ "revision", "draft" }</c>）：<c>{ "result", "version", "problems", "agvs" }</c>。
+///   <c>published</c>（<c>agvs</c> は切り離しにした AGV）、<c>stale</c>、<c>running</c>、<c>agvMoving</c>（<c>agvs</c> は走っている AGV）、<c>problems</c>。
 /// 今はログインなしで開く（docs/backlog.md #23）。
 /// </remarks>
 internal static partial class MapDraftEndpoints
 {
-    public static void MapMapDraftEndpoints(this IEndpointRouteBuilder endpoints, DbMapStore map, MapValidationOptions validation, TimeProvider timeProvider, ILogger logger)
+    public static void MapMapDraftEndpoints(this IEndpointRouteBuilder endpoints, DbMapStore map, MapPublisher publisher, TimeProvider timeProvider, ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(map);
-        ArgumentNullException.ThrowIfNull(validation);
+        ArgumentNullException.ThrowIfNull(publisher);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -42,9 +44,30 @@ internal static partial class MapDraftEndpoints
                 return Results.BadRequest(new ValidateResponse([]));
             }
 
-            var problems = draft.ToSnapshot(validation).Errors.Select(e => e.Message).ToArray();
-            LogValidated(logger, problems.Length);
+            var problems = publisher.Validate(draft);
+            LogValidated(logger, problems.Count);
             return Results.Json(new ValidateResponse(problems));
+        });
+
+        endpoints.MapPost("/map/draft/publish", async (SaveBody body, CancellationToken cancellationToken) =>
+        {
+            if (body.Revision is not { } revision || !IsWellFormed(body.Draft, out var draft))
+            {
+                LogRefused(logger);
+                return Results.BadRequest(new PublishResponse("invalid", 0, [], []));
+            }
+
+            var outcome = await publisher.PublishAsync(revision, draft, cancellationToken).ConfigureAwait(false);
+            var result = outcome.Result switch
+            {
+                MapPublishResult.Published => "published",
+                MapPublishResult.Stale => "stale",
+                MapPublishResult.Running => "running",
+                MapPublishResult.AgvMoving => "agvMoving",
+                MapPublishResult.Invalid => "problems",
+                _ => throw new InvalidOperationException($"知らない公開の結果です（{outcome.Result}）。"),
+            };
+            return Results.Json(new PublishResponse(result, outcome.Version, outcome.Problems, outcome.Agvs));
         });
 
         endpoints.MapPost("/map/draft", (SaveBody body) =>
@@ -96,4 +119,6 @@ internal static partial class MapDraftEndpoints
     private sealed record ValidateBody(MapDraft? Draft);
 
     private sealed record ValidateResponse(IReadOnlyList<string> Problems);
+
+    private sealed record PublishResponse(string Result, int Version, IReadOnlyList<string> Problems, IReadOnlyList<string> Agvs);
 }

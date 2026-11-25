@@ -49,6 +49,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         INoticeBoard notices,
         DbMapStore map,
         MapValidationOptions mapValidation,
+        MapPublisher mapPublisher,
         FleetCatalog fleet,
         AgvEndpointOptions agvEndpoints,
         TimeProvider timeProvider)
@@ -62,6 +63,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         Notices = notices;
         _map = map;
         _mapValidation = mapValidation;
+        MapPublisher = mapPublisher;
         _agvEndpoints = agvEndpoints;
         _timeProvider = timeProvider;
     }
@@ -78,6 +80,9 @@ internal sealed partial class FlowHubSystem : IDisposable
 
     /// <summary>AGV と AGV の種類の登録（交通整理と配車の両方の DB にまたがる）。</summary>
     internal FleetCatalog Fleet { get; }
+
+    /// <summary>マップの下書きの検証と公開。</summary>
+    internal MapPublisher MapPublisher { get; }
 
     /// <summary>画面で知らせるメッセージの置き場。</summary>
     public INoticeBoard Notices { get; }
@@ -126,7 +131,8 @@ internal sealed partial class FlowHubSystem : IDisposable
         await fleet.ReloadAsync(cancellationToken).ConfigureAwait(false);
         ApiSubscriptions.Register(subscriptions, loggerFactory, notices, fleet.ReloadAsync);
 
-        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, map, settings.MapValidation, fleet, settings.AgvEndpoints, timeProvider);
+        var mapPublisher = new MapPublisher(map, settings.MapValidation, traffic, dispatching, consumables, notices, loggerFactory.CreateLogger<MapPublisher>());
+        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, map, settings.MapValidation, mapPublisher, fleet, settings.AgvEndpoints, timeProvider);
 
         // シミュレーターの通知も、処理を終えたあとに後始末をする
         simulator.Attach(new ConsumablesSimulationTarget(consumables), system.AfterWorkAsync);
@@ -266,13 +272,14 @@ internal sealed partial class FlowHubSystem : IDisposable
         app.MapAgvRegistrationEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.AgvRegistrations"));
         app.MapFleetEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.FleetOperations"));
         app.MapConsumableEndpoints(Consumables, ToolPlanning, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConsumableOperations"));
-        app.MapMapDraftEndpoints(_map, _mapValidation, _timeProvider, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.MapDrafts"));
+        app.MapMapDraftEndpoints(_map, MapPublisher, _timeProvider, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.MapDrafts"));
         app.MapConfigurationEndpoints(Consumables, TransferPanels, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConfigurationOperations"));
     }
 
     public void Dispose()
     {
         Fleet.Dispose();
+        MapPublisher.Dispose();
         ToolPlanning.Dispose();
         Consumables.Dispose();
         Dispatching.Dispose();

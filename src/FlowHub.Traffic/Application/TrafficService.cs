@@ -470,6 +470,56 @@ public sealed class TrafficService(
     }
 
     /// <summary>
+    /// 新しいマップの版を公開する前に、いるパネルが新しい版にない AGV を切り離しにする（位置をわからなくし、予約を外し、行き先を捨てる）。
+    /// 位置リセットを待つ。公開は、走っている AGV がないときだけ行うので、動作中の AGV はない前提。
+    /// </summary>
+    /// <param name="panels">新しい版のパネル。</param>
+    /// <returns>切り離しにした AGV（ID の順）。</returns>
+    public async Task<IReadOnlyList<AgvId>> DetachAgvsOffMapAsync(IReadOnlySet<PanelId> panels, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(panels);
+        var detached = new List<AgvId>();
+        foreach (var id in ListAgvs().Select(a => a.Id).OrderBy(a => a.Value, StringComparer.Ordinal))
+        {
+            // 読んでからロックを取るまでに変わりうるので、ロックの中で確かめ直す
+            var changed = await RunAsync(id, null, entry =>
+            {
+                if (entry.Travel.Position is not { } position || panels.Contains(new PanelId(position.NodeId)))
+                {
+                    return false;
+                }
+
+                entry.Travel.ForgetPosition();
+                DropDestination(entry);
+                SetControl(entry, ControlStatus.Detached);
+                return true;
+            }, cancellationToken).ConfigureAwait(false);
+            if (changed)
+            {
+                detached.Add(id);
+            }
+        }
+
+        return detached;
+    }
+
+    /// <summary>新しいマップの版を公開したあとに、全台の経路を新しい版で計画し直す。</summary>
+    public async Task MapPublishedAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var start = BeginChange();
+            ReplanAll();
+            await CompleteChangeAsync(start, null, dispatches: true, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
     /// AGV をパネルへ動かす。全台の経路を計画し直し、パネルごとの通る順番を守らせて走らせる。着いたら <see cref="AgvArrived"/> で知らせる。
     /// </summary>
     /// <param name="neededBy">搬送の必要時刻（計画の順番に使う）。搬送のない移動は null。</param>

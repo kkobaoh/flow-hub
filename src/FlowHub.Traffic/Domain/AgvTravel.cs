@@ -147,6 +147,32 @@ internal sealed class AgvTravel(AgvId id, PanelReservations reservations, long f
     }
 
     /// <summary>
+    /// 位置をわからなくする（公開した新しいマップの版に、いるパネルがないとき）。予約と残りの経路を捨て、まだ渡していないコマンドを取り下げる。
+    /// このあとは、位置リセットを受けるまで動かせない。キャリアの状態は保つ。
+    /// </summary>
+    /// <exception cref="InvalidOperationException">AGV が動作中（走行中やキャリアの上げ下げ中）のとき。</exception>
+    public void ForgetPosition()
+    {
+        if (IsAgvInMotion())
+        {
+            throw new InvalidOperationException($"{Id} は動作中のため、位置をわからなくできません。");
+        }
+
+        WithdrawPending(reissueLater: false);
+        _remainingSections.Clear();
+        _active = null;
+        _carrierInFlight = null;
+        _carrierToReissue = null;
+        _awaitingAlarmClear = null;
+        _awaitingPositionReset = null;
+        _lastAccepted = null;
+        _error = false;
+        _stopped = false;
+        Position = null;
+        reservations.ReleaseAll(Id);
+    }
+
+    /// <summary>
     /// 走る経路（まだ渡していない区間）を決める。走っている間でも、まだ渡していない区間は入れ替えられる。
     /// 経路は、渡した区間を終えた姿勢（<see cref="PlanningStart"/>）から始める。空なら、これ以上は走らない。
     /// 区間は、自分の番で、その区間のパネルを予約できたときに、1つずつ渡す。
