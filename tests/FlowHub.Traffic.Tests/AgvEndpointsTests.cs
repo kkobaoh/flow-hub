@@ -29,6 +29,7 @@ public sealed class AgvEndpointsTests : IAsyncDisposable
 
     private readonly InMemoryMapStore _map = new();
     private readonly RecordingPublisher _events = new();
+    private readonly RecordingRegistrations _registrations = new();
     private readonly TrafficService _service;
     private WebApplication? _app;
     private HttpClient? _client;
@@ -46,8 +47,19 @@ public sealed class AgvEndpointsTests : IAsyncDisposable
                 new Connection(new PanelId("A"), B, 800, new Heading(0), OneWay: false),
                 new Connection(B, T, 800, new Heading(0), OneWay: false),
             ]).Snapshot!);
-        _service = new TrafficService(_map, _events, TimeProvider.System);
+        _service = new TrafficService(_map, _events, TimeProvider.System, autoRegistrations: _registrations);
         _service.RegisterAgv(Agv, Motion);
+    }
+
+    private sealed class RecordingRegistrations : IAgvAutoRegistrationStore
+    {
+        public List<AgvId> Added { get; } = [];
+
+        public Task AddUnconfiguredAgvAsync(AgvId id, CancellationToken cancellationToken)
+        {
+            Added.Add(id);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class RecordingPublisher : IEventPublisher
@@ -253,17 +265,33 @@ public sealed class AgvEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task 登録されていないAGVには404を返す()
+    public async Task 登録されていないAGVの通知には404を返す()
+    {
+        var client = await StartAsync();
+
+        using var notification = await NotifyAsync(client, """{ "type": "battery", "percent": 50 }""", agv: "AGV-X");
+
+        Assert.Equal(HttpStatusCode.NotFound, notification.StatusCode);
+        Assert.Empty(_events.Published.OfType<AgvAutoRegistered>());
+    }
+
+    [Fact]
+    public async Task 未登録のAGVが初めてGETしてきたら種類を決めないまま登録し切り離しのAGVと同じに答える()
     {
         var client = await StartAsync();
 
         using var commands = await client.GetAsync(new Uri("/agv/AGV-X/commands?lastReceived=-1", UriKind.Relative), None);
-        using var position = await client.GetAsync(new Uri("/agv/AGV-X/position", UriKind.Relative), None);
+        using var again = await client.GetAsync(new Uri("/agv/AGV-X/commands?lastReceived=-1", UriKind.Relative), None);
+        using var position = await client.GetAsync(new Uri("/agv/AGV-Y/position", UriKind.Relative), None);
         using var notification = await NotifyAsync(client, """{ "type": "battery", "percent": 50 }""", agv: "AGV-X");
 
-        Assert.Equal(HttpStatusCode.NotFound, commands.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, position.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, notification.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, commands.StatusCode);
+        Assert.Empty(JsonNode.Parse(await commands.Content.ReadAsStringAsync(None))!["commands"]!.AsArray());
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, position.StatusCode); // 位置の GET でも登録する。位置はわからない
+        Assert.Equal(HttpStatusCode.NoContent, notification.StatusCode); // 通知は受けて無視する
+        Assert.Equal([new AgvId("AGV-X"), new AgvId("AGV-Y")], _events.Published.OfType<AgvAutoRegistered>().Select(e => e.Agv)); // 知らせるのは1回だけ
+        Assert.Equal([new AgvId("AGV-X"), new AgvId("AGV-Y")], _registrations.Added);
     }
 
     // ---- 位置を取りに来る ----

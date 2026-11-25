@@ -34,7 +34,6 @@ namespace FlowHub.Traffic.Infrastructure.Migrations
                         .HasColumnType("character varying(20)");
 
                     b.Property<string>("TypeId")
-                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
@@ -95,8 +94,7 @@ namespace FlowHub.Traffic.Infrastructure.Migrations
                     b.HasOne("FlowHub.Traffic.Infrastructure.AgvTypeRow", null)
                         .WithMany()
                         .HasForeignKey("TypeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618
         }

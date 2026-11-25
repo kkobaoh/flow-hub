@@ -18,7 +18,8 @@ public sealed record AgvConfiguration(AgvId Id, MotionProfile Motion, bool CanTr
 public sealed record AgvTypeSettings(string Id, string Name, MotionProfile Motion, bool CanTravelSpecialTransfer);
 
 /// <summary>交通整理に登録してある AGV と、使う AGV の種類。</summary>
-public sealed record TrafficAgvRegistration(AgvId Id, string TypeId);
+/// <param name="TypeId">使う種類。自動で登録して、まだ決まっていなければ null。</param>
+public sealed record TrafficAgvRegistration(AgvId Id, string? TypeId);
 
 /// <summary>AGV の種類を保存した結果。断ったときは、何も変えていない。</summary>
 public enum AgvTypeSaveResult
@@ -83,7 +84,7 @@ public static class TrafficDatabase
 /// <summary>
 /// 交通整理の保存場所（DB）。AGV の種類と AGV（構成のデータ）、AGV ごとの次に付けるコマンドの番号とコントロールステータスを持つ。
 /// </summary>
-public sealed class TrafficStore : ICommandNumberStore, IControlStatusStore
+public sealed class TrafficStore : ICommandNumberStore, IControlStatusStore, IAgvAutoRegistrationStore
 {
     private readonly Func<TrafficDbContext> _createContext;
 
@@ -230,6 +231,51 @@ public sealed class TrafficStore : ICommandNumberStore, IControlStatusStore
         }
 
         context.Agvs.Add(new AgvRow { Id = id.Value, TypeId = typeId, ControlStatus = ControlStatus.Detached });
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>種類を決めないまま、切り離しの AGV として登録する（未登録の AGV が初めて GET してきたとき）。もう登録してあれば、何もしない。</summary>
+    public async Task AddUnconfiguredAgvAsync(AgvId id, CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        if (await context.Agvs.FindAsync([id.Value], cancellationToken).ConfigureAwait(false) is not null)
+        {
+            return;
+        }
+
+        context.Agvs.Add(new AgvRow { Id = id.Value, TypeId = null, ControlStatus = ControlStatus.Detached });
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>AGV の種類を変える（種類が決まっていなかった AGV に入れるときも）。</summary>
+    /// <exception cref="InvalidOperationException">AGV か種類が登録されていないとき。</exception>
+    public async Task SetAgvTypeAsync(AgvId id, string typeId, CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        if (await context.AgvTypes.FindAsync([typeId], cancellationToken).ConfigureAwait(false) is null)
+        {
+            throw new InvalidOperationException($"AGV の種類 {typeId} は登録されていません。");
+        }
+
+        var row = await context.Agvs.FindAsync([id.Value], cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException($"{id} は DB に登録されていません。");
+        row.TypeId = typeId;
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>AGV の登録を消す（コマンドの番号も消す）。登録されていなければ、何もしない。</summary>
+    public async Task RemoveAgvAsync(AgvId id, CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        if (await context.Agvs.FindAsync([id.Value], cancellationToken).ConfigureAwait(false) is { } row)
+        {
+            context.Agvs.Remove(row);
+        }
+
+        if (await context.CommandNumbers.FindAsync([id.Value], cancellationToken).ConfigureAwait(false) is { } number)
+        {
+            context.CommandNumbers.Remove(number);
+        }
+
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 

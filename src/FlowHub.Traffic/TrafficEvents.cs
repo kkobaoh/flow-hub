@@ -32,3 +32,6 @@ public sealed record ChargingPortReleased(EventMetadata Metadata, PanelId Panel)
 
 /// <summary>AGV の充電残量が変わった。</summary>
 public sealed record AgvBatteryChanged(EventMetadata Metadata, AgvId Agv, int Percent) : IIntegrationEvent;
+
+/// <summary>未登録の AGV が初めて GET してきたので、種類を決めないまま登録した（人が種類とキャリアの種類を入れるまで、動かさない）。</summary>
+public sealed record AgvAutoRegistered(EventMetadata Metadata, AgvId Agv) : IIntegrationEvent;

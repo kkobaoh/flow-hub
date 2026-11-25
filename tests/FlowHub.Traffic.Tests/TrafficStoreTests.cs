@@ -125,6 +125,40 @@ public sealed class TrafficStoreTests : IDisposable
         Assert.Equal([new TrafficAgvRegistration(Agv, "small"), new TrafficAgvRegistration(new AgvId("AGV-2"), "small")], await store.LoadAgvRegistrationsAsync(Token));
     }
 
+    [Fact]
+    public async Task 種類を決めないままAGVを登録しあとから種類を入れられ消せる()
+    {
+        var store = await OpenAsync();
+        await store.AddAgvTypeAsync("small", Motion, Token);
+
+        await store.AddUnconfiguredAgvAsync(Agv, Token);
+        await store.AddUnconfiguredAgvAsync(Agv, Token); // 2回目は何もしない
+        Assert.Equal([new TrafficAgvRegistration(Agv, null)], await store.LoadAgvRegistrationsAsync(Token));
+        Assert.Empty(await store.LoadAgvsAsync(Token)); // 種類が決まるまでは、動かす AGV に入れない
+        Assert.Equal(ControlStatus.Detached, store.StatusOf(Agv));
+
+        await store.SetAgvTypeAsync(Agv, "small", Token);
+        Assert.Equal([new AgvConfiguration(Agv, Motion)], await store.LoadAgvsAsync(Token));
+
+        await store.RemoveAgvAsync(Agv, Token);
+        Assert.Empty(await store.LoadAgvRegistrationsAsync(Token));
+    }
+
+    [Fact]
+    public void 切り離しのAGVだけを動かすAGVから外せる()
+    {
+        var statuses = new InMemoryControlStatusStore();
+        statuses.Save(new AgvId("AGV-2"), ControlStatus.Detached);
+        using var service = new TrafficService(Map(), new IgnoringPublisher(), new FixedTimeProvider(), controlStatuses: statuses);
+        service.RegisterAgv(Agv, Motion); // 保存していなければオート
+        service.RegisterAgv(new AgvId("AGV-2"), Motion);
+
+        Assert.Equal(AgvUnregisterResult.NotDetached, service.UnregisterAgv(Agv));
+        Assert.Equal(AgvUnregisterResult.Unregistered, service.UnregisterAgv(new AgvId("AGV-2")));
+        Assert.Equal(AgvUnregisterResult.NotFound, service.UnregisterAgv(new AgvId("AGV-2")));
+        Assert.DoesNotContain(service.ListAgvs(), a => a.Id == new AgvId("AGV-2"));
+    }
+
     // ---- コマンドの番号 ----
 
     [Fact]

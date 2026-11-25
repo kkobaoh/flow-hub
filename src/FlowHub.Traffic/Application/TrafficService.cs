@@ -23,8 +23,14 @@ public sealed class TrafficService(
     TimeProvider timeProvider,
     ICommandNumberStore? commandNumbers = null,
     TrafficPlanningOptions? planning = null,
-    IControlStatusStore? controlStatuses = null) : ITrafficService, IDisposable
+    IControlStatusStore? controlStatuses = null,
+    IAgvAutoRegistrationStore? autoRegistrations = null) : ITrafficService, IDisposable
 {
+    private readonly IAgvAutoRegistrationStore _autoRegistrations = autoRegistrations ?? NoAgvAutoRegistrationStore.Instance;
+
+    /// <summary>種類が決まっていない AGV（自動で登録したもの）。種類が決まったら、動かす AGV に登録して外す。</summary>
+    private readonly HashSet<AgvId> _unconfigured = [];
+
     private readonly ICommandNumberStore _commandNumbers = commandNumbers ?? new InMemoryCommandNumberStore();
     private readonly IControlStatusStore _controlStatuses = controlStatuses ?? new InMemoryControlStatusStore();
     private readonly TrafficPlanningOptions _planning = planning ?? new TrafficPlanningOptions();
@@ -53,6 +59,117 @@ public sealed class TrafficService(
     private readonly RoutePlanner _planner = new();
 
     // ---- AGV の登録と参照 ----
+
+    /// <summary>種類が決まっていない AGV として覚える（起動したときに、DB から読んで呼ぶ）。</summary>
+    public void MarkUnconfigured(AgvId id)
+    {
+        _gate.Wait();
+        try
+        {
+            if (!_agvs.ContainsKey(id))
+            {
+                _unconfigured.Add(id);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 切り離しの AGV を、動かす AGV から外す（AGV の登録を消すとき、種類を変えるとき）。種類が決まっていない AGV も外す。
+    /// 切り離しの AGV は、予約も指示も持っていない。
+    /// </summary>
+    public AgvUnregisterResult UnregisterAgv(AgvId id)
+    {
+        _gate.Wait();
+        try
+        {
+            if (_unconfigured.Remove(id))
+            {
+                return AgvUnregisterResult.Unregistered;
+            }
+
+            if (!_agvs.TryGetValue(id, out var entry))
+            {
+                return AgvUnregisterResult.NotFound;
+            }
+
+            if (entry.Control != ControlStatus.Detached)
+            {
+                return AgvUnregisterResult.NotDetached;
+            }
+
+            _agvs.Remove(id);
+            return AgvUnregisterResult.Unregistered;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// AGV が GET してきた。動かす AGV でも種類が決まっていない AGV でもなければ、種類を決めないまま登録し（保存してから）、知らせる。
+    /// </summary>
+    internal async Task<AgvContact> ContactAsync(AgvId id, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_agvs.ContainsKey(id))
+            {
+                return AgvContact.Registered;
+            }
+
+            if (!_unconfigured.Add(id))
+            {
+                return AgvContact.Unconfigured;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        // 保存と知らせは、ロックの外で行う。保存できなければ、覚えたことも取り消す（次の GET で、また登録を試す）
+        try
+        {
+            await _autoRegistrations.AddUnconfiguredAgvAsync(id, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                _unconfigured.Remove(id);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
+            throw;
+        }
+
+        await publisher.PublishAsync(new AgvAutoRegistered(EventMetadata.Start($"agv:{id}", timeProvider), id), cancellationToken).ConfigureAwait(false);
+        return AgvContact.Unconfigured;
+    }
+
+    /// <summary>種類が決まっていない AGV か（通知を受けて無視するため）。</summary>
+    internal bool IsUnconfigured(AgvId id)
+    {
+        _gate.Wait();
+        try
+        {
+            return _unconfigured.Contains(id);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
     /// <summary>
     /// AGV の種類の値が変わったので、その AGV の速さと、特殊消耗品受け渡しパネルを走れるかを置き換える。
@@ -112,6 +229,8 @@ public sealed class TrafficService(
             {
                 throw new InvalidOperationException($"{id} はすでに登録されています。");
             }
+
+            _unconfigured.Remove(id);
         }
         finally
         {

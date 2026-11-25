@@ -26,7 +26,8 @@ internal sealed class AgvRow
 {
     public string Id { get; set; } = string.Empty;
 
-    public string TypeId { get; set; } = string.Empty;
+    /// <summary>使う AGV の種類。自動で登録して、まだ決まっていなければ null。</summary>
+    public string? TypeId { get; set; }
 
     /// <summary>コントロールステータス。新しく登録した AGV は、切り離しから始める。</summary>
     public ControlStatus ControlStatus { get; set; } = ControlStatus.Detached;

@@ -48,12 +48,14 @@ public static class AgvEndpoints
         }
 
         var id = new AgvId(agvId);
-        if (!traffic.IsRegistered(id))
+        var deadline = timeProvider.GetUtcNow() + options.CommandWait;
+        if (await traffic.ContactAsync(id, cancellationToken).ConfigureAwait(false) == AgvContact.Unconfigured)
         {
-            return Results.NotFound();
+            // 種類が決まっていない AGV には、切り離しの AGV と同じく、コマンドを渡さない（待つ時間を過ぎたら空の並び）
+            await Task.Delay(options.CommandWait, timeProvider, cancellationToken).ConfigureAwait(false);
+            return Json(AgvMessages.Commands([]));
         }
 
-        var deadline = timeProvider.GetUtcNow() + options.CommandWait;
         while (true)
         {
             // 取り逃しのないよう、コマンドを取り出す前に、次の変化を待つ準備をしておく
@@ -87,9 +89,9 @@ public static class AgvEndpoints
     private static async Task<IResult> GetPositionAsync(TrafficService traffic, string agvId, CancellationToken cancellationToken)
     {
         var id = new AgvId(agvId);
-        if (!traffic.IsRegistered(id))
+        if (await traffic.ContactAsync(id, cancellationToken).ConfigureAwait(false) == AgvContact.Unconfigured)
         {
-            return Results.NotFound();
+            return Results.NoContent(); // 種類が決まっていない AGV の位置は、わからない
         }
 
         var position = await traffic.HandlePositionRequestAsync(id, cancellationToken).ConfigureAwait(false);
@@ -104,7 +106,8 @@ public static class AgvEndpoints
         var id = new AgvId(agvId);
         if (!traffic.IsRegistered(id))
         {
-            return Results.NotFound();
+            // 種類が決まっていない AGV の通知は、受けて無視する。知らない AGV の通知では、登録しない
+            return traffic.IsUnconfigured(id) ? Results.NoContent() : Results.NotFound();
         }
 
         using var reader = new StreamReader(request.Body);
