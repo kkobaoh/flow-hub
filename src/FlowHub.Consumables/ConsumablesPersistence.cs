@@ -1,7 +1,7 @@
 namespace FlowHub.Consumables;
 
 /// <summary>
-/// 消耗品の管理の、実行中に変わる構成のデータ（ストッカーの設定、入庫の予定）の保存先。再起動しても残すために使う。
+/// 消耗品の管理の、実行中に変わる構成のデータ（ストッカーの設定、入庫の予定、加工の種類、品種）の保存先。再起動しても残すために使う。
 /// </summary>
 public interface IConsumablesPersistence
 {
@@ -13,6 +13,18 @@ public interface IConsumablesPersistence
 
     /// <summary>入庫の予定を消す（入庫したとき）。</summary>
     void RemoveExpectedArrival(ConsumableId consumable);
+
+    /// <summary>加工の種類を保存する（なければ加え、あれば置き換える）。</summary>
+    void SaveProcessType(ProcessTypeSettings settings);
+
+    /// <summary>加工の種類を消す（品種がないときだけ呼ぶ）。</summary>
+    void DeleteProcessType(ProcessTypeId processType);
+
+    /// <summary>品種を保存する（なければ加え、あれば加工の種類を置き換える）。</summary>
+    void SaveVariety(VarietyId variety, ProcessTypeId processType);
+
+    /// <summary>品種を消す。その品種の入庫の予定と、ストッカーの設定の行も一緒に消す。</summary>
+    void DeleteVariety(VarietyId variety);
 }
 
 /// <summary>
@@ -35,6 +47,22 @@ public sealed class NoConsumablesPersistence : IConsumablesPersistence
     }
 
     public void RemoveExpectedArrival(ConsumableId consumable)
+    {
+    }
+
+    public void SaveProcessType(ProcessTypeSettings settings)
+    {
+    }
+
+    public void DeleteProcessType(ProcessTypeId processType)
+    {
+    }
+
+    public void SaveVariety(VarietyId variety, ProcessTypeId processType)
+    {
+    }
+
+    public void DeleteVariety(VarietyId variety)
     {
     }
 }

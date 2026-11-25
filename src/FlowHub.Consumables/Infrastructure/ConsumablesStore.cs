@@ -186,4 +186,63 @@ public sealed class ConsumablesStore : IConsumablesPersistence
             context.SaveChanges();
         }
     }
+
+    public void SaveProcessType(ProcessTypeSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        using var context = _createContext();
+        var row = context.ProcessTypes.Find(settings.Id.Value);
+        if (row is null)
+        {
+            row = new ProcessTypeRow { Id = settings.Id.Value };
+            context.ProcessTypes.Add(row);
+        }
+
+        row.CarrierType = settings.Carrier.Value;
+        row.CarrierCapacity = settings.CarrierCapacity;
+        context.SaveChanges();
+    }
+
+    public void DeleteProcessType(ProcessTypeId processType)
+    {
+        using var context = _createContext();
+        if (context.ProcessTypes.Find(processType.Value) is { } row)
+        {
+            context.ProcessTypes.Remove(row);
+            context.SaveChanges();
+        }
+    }
+
+    public void SaveVariety(VarietyId variety, ProcessTypeId processType)
+    {
+        using var context = _createContext();
+        var row = context.Varieties.Find(variety.Value);
+        if (row is null)
+        {
+            context.Varieties.Add(new VarietyRow { Id = variety.Value, ProcessTypeId = processType.Value });
+        }
+        else
+        {
+            row.ProcessTypeId = processType.Value;
+        }
+
+        context.SaveChanges();
+    }
+
+    public void DeleteVariety(VarietyId variety)
+    {
+        using var context = _createContext();
+        using var transaction = context.Database.BeginTransaction();
+        context.ExpectedArrivals.RemoveRange(context.ExpectedArrivals.Where(a => a.VarietyId == variety.Value));
+        context.StockerSettings.RemoveRange(context.StockerSettings.Where(s => s.VarietyId == variety.Value));
+        context.SaveChanges();
+        if (context.Varieties.Find(variety.Value) is { } row)
+        {
+            context.Varieties.Remove(row);
+            context.SaveChanges();
+        }
+
+        transaction.Commit();
+    }
 }

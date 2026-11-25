@@ -450,6 +450,55 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Empty(system.Consumables.ReadConsumables());
     }
 
+    // ---- 消耗品の構成（加工の種類、品種、入庫の予定） ----
+
+    [Fact]
+    public async Task 加工の種類と品種と入庫の予定を加え変え消し使われているものは断る()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        await SeedConsumablesAsync();
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        await OperateAsync(client, "/consumables", """{ "id": "T-1", "variety": "DR-5", "condition": "new", "location": { "kind": "station", "station": "ST-1" } }""");
+
+        var addedProcess = await OperateAsync(client, "/configuration/process-types", """{ "id": "Q", "carrier": "Y", "capacity": 3 }""");
+        var sameProcess = await OperateAsync(client, "/configuration/process-types", """{ "id": "Q", "carrier": "Y", "capacity": 3 }""");
+        var badCapacity = await OperateAsync(client, "/configuration/process-types", """{ "id": "R", "carrier": "Y", "capacity": 0 }""");
+        var editedProcess = await OperateAsync(client, "/configuration/process-types/P/edit", """{ "carrier": "Z", "capacity": 4 }""");
+        var processInUse = await OperateAsync(client, "/configuration/process-types/P/delete", "{}");
+
+        var addedVariety = await OperateAsync(client, "/configuration/varieties", """{ "id": "DR-7", "processType": "Q" }""");
+        var unknownProcess = await OperateAsync(client, "/configuration/varieties", """{ "id": "DR-8", "processType": "R" }""");
+        var varietyInUse = await OperateAsync(client, "/configuration/varieties/DR-5/edit", """{ "processType": "Q" }""");
+        var editedVariety = await OperateAsync(client, "/configuration/varieties/DR-6/edit", """{ "processType": "Q" }""");
+
+        var expected = await OperateAsync(client, "/configuration/varieties/DR-7/expected-arrivals", """{ "consumable": "T-5" }""");
+        var stocked = await OperateAsync(client, "/configuration/varieties/DR-7/expected-arrivals", """{ "consumable": "T-1" }""");
+        var removedExpected = await OperateAsync(client, "/configuration/expected-arrivals/T-5/delete", "{}");
+        var removedStocked = await OperateAsync(client, "/configuration/expected-arrivals/T-1/delete", "{}");
+        var deletedVariety = await OperateAsync(client, "/configuration/varieties/DR-7/delete", "{}");
+
+        Assert.Equal((HttpStatusCode.OK, "saved"), addedProcess);
+        Assert.Equal((HttpStatusCode.OK, "alreadyRegistered"), sameProcess);
+        Assert.Equal(HttpStatusCode.BadRequest, badCapacity.Status);
+        Assert.Equal((HttpStatusCode.OK, "saved"), editedProcess);
+        Assert.Equal((HttpStatusCode.OK, "inUse"), processInUse);
+        Assert.Equal((HttpStatusCode.OK, "saved"), addedVariety);
+        Assert.Equal((HttpStatusCode.OK, "notFound"), unknownProcess);
+        Assert.Equal((HttpStatusCode.OK, "inUse"), varietyInUse);
+        Assert.Equal((HttpStatusCode.OK, "saved"), editedVariety);
+        Assert.Equal((HttpStatusCode.OK, "saved"), expected);
+        Assert.Equal((HttpStatusCode.OK, "alreadyRegistered"), stocked);
+        Assert.Equal((HttpStatusCode.OK, "saved"), removedExpected);
+        Assert.Equal((HttpStatusCode.OK, "notFound"), removedStocked);
+        Assert.Equal((HttpStatusCode.OK, "saved"), deletedVariety);
+
+        var configuration = system.Consumables.ReadConfiguration();
+        Assert.Equal([("P", "Z", 4), ("Q", "Y", 3)], configuration.ProcessTypes.Select(p => (p.Id.Value, p.Carrier.Value, p.CarrierCapacity)));
+        Assert.Equal([("DR-5", "P"), ("DR-6", "Q")], configuration.Varieties.Select(v => (v.Variety.Value, v.ProcessType.Value)));
+        Assert.Equal(["Y", "Z"], system.Consumables.CarrierTypes.Select(c => c.Value));
+    }
+
     // ---- AGV の種類（AGV と AGV の種類の登録の画面から） ----
 
     [Fact]

@@ -233,5 +233,76 @@ public sealed class ConsumablesStoreTests : IDisposable
         persistence.SaveStockerSetting(Device, new Dictionary<VarietyId, int> { [VarietyA] = 1 });
         persistence.AddExpectedArrival(new ConsumableId("C-1"), VarietyA);
         persistence.RemoveExpectedArrival(new ConsumableId("C-1"));
+        persistence.SaveProcessType(new ProcessTypeSettings(Process, new CarrierTypeId("X"), 1));
+        persistence.SaveVariety(VarietyA, Process);
+        persistence.DeleteVariety(VarietyA);
+        persistence.DeleteProcessType(Process);
+    }
+
+    [Fact]
+    public async Task 画面から変えた加工の種類と品種を保存し次に開いたときも同じ構成になる()
+    {
+        var store = await OpenAsync();
+        await AddBasicsAsync(store);
+        using (var service = ServiceFrom(await store.LoadAsync(Token), store))
+        {
+            var other = new ProcessTypeId("Q");
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.AddProcessTypeAsync(new ProcessTypeSettings(other, new CarrierTypeId("Y"), 3), Token));
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.UpdateProcessTypeAsync(new ProcessTypeSettings(Process, new CarrierTypeId("Z"), 4), Token));
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.AddVarietyAsync(new VarietyId("C"), other, Token));
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.UpdateVarietyAsync(VarietyB, other, Token));
+        }
+
+        var configuration = await (await OpenAsync()).LoadAsync(Token);
+
+        Assert.Equal(
+            [(Process, new CarrierTypeId("Z"), 4), (new ProcessTypeId("Q"), new CarrierTypeId("Y"), 3)],
+            configuration.ProcessTypes.Select(p => (p.Id, p.Carrier, p.CarrierCapacity)));
+        Assert.Equal(
+            [(VarietyA, Process), (VarietyB, new ProcessTypeId("Q")), (new VarietyId("C"), new ProcessTypeId("Q"))],
+            configuration.Varieties.Select(v => (v.Variety, v.ProcessType)));
+    }
+
+    [Fact]
+    public async Task 品種を消すと入庫の予定とストッカーの設定の行も一緒に消え品種のなくなった加工の種類も消せる()
+    {
+        var store = await OpenAsync();
+        await AddBasicsAsync(store);
+        using (var service = ServiceFrom(await store.LoadAsync(Token), store))
+        {
+            await service.SetStockerSettingAsync(Device, new Dictionary<VarietyId, int> { [VarietyA] = 0, [VarietyB] = 1 }, Token);
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.AddExpectedArrivalAsync(new ConsumableId("C-1"), VarietyA, Token));
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.AddExpectedArrivalAsync(new ConsumableId("C-2"), VarietyB, Token));
+
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.DeleteVarietyAsync(VarietyA, Token));
+            await service.SetStockerSettingAsync(Device, new Dictionary<VarietyId, int>(), Token);
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.DeleteVarietyAsync(VarietyB, Token));
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.DeleteProcessTypeAsync(Process, Token));
+        }
+
+        var configuration = await (await OpenAsync()).LoadAsync(Token);
+
+        Assert.Empty(configuration.ProcessTypes);
+        Assert.Empty(configuration.Varieties);
+        Assert.Empty(configuration.ExpectedArrivals);
+        Assert.Empty(Assert.Single(configuration.StockerSettings).Counts);
+    }
+
+    [Fact]
+    public async Task 品種を消してもほかの品種のストッカーの設定と入庫の予定は残る()
+    {
+        var store = await OpenAsync();
+        await AddBasicsAsync(store);
+        using (var service = ServiceFrom(await store.LoadAsync(Token), store))
+        {
+            await service.SetStockerSettingAsync(Device, new Dictionary<VarietyId, int> { [VarietyA] = 0, [VarietyB] = 1 }, Token);
+            await service.AddExpectedArrivalAsync(new ConsumableId("C-2"), VarietyB, Token);
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.DeleteVarietyAsync(VarietyA, Token));
+        }
+
+        var configuration = await (await OpenAsync()).LoadAsync(Token);
+
+        Assert.Equal(new Dictionary<VarietyId, int> { [VarietyB] = 1 }, Assert.Single(configuration.StockerSettings).Counts);
+        Assert.Equal([(new ConsumableId("C-2"), VarietyB)], configuration.ExpectedArrivals.Select(e => (e.Consumable, e.Variety)));
     }
 }

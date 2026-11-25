@@ -15,6 +15,7 @@ namespace FlowHub.Api.Composition.Screens;
 /// <param name="Transports">搬送の一覧（番号の順）。</param>
 /// <param name="Consumables">すべての消耗品の記録（ID の順）。</param>
 /// <param name="Fleet">AGV と AGV の種類の登録。</param>
+/// <param name="Configuration">消耗品の構成（加工の種類と品種）。</param>
 internal sealed record ScreenSources(
     Func<bool> IsRunning,
     Func<IReadOnlyList<AgvSnapshot>> Agvs,
@@ -23,7 +24,8 @@ internal sealed record ScreenSources(
     Func<ConsumablesStatuses> Equipment,
     Func<IReadOnlyList<TransportSnapshot>> Transports,
     Func<IReadOnlyList<ConsumableSnapshot>> Consumables,
-    Func<FleetScreenState> Fleet);
+    Func<FleetScreenState> Fleet,
+    Func<ConsumablesConfigurationView> Configuration);
 
 /// <summary>画面へ送るもの（受け取る名前と、中身）。</summary>
 internal sealed record ScreenMessage(string Method, object Payload);
@@ -65,6 +67,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     /// <summary>AGV と AGV の種類の登録を送るときの名前（画面の側も、この名前で受け取る）。</summary>
     public const string FleetMethod = "fleet";
 
+    /// <summary>消耗品の構成を送るときの名前（画面の側も、この名前で受け取る）。</summary>
+    public const string ConfigurationMethod = "configuration";
+
     /// <summary>送るのを待つ長さ。</summary>
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
 
@@ -78,6 +83,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     private Topic<IReadOnlyList<TransportSnapshot>>? _transports;
     private Topic<IReadOnlyList<ConsumableSnapshot>>? _consumables;
     private Topic<FleetScreenState>? _fleet;
+    private Topic<ConsumablesConfigurationView>? _configuration;
     private long _issuedTickets;
     private long _appliedTicket;
 
@@ -97,6 +103,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         var transports = sources.Transports();
         var consumables = sources.Consumables();
         var fleet = sources.Fleet();
+        var configuration = sources.Configuration();
         lock (_lock)
         {
             if (_sources is not null)
@@ -113,6 +120,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             _transports = new Topic<IReadOnlyList<TransportSnapshot>>(TransportsMethod, transports, (version, list) => new TransportsSnapshot(version, list), TransportListComparer.Instance);
             _consumables = new Topic<IReadOnlyList<ConsumableSnapshot>>(ConsumablesMethod, consumables, (version, list) => new ConsumablesSnapshot(version, list), ConsumableListComparer.Instance);
             _fleet = new Topic<FleetScreenState>(FleetMethod, fleet, FleetSnapshot.From, EqualityComparer<FleetScreenState>.Default);
+            _configuration = new Topic<ConsumablesConfigurationView>(ConfigurationMethod, configuration, ConfigurationSnapshot.From, EqualityComparer<ConsumablesConfigurationView>.Default);
         }
     }
 
@@ -121,9 +129,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     {
         lock (_lock)
         {
-            return _systemStatus is null || _agvs is null || _messages is null || _map is null || _equipment is null || _transports is null || _consumables is null || _fleet is null
+            return _systemStatus is null || _agvs is null || _messages is null || _map is null || _equipment is null || _transports is null || _consumables is null || _fleet is null || _configuration is null
                 ? []
-                : [_systemStatus.Current, _agvs.Current, _messages.Current, _map.Current, _equipment.Current, _transports.Current, _consumables.Current, _fleet.Current];
+                : [_systemStatus.Current, _agvs.Current, _messages.Current, _map.Current, _equipment.Current, _transports.Current, _consumables.Current, _fleet.Current, _configuration.Current];
         }
     }
 
@@ -154,6 +162,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         var transports = sources.Transports();
         var consumables = sources.Consumables();
         var fleet = sources.Fleet();
+        var configuration = sources.Configuration();
 
         List<ScreenMessage> changed = [];
         lock (_lock)
@@ -202,6 +211,11 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             if (_fleet!.TryAdvance(fleet, out var fleetMessage))
             {
                 changed.Add(fleetMessage);
+            }
+
+            if (_configuration!.TryAdvance(configuration, out var configurationMessage))
+            {
+                changed.Add(configurationMessage);
             }
         }
 

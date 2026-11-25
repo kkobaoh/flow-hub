@@ -241,7 +241,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ArgumentNullException.ThrowIfNull(app);
 
         var screen = app.Services.GetRequiredService<ScreenFeed>();
-        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent, ReadMap, Consumables.ReadStatuses, ReadTransports, ReadConsumables, ReadFleet));
+        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent, ReadMap, Consumables.ReadStatuses, ReadTransports, ReadConsumables, ReadFleet, Consumables.ReadConfiguration));
         _screen = screen;
 
         app.Use(async (context, next) =>
@@ -259,6 +259,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         app.MapAgvRegistrationEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.AgvRegistrations"));
         app.MapFleetEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.FleetOperations"));
         app.MapConsumableEndpoints(Consumables, ToolPlanning, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConsumableOperations"));
+        app.MapConfigurationEndpoints(Consumables, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConfigurationOperations"));
     }
 
     public void Dispose()
