@@ -362,7 +362,7 @@ describe('App', () => {
   it('マップの編集は、サーバーの下書きを読み、読んだときの番号で保存する。古い番号なら理由を出す', async () => {
     window.location.hash = '#/mapEdit';
     const link = connected();
-    link.respondToMapDraftLoad({ revision: 7, savedAt: null, publishedVersion: 2, draft: { layout: serverMap.layout, outlines: {} } });
+    link.respondToMapDraftLoad({ revision: 7, savedAt: null, publishedVersion: 2, draft: { layout: serverMap.layout, outlines: {} }, heights: {} });
     const { container } = render(<App link={link} />);
     expect(container.textContent).toContain('マップの下書きを読み込んでいます');
     await act(() => Promise.resolve());
@@ -400,14 +400,14 @@ describe('App', () => {
   it('マップの編集で、検証のあとに公開を送り、公開したら公開した版から始め直す', async () => {
     window.location.hash = '#/mapEdit';
     const link = createFakeLink({ connection: 'connected', status: { version: 1, state: 'stopped' }, map: serverMap, transports: { version: 1, transports: [] } });
-    link.respondToMapDraftLoad({ revision: 3, savedAt: null, publishedVersion: 1, draft: { layout: serverMap.layout, outlines: {} } });
+    link.respondToMapDraftLoad({ revision: 3, savedAt: null, publishedVersion: 1, draft: { layout: serverMap.layout, outlines: {} }, heights: {} });
     const { container } = render(<App link={link} />);
     await act(() => Promise.resolve());
     await act(async () => {
       click(buttonByText(container, '確かめる（検証）'));
       await Promise.resolve();
     });
-    link.respondToMapDraftLoad({ revision: 4, savedAt: null, publishedVersion: 2, draft: { layout: serverMap.layout, outlines: {} } });
+    link.respondToMapDraftLoad({ revision: 4, savedAt: null, publishedVersion: 2, draft: { layout: serverMap.layout, outlines: {} }, heights: {} });
     click(buttonByText(container, '版2を公開する'));
     await act(async () => {
       click(buttonByText(container.querySelector('[role="alertdialog"]')!, '版2を公開する'));

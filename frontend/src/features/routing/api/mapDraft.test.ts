@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { heading, panelId } from '../model';
 import type { MapDraft } from '../mapEdit';
-import { loadMapDraft, mapPublishNotice, parseMapDraft, publishMapDraft, saveMapDraft, toWireDraft, VALIDATION_FAILED, validateMapDraft } from './mapDraft';
+import { carrierHeightNotice, saveCarrierHeight, loadMapDraft, mapPublishNotice, parseMapDraft, publishMapDraft, saveMapDraft, toWireDraft, VALIDATION_FAILED, validateMapDraft } from './mapDraft';
 
 const wireDraft = {
   panelSizeMm: 1000,
@@ -36,16 +36,25 @@ const draft: MapDraft = {
 
 describe('parseMapDraft', () => {
   it('サーバーの下書きを、画面の下書きにする（外形は受け渡しパネルごと）', () => {
-    expect(parseMapDraft({ revision: 3, savedAt: '2026-11-25T09:00:00Z', publishedVersion: 2, draft: wireDraft })).toEqual({
+    expect(
+      parseMapDraft({
+        revision: 3,
+        savedAt: '2026-11-25T09:00:00Z',
+        publishedVersion: 2,
+        draft: wireDraft,
+        heights: [{ panel: 'D1', heightMm: 320, source: 'measured', setAt: '2026-11-24T08:00:00Z' }],
+      }),
+    ).toEqual({
       revision: 3,
       savedAt: new Date('2026-11-25T09:00:00Z'),
       publishedVersion: 2,
       draft,
+      heights: { D1: { heightMm: 320, source: 'measured', at: new Date('2026-11-24T08:00:00Z') } },
     });
   });
 
   it('下書きも公開中の版もなければ、下書きは null', () => {
-    expect(parseMapDraft({ revision: 0, savedAt: null, publishedVersion: 0, draft: null }).draft).toBeNull();
+    expect(parseMapDraft({ revision: 0, savedAt: null, publishedVersion: 0, draft: null, heights: [] }).draft).toBeNull();
   });
 
   it.each([
@@ -74,7 +83,7 @@ describe('loadMapDraft と saveMapDraft', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce(new Response(JSON.stringify({ revision: 1, savedAt: null, publishedVersion: 1, draft: wireDraft }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ revision: 1, savedAt: null, publishedVersion: 1, draft: wireDraft, heights: [] }), { status: 200 }))
         .mockRejectedValueOnce(new Error('切れた')),
     );
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -95,6 +104,21 @@ describe('loadMapDraft と saveMapDraft', () => {
     expect((fetch.mock.calls[0] as [string, RequestInit])[0]).toBe('/map/draft/validate');
     expect(JSON.parse((fetch.mock.calls[0] as [string, RequestInit])[1].body as string)).toEqual({ draft: wireDraft });
     expect(await validateMapDraft('', draft, 1000)).toEqual([VALIDATION_FAILED]);
+  });
+
+  it('キャリアの高さを入れる・空にする。断られたら理由を出す', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'saved', height: { panel: 'D1', heightMm: 350, source: 'manual', setAt: '2026-11-26T09:00:00Z' } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'saved', height: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'notTransferPanel', height: null }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+
+    expect(await saveCarrierHeight('', 'D1', 350, 1000)).toEqual({ result: 'saved', height: { heightMm: 350, source: 'manual', at: new Date('2026-11-26T09:00:00Z') } });
+    expect((fetch.mock.calls[0] as [string, RequestInit])[0]).toBe('/map/carrier-heights/D1');
+    expect(await saveCarrierHeight('', 'D1', null, 1000)).toEqual({ result: 'saved', height: null });
+    expect(JSON.parse((fetch.mock.calls[1] as [string, RequestInit])[1].body as string)).toEqual({ heightMm: null });
+    expect(carrierHeightNotice('P1', await saveCarrierHeight('', 'P1', 350, 1000))).toBe('P1 は、公開中の版の受け渡しパネルではないので、保存しませんでした。');
   });
 
   it('公開する。結果ごとに中身を返し、応答がなければ failed', async () => {

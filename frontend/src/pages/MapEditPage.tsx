@@ -25,12 +25,7 @@ import {
 import type { Permissions } from '../features/auth/permissions';
 import { dateTimeOf } from '../shared/utils/dateTime';
 
-/** 受け渡しパネルごとのキャリアの高さ（版とは別の設定）。null は設定なし（AGV が測る）。 */
-export interface CarrierHeight {
-  readonly heightMm: number;
-  readonly source: 'manual' | 'measured';
-  readonly at: Date;
-}
+import type { CarrierHeight } from '../features/routing/api/mapDraft';
 
 export interface MapEditPageProps {
   /** 保存してある下書き（なければ、公開中の版の写し）。 */
@@ -58,7 +53,7 @@ export interface MapEditPageProps {
   /** 公開する（確かめる画面で選んだあと）。断られたら、その理由の文を返す（公開できたら null）。 */
   readonly onPublish: (draft: MapDraft) => Promise<string | null>;
   /** キャリアの高さを保存する（null で設定なしにする）。すぐ使われる。 */
-  readonly onSaveHeight: (panel: string, heightMm: number | null) => void;
+  readonly onSaveHeight: (panel: string, heightMm: number | null) => Promise<string | null>;
   /** 保存していない変更があるかを知らせる（ほかの画面へ移るときに確かめるため）。 */
   readonly onDirtyChange: (dirty: boolean) => void;
 }
@@ -500,7 +495,7 @@ function PanelEditor({
   readonly height: CarrierHeight | null | undefined;
   readonly onChange: (d: MapDraft) => void;
   readonly onRenamed: (id: PanelId) => void;
-  readonly onSaveHeight: (panel: string, heightMm: number | null) => void;
+  readonly onSaveHeight: (panel: string, heightMm: number | null) => Promise<string | null>;
 }) {
   const panel = draft.layout.panels.find((p) => p.id === id);
   const [name, setName] = useState<string>(id);
@@ -514,6 +509,18 @@ function PanelEditor({
   const deadEnd = pinAllowed;
   const links = draft.layout.connections.filter((c) => c.from === id || c.to === id);
   const heightOk = heightText.trim() === '' || (/^\d+$/.test(heightText.trim()) && Number(heightText) >= 1);
+  // 高さは、送って結果を待つあいだは押せなくし、断られたら理由を出す（次に送ったら消す）
+  const [heightSending, setHeightSending] = useState(false);
+  const [heightNotice, setHeightNotice] = useState<string | null>(null);
+  const saveHeight = async (mm: number | null) => {
+    setHeightSending(true);
+    setHeightNotice(null);
+    try {
+      setHeightNotice(await onSaveHeight(id, mm));
+    } finally {
+      setHeightSending(false);
+    }
+  };
 
   return (
     <>
@@ -649,14 +656,19 @@ function PanelEditor({
             </div>
             <button
               type="button"
-              disabled={!allowed || !heightOk}
-              onClick={() => onSaveHeight(id, heightText.trim() === '' ? null : Number(heightText))}
+              disabled={!allowed || !heightOk || heightSending}
+              onClick={() => void saveHeight(heightText.trim() === '' ? null : Number(heightText))}
               className={plainButton}
             >
               高さを保存する
             </button>
           </div>
           {!heightOk && <p className={note}>キャリアの高さは、1 以上の整数（mm）で入れてください。</p>}
+          {heightNotice !== null && (
+            <p role="alert" className="m-0 text-sm font-bold text-attention">
+              {heightNotice}
+            </p>
+          )}
         </div>
       )}
     </>

@@ -12,7 +12,7 @@ import type { Role, UserAccount } from '../../features/user-management/users';
 import type { StationInventory } from '../../features/tool/station';
 import type { Transport } from '../../features/dispatch/transports';
 import type { MapDraft } from '../../features/routing/mapEdit';
-import type { CarrierHeight } from '../../pages/MapEditPage';
+import type { CarrierHeight } from '../../features/routing/api/mapDraft';
 import type { AgvEntry, AgvType } from '../../features/fleet/agvs';
 import type { DeviceConfig, ProcessKind, StationConfig, Variety } from '../../features/tool/config';
 import type { ConsumableLocation, ConsumableRecord } from '../../features/tool/consumables';

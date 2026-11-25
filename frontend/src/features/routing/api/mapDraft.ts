@@ -12,7 +12,21 @@ export interface MapDraftLoad {
   readonly publishedVersion: number;
   /** 下書き（なければ公開中の版の写し）。どちらもなければ null。 */
   readonly draft: MapDraft | null;
+  /** 公開中の版の受け渡しパネルのうち、キャリアの高さの設定があるもの（キーはパネルの ID）。 */
+  readonly heights: Readonly<Record<string, CarrierHeight>>;
 }
+
+/** 受け渡しパネルごとのキャリアの高さ（版とは別の設定）。 */
+export interface CarrierHeight {
+  readonly heightMm: number;
+  readonly source: 'manual' | 'measured';
+  readonly at: Date;
+}
+
+/** キャリアの高さを入れた結果。saved なら、今の設定（空にしたら null）も返す。 */
+export type CarrierHeightOutcome =
+  | { readonly result: 'saved'; readonly height: CarrierHeight | null }
+  | { readonly result: 'notTransferPanel' | 'noMap' | 'failed' };
 
 /** 下書きを保存した結果。stale は、読んだあとにほかの人が保存したか公開した（保存していない）。 */
 export type MapDraftSaveOutcome = { readonly result: 'saved' | 'stale'; readonly revision: number } | { readonly result: 'failed' };
@@ -56,7 +70,58 @@ export function parseMapDraft(value: unknown): MapDraftLoad {
     savedAt,
     publishedVersion: int(value.publishedVersion, '公開中の版の番号'),
     draft: value.draft === null ? null : parseDraft(value.draft),
+    heights: Object.fromEntries(records(value.heights, 'キャリアの高さ').map((h) => [text(h.panel, 'キャリアの高さのパネル'), parseHeight(h)])),
   };
+}
+
+function parseHeight(value: Record<string, unknown>): CarrierHeight {
+  const at = new Date(text(value.setAt, 'キャリアの高さを設定した日時'));
+  if (Number.isNaN(at.getTime()) || (value.source !== 'manual' && value.source !== 'measured')) {
+    throw new TypeError('キャリアの高さの形が正しくありません。');
+  }
+  return { heightMm: int(value.heightMm, 'キャリアの高さ'), source: value.source, at };
+}
+
+/** キャリアの高さを入れる（null で設定なしにする。すぐ使う）。応答がなければ failed（やり直さない）。 */
+export async function saveCarrierHeight(baseUrl: string, panel: string, heightMm: number | null, timeoutMs: number): Promise<CarrierHeightOutcome> {
+  try {
+    const response = await fetch(`${baseUrl}/map/carrier-heights/${encodeURIComponent(panel)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ heightMm }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const body: unknown = response.ok ? await response.json() : null;
+    if (isRecord(body)) {
+      if (body.result === 'saved') {
+        return { result: 'saved', height: isRecord(body.height) ? parseHeight(body.height) : null };
+      }
+      if (body.result === 'notTransferPanel' || body.result === 'noMap') {
+        return { result: body.result };
+      }
+    }
+    console.warn(`キャリアの高さを保存できませんでした（${response.status}）。`);
+    return { result: 'failed' };
+  } catch (error) {
+    console.warn('キャリアの高さを保存できませんでした。', error);
+    return { result: 'failed' };
+  }
+}
+
+/** 画面に出す、キャリアの高さの結果の知らせ（保存できたら null）。 */
+export function carrierHeightNotice(panel: string, outcome: CarrierHeightOutcome): string | null {
+  switch (outcome.result) {
+    case 'saved':
+      return null;
+    case 'notTransferPanel':
+      return `${panel} は、公開中の版の受け渡しパネルではないので、保存しませんでした。`;
+    case 'noMap':
+      return 'まだマップを公開していないので、保存しませんでした。';
+    case 'failed':
+      return 'キャリアの高さを保存できませんでした。サーバーから応答がありません。もう一度保存してください。';
+    default:
+      throw new Error(`知らない結果です: ${JSON.stringify(outcome satisfies never)}`);
+  }
 }
 
 function parseDraft(value: unknown): MapDraft {

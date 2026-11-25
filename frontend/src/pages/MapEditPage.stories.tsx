@@ -21,7 +21,7 @@ const meta = {
     onReload: () => {},
     onValidate: (d) => Promise.resolve(demoValidate(d)),
     onPublish: () => Promise.resolve(null),
-    onSaveHeight: () => {},
+    onSaveHeight: () => Promise.resolve(null),
     onDirtyChange: () => {},
   },
   decorators: [

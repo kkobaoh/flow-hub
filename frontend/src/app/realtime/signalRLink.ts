@@ -8,7 +8,7 @@ import { parseEquipmentStatus } from '../../features/tool/api/equipmentStatus';
 import { parseTransports } from '../../features/dispatch/api/transportsSnapshot';
 import { parseConsumables } from '../../features/tool/api/consumablesSnapshot';
 import { parseConfiguration, sendConfigurationCommand } from '../../features/tool/api/configurationSnapshot';
-import { loadMapDraft, publishMapDraft, saveMapDraft, validateMapDraft } from '../../features/routing/api/mapDraft';
+import { loadMapDraft, publishMapDraft, saveCarrierHeight, saveMapDraft, validateMapDraft } from '../../features/routing/api/mapDraft';
 import { parseFleet, sendAgvRegistrationCommand, sendAgvTypeCommand } from '../../features/fleet/api/fleetSnapshot';
 import { sendCancelTransport } from '../../features/dispatch/api/transportCommands';
 import { sendConsumableCommand } from '../../features/tool/api/consumableCommands';
@@ -62,6 +62,7 @@ export function createSignalRLink(baseUrl = ''): ServerLink {
     saveMapDraft: (revision, draft) => saveMapDraft(baseUrl, revision, draft, COMMAND_TIMEOUT_MS),
     validateMapDraft: (draft) => validateMapDraft(baseUrl, draft, COMMAND_TIMEOUT_MS),
     publishMapDraft: (revision, draft) => publishMapDraft(baseUrl, revision, draft, COMMAND_TIMEOUT_MS),
+    saveCarrierHeight: (panel, heightMm) => saveCarrierHeight(baseUrl, panel, heightMm, COMMAND_TIMEOUT_MS),
   };
 }
 

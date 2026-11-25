@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  demoHeights,
   demoRoles,
   demoUsers,
 } from './demo/demo';
@@ -39,7 +38,7 @@ import { toHit, toRecord } from '../features/tool/api/consumablesSnapshot';
 import { agvRegistrationNotice, agvTypeNotice, type AgvRegistrationCommand } from '../features/fleet/api/fleetSnapshot';
 import { configurationNotice, type ConfigurationCommand } from '../features/tool/api/configurationSnapshot';
 import type { ProcessKind } from '../features/tool/config';
-import { mapDraftNotice, mapPublishNotice, type MapDraftLoad } from '../features/routing/api/mapDraft';
+import { carrierHeightNotice, mapDraftNotice, mapPublishNotice, type MapDraftLoad } from '../features/routing/api/mapDraft';
 import { cancelNotice } from '../features/dispatch/api/transportCommands';
 import { consumableNotice, type ConsumableCommand } from '../features/tool/api/consumableCommands';
 
@@ -178,7 +177,6 @@ export function App({ link }: AppProps) {
     () => (server.agvs.kind === 'waiting' ? { reservedPanels: [], routes: [] } : mapOverlays(server.agvs.snapshot.agvs, layout)),
     [server.agvs, layout],
   );
-  const [heights, setHeights] = useState(demoHeights);
   const [mapDirty, setMapDirty] = useState(false);
   const [leaving, setLeaving] = useState<{ readonly screen: ScreenKey; readonly target: string | undefined } | null>(null);
   const go = (screen: ScreenKey, target?: string) => {
@@ -422,7 +420,7 @@ export function App({ link }: AppProps) {
             savedAt={draftView.load.savedAt}
             publishedVersion={draftView.load.publishedVersion}
             equipment={editEquipment}
-            heights={heights}
+            heights={Object.fromEntries(layout.panels.filter((p) => p.type === 'Transfer').map((p) => [p.id, draftView.load.heights[p.id] ?? null]))}
             running={run !== 'stopped'} // わからないときは、運転中として扱う（公開の決まりが厳しい側）
             travelingAgvs={agvs.filter((a) => a.operation === 'traveling').map((a) => a.id)}
             permissions={permissions}
@@ -446,7 +444,19 @@ export function App({ link }: AppProps) {
               }
               return mapPublishNotice(outcome);
             }}
-            onSaveHeight={(panel, mm) => setHeights((hs) => ({ ...hs, [panel]: mm === null ? null : { heightMm: mm, source: 'manual', at: new Date() } }))}
+            onSaveHeight={async (panel, mm) => {
+              const outcome = await link.saveCarrierHeight(panel, mm);
+              if (outcome.result === 'saved') {
+                setDraftView((view) => {
+                  if (view.kind !== 'loaded') {
+                    return view;
+                  }
+                  const { [panel]: _old, ...rest } = view.load.heights;
+                  return { ...view, load: { ...view.load, heights: outcome.height === null ? rest : { ...rest, [panel]: outcome.height } } };
+                });
+              }
+              return carrierHeightNotice(panel, outcome);
+            }}
             onDirtyChange={setMapDirty}
           />
         );

@@ -31,7 +31,7 @@ function setup(overrides: Partial<MapEditPageProps> = {}) {
     onReload: vi.fn(),
     onValidate: vi.fn(() => Promise.resolve<readonly string[]>([])),
     onPublish: vi.fn(() => Promise.resolve<string | null>(null)),
-    onSaveHeight: vi.fn(),
+    onSaveHeight: vi.fn(() => Promise.resolve<string | null>(null)),
     onDirtyChange: vi.fn(),
   };
   const view = render(
@@ -110,6 +110,17 @@ describe('MapEditPage（マップの編集）', () => {
 
     expect(onSaveHeight).toHaveBeenCalledWith('D1', 350);
     expect(onDirtyChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it('キャリアの高さを断られたら、理由を出す', async () => {
+    const { container } = setup({ onSaveHeight: () => Promise.resolve('D1 は、もう受け渡しパネルではありません。') });
+
+    click(target(container, 'D1'));
+    change(side(container).querySelector<HTMLInputElement>('input[aria-label="キャリアの高さ"]')!, '350');
+    click(byText(side(container), '高さを保存する'));
+    await flush();
+
+    expect(side(container).querySelector('[role="alert"]')?.textContent).toBe('D1 は、もう受け渡しパネルではありません。');
   });
 
   it('装置やステーションの受け渡しパネルの ID は直せない', () => {

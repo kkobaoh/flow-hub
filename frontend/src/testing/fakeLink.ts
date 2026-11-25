@@ -67,6 +67,8 @@ export interface FakeLink extends ServerLink {
   readonly publishedMapDrafts: readonly { readonly revision: number; readonly draft: MapDraft }[];
   /** マップの下書きを公開したときの答えを決める（既定は、版2として published）。 */
   respondToMapPublish(result: MapPublishOutcome): void;
+  /** 入れるよう頼まれたキャリアの高さ。 */
+  readonly savedCarrierHeights: readonly { readonly panel: string; readonly heightMm: number | null }[];
   /** AGV の種類へ送られた操作。 */
   readonly agvTypeCommands: readonly AgvTypeCommand[];
   /** AGV の種類の操作の結果を決める（既定は、受け付けたときの結果）。 */
@@ -134,7 +136,8 @@ export function createFakeLink(initial?: {
 
   const configurationCommands: ConfigurationCommand[] = [];
   const savedMapDrafts: { revision: number; draft: MapDraft }[] = [];
-  let mapDraftLoad: MapDraftLoad | 'failed' = { revision: 0, savedAt: null, publishedVersion: 1, draft: demoMapDraft };
+  let mapDraftLoad: MapDraftLoad | 'failed' = { revision: 0, savedAt: null, publishedVersion: 1, draft: demoMapDraft, heights: {} };
+  const savedCarrierHeights: { panel: string; heightMm: number | null }[] = [];
   let mapDraftSave: MapDraftSaveOutcome | null = null;
   const validatedMapDrafts: MapDraft[] = [];
   let mapDraftProblems: readonly string[] = [];
@@ -203,6 +206,11 @@ export function createFakeLink(initial?: {
       mapDraftSave = next;
     },
     loadMapDraft: () => Promise.resolve(mapDraftLoad),
+    savedCarrierHeights,
+    saveCarrierHeight(panel, heightMm) {
+      savedCarrierHeights.push({ panel, heightMm });
+      return Promise.resolve({ result: 'saved', height: heightMm === null ? null : { heightMm, source: 'manual', at: new Date('2026-11-26T09:00:00Z') } });
+    },
     publishedMapDrafts,
     respondToMapPublish(next) {
       mapPublish = next;
