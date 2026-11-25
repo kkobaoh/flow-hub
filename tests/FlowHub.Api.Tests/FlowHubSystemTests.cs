@@ -530,6 +530,43 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal([new StationConfigurationView(new StationId("ST-1"), S, InUse: false)], configuration.Stations);
     }
 
+    // ---- マップの下書き（マップの編集の画面から） ----
+
+    [Fact]
+    public async Task 下書きがなければ公開中の版の写しを返し保存したら番号を進めて古い番号からの保存は断る()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        var first = await GetJsonAsync(client, "/map/draft");
+        Assert.Equal(0, (int)first["revision"]!);
+        Assert.Null(first["savedAt"]);
+        Assert.Equal(1, (int)first["publishedVersion"]!);
+        Assert.Equal(["A", "S", "D"], first["draft"]!["panels"]!.AsArray().Select(p => (string)p!["id"]!));
+
+        // 検証しない：つながりの先のパネルがなくても保存できる
+        const string Draft = """{ "panelSizeMm": 1000, "panels": [{ "id": "P1", "type": "Normal", "hasChargingPin": false, "carrierLoweringHeading": null, "column": 0, "row": 0, "crossOffsetEastMm": 0, "crossOffsetSouthMm": 0, "outline": null }], "connections": [{ "from": "P1", "to": "NOWHERE", "distanceMm": 1000, "heading": 90, "oneWay": false }] }""";
+        var saved = await OperateAsync(client, "/map/draft", $$"""{ "revision": 0, "draft": {{Draft}} }""");
+        var stale = await OperateAsync(client, "/map/draft", $$"""{ "revision": 0, "draft": {{Draft}} }""");
+        var noDraft = await OperateAsync(client, "/map/draft", """{ "revision": 1 }""");
+
+        Assert.Equal((HttpStatusCode.OK, "saved"), saved);
+        Assert.Equal((HttpStatusCode.OK, "stale"), stale);
+        Assert.Equal(HttpStatusCode.BadRequest, noDraft.Status);
+        var second = await GetJsonAsync(client, "/map/draft");
+        Assert.Equal(1, (int)second["revision"]!);
+        Assert.NotNull(second["savedAt"]);
+        Assert.Equal("NOWHERE", (string)second["draft"]!["connections"]![0]!["to"]!);
+    }
+
+    private static async Task<JsonNode> GetJsonAsync(HttpClient client, string path)
+    {
+        using var response = await client.GetAsync(new Uri(path, UriKind.Relative), Token);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return JsonNode.Parse(await response.Content.ReadAsStringAsync(Token))!;
+    }
+
     // ---- AGV の種類（AGV と AGV の種類の登録の画面から） ----
 
     [Fact]

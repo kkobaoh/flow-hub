@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
 namespace FlowHub.Map.Infrastructure;
@@ -146,6 +147,73 @@ public sealed class DbMapStore : IMapStore
             context.SaveChanges();
         }
     }
+
+    // ---- 下書き ----
+
+    /// <summary>今の下書き（DB から読む）。</summary>
+    public MapDraftState ReadDraft()
+    {
+        lock (_lock)
+        {
+            using var context = _createContext();
+            var row = context.Drafts.Find(MapDraftRow.SingleId);
+            return row is null
+                ? new MapDraftState(0, null)
+                : new MapDraftState(row.Revision, row.Content is { } content && row.SavedAt is { } savedAt ? new SavedMapDraft(Deserialize(content), savedAt) : null);
+        }
+    }
+
+    /// <summary>
+    /// 下書きを保存する（検証しない）。読んだときの番号が今の番号と違えば（ほかの人が保存したか消した）、上書きせずに断る。
+    /// </summary>
+    public MapDraftSave SaveDraft(int expectedRevision, MapDraft draft, DateTimeOffset savedAt)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        lock (_lock)
+        {
+            using var context = _createContext();
+            var row = context.Drafts.Find(MapDraftRow.SingleId);
+            var current = row?.Revision ?? 0;
+            if (current != expectedRevision)
+            {
+                return new MapDraftSave(MapDraftSaveResult.Stale, current);
+            }
+
+            if (row is null)
+            {
+                row = new MapDraftRow { Id = MapDraftRow.SingleId };
+                context.Drafts.Add(row);
+            }
+
+            row.Revision = current + 1;
+            row.SavedAt = savedAt.ToUniversalTime();
+            row.Content = JsonSerializer.Serialize(draft);
+            context.SaveChanges();
+            return new MapDraftSave(MapDraftSaveResult.Saved, row.Revision);
+        }
+    }
+
+    /// <summary>下書きを消す（公開したとき）。番号は進める（消す前に読んだ人の保存を断るため）。</summary>
+    public void DeleteDraft()
+    {
+        lock (_lock)
+        {
+            using var context = _createContext();
+            var row = context.Drafts.Find(MapDraftRow.SingleId);
+            if (row is null)
+            {
+                return;
+            }
+
+            row.Revision++;
+            row.SavedAt = null;
+            row.Content = null;
+            context.SaveChanges();
+        }
+    }
+
+    private static MapDraft Deserialize(string content) =>
+        JsonSerializer.Deserialize<MapDraft>(content) ?? throw new InvalidOperationException("保存してある下書きを読めません。");
 
     /// <summary>保存してある版の番号（小さい順）。</summary>
     internal async Task<IReadOnlyList<int>> GetPublishedVersionsAsync(CancellationToken cancellationToken)

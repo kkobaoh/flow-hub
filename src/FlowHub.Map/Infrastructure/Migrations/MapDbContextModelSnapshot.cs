@@ -72,6 +72,25 @@ namespace FlowHub.Map.Infrastructure.Migrations
                     b.ToTable("connections", "map");
                 });
 
+            modelBuilder.Entity("FlowHub.Map.Infrastructure.MapDraftRow", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Content")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("SavedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("drafts", "map");
+                });
+
             modelBuilder.Entity("FlowHub.Map.Infrastructure.MapVersionRow", b =>
                 {
                     b.Property<int>("Version")

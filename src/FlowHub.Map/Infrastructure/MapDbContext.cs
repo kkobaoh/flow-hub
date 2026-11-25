@@ -80,6 +80,23 @@ internal sealed class CarrierHeightRow
     public DateTimeOffset SetAt { get; set; }
 }
 
+/// <summary>マップの下書き（1行だけ。Id はいつも 1）。中身は検証しないので、JSON のまま持つ。</summary>
+internal sealed class MapDraftRow
+{
+    public const int SingleId = 1;
+
+    public int Id { get; set; }
+
+    /// <summary>下書きの番号。保存するたびと消すたびに進む。</summary>
+    public int Revision { get; set; }
+
+    /// <summary>保存した時刻（UTC）。下書きがなければ null。</summary>
+    public DateTimeOffset? SavedAt { get; set; }
+
+    /// <summary>下書きの中身（JSON）。下書きがなければ null。</summary>
+    public string? Content { get; set; }
+}
+
 /// <summary>
 /// マップのコンテキストの DB。スキーマは <see cref="MapDatabase.Schema"/>。
 /// </summary>
@@ -92,6 +109,8 @@ internal sealed class MapDbContext(DbContextOptions<MapDbContext> options) : DbC
     public DbSet<ConnectionRow> Connections => Set<ConnectionRow>();
 
     public DbSet<CarrierHeightRow> CarrierHeights => Set<CarrierHeightRow>();
+
+    public DbSet<MapDraftRow> Drafts => Set<MapDraftRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -125,6 +144,13 @@ internal sealed class MapDbContext(DbContextOptions<MapDbContext> options) : DbC
             entity.ToTable("carrier_heights");
             entity.HasKey(h => h.PanelId);
             entity.Property(h => h.PanelId).HasMaxLength(100);
+        });
+
+        modelBuilder.Entity<MapDraftRow>(entity =>
+        {
+            entity.ToTable("drafts");
+            entity.HasKey(d => d.Id);
+            entity.Property(d => d.Id).ValueGeneratedNever();
         });
     }
 }

@@ -36,7 +36,7 @@ internal sealed partial class FlowHubSystem : IDisposable
 {
     private readonly AgvEndpointOptions _agvEndpoints;
     private readonly TimeProvider _timeProvider;
-    private readonly IMapStore _map;
+    private readonly DbMapStore _map;
     private volatile ScreenFeed? _screen;
 
     private FlowHubSystem(
@@ -46,7 +46,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ConsumablesService consumables,
         ToolPlanningService toolPlanning,
         INoticeBoard notices,
-        IMapStore map,
+        DbMapStore map,
         FleetCatalog fleet,
         AgvEndpointOptions agvEndpoints,
         TimeProvider timeProvider)
@@ -263,6 +263,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         app.MapAgvRegistrationEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.AgvRegistrations"));
         app.MapFleetEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.FleetOperations"));
         app.MapConsumableEndpoints(Consumables, ToolPlanning, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConsumableOperations"));
+        app.MapMapDraftEndpoints(_map, _timeProvider, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.MapDrafts"));
         app.MapConfigurationEndpoints(Consumables, TransferPanels, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConfigurationOperations"));
     }
 
