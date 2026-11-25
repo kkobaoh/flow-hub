@@ -113,6 +113,42 @@ public sealed class ToolPlanningService(
     }
 
     /// <summary>
+    /// ユーザーが、消耗品の記録を手入力で直した。届ける・回収する要求に入っていれば、割り当て前ならその要求を取りやめてから直し、判断をやり直す。
+    /// </summary>
+    /// <returns>直したか。割り当て済みの要求に入っていれば、直さずに断る。</returns>
+    public Task<ManualEntryResult> EditManuallyAsync(
+        ConsumableId id, VarietyId variety, ConsumableCondition condition, ConsumableLocation location, CancellationToken cancellationToken) =>
+        ChangeRecordAsync(id, () => consumables.EditManuallyAsync(id, variety, condition, location, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// ユーザーが、消耗品の記録を手入力で消した。届ける・回収する要求に入っていれば、割り当て前ならその要求を取りやめてから消し、判断をやり直す。
+    /// </summary>
+    /// <returns>消したか。割り当て済みの要求に入っていれば、消さずに断る。</returns>
+    public Task<ManualEntryResult> DeleteManuallyAsync(ConsumableId id, CancellationToken cancellationToken) =>
+        ChangeRecordAsync(id, () => consumables.DeleteManuallyAsync(id, cancellationToken), cancellationToken);
+
+    private async Task<ManualEntryResult> ChangeRecordAsync(ConsumableId id, Func<Task<ManualEntryResult>> change, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!await CancelRequestContainingAsync(id, cancellationToken).ConfigureAwait(false))
+            {
+                return ManualEntryResult.InAssignedTransport;
+            }
+
+            // 断られても、取りやめた要求は判断のやり直しで出し直す
+            var result = await change().ConfigureAwait(false);
+            await ReplanCoreAsync(cancellationToken).ConfigureAwait(false);
+            return result;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
     /// ユーザーが、装置へ届ける消耗品を指名した。指名を記録して、判断をやり直す。
     /// </summary>
     /// <returns>指名したか。指名できない消耗品なら、何も変えずに断る。</returns>

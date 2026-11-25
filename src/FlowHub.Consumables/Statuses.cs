@@ -243,3 +243,24 @@ public enum CorrectionResult
     /// <summary>ステーションにある要確認の消耗品ではない（ほかの人が直した、出庫したなど。何も変えていない）。</summary>
     NotNeedingCheck,
 }
+
+/// <summary>在庫の手入力（登録・直す・消す）の結果。断ったときは、何も変えていない。</summary>
+public enum ManualEntryResult
+{
+    Saved,
+
+    /// <summary>その ID は、もう登録してある（登録のとき）。</summary>
+    AlreadyRegistered,
+
+    /// <summary>記録にない（直す・消すとき。ほかの人が消した、出庫したなど）。</summary>
+    NotFound,
+
+    /// <summary>AGV の中、加工部・受け渡し部にあるもの、出庫を頼んだもの（直す・消すとき）。</summary>
+    NotEditable,
+
+    /// <summary>AGV を割り当て済みの搬送の予約が付いている（直す・消すとき。搬送計画が確かめる）。</summary>
+    InAssignedTransport,
+
+    /// <summary>選んだスロットが、ほかの消耗品でふさがっている。</summary>
+    SlotTaken,
+}

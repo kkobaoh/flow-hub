@@ -463,6 +463,53 @@ public class ToolPlanningServiceTests
         Assert.Equal(["A-2"], ActiveCargo(f));
     }
 
+    // ---- 在庫の手入力 ----
+
+    [Fact]
+    public async Task 割り当て前の要求に入っている消耗品を直すと要求を取りやめて直し残りを出し直す()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        AtStation(f, "A-2", VarietyA);
+        await SetAsync(f, (VarietyA, 2));
+        await f.Planning.ReplanAsync(None);
+
+        var result = await f.Planning.EditManuallyAsync(new ConsumableId("A-1"), VarietyB, ConsumableCondition.New, new AtStation(Station), None);
+
+        Assert.Equal(ManualEntryResult.Saved, result);
+        Assert.Equal(VarietyB, f.Consumables.GetConsumable(new ConsumableId("A-1")).Variety);
+        Assert.Equal(["A-2"], ActiveCargo(f));
+    }
+
+    [Fact]
+    public async Task 割り当て済みの要求に入っている消耗品は直すも消すも断る()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        await SetAsync(f, (VarietyA, 1));
+        await f.Planning.ReplanAsync(None);
+        f.Dispatching.AssignAll();
+
+        Assert.Equal(ManualEntryResult.InAssignedTransport, await f.Planning.EditManuallyAsync(new ConsumableId("A-1"), VarietyB, ConsumableCondition.New, new AtStation(Station), None));
+        Assert.Equal(ManualEntryResult.InAssignedTransport, await f.Planning.DeleteManuallyAsync(new ConsumableId("A-1"), None));
+        Assert.Equal(VarietyA, f.Consumables.GetConsumable(new ConsumableId("A-1")).Variety);
+        Assert.Equal(["A-1"], ActiveCargo(f));
+    }
+
+    [Fact]
+    public async Task 割り当て前の要求に入っている消耗品を消すと要求を取りやめて消す()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        await SetAsync(f, (VarietyA, 1));
+        await f.Planning.ReplanAsync(None);
+
+        Assert.Equal(ManualEntryResult.Saved, await f.Planning.DeleteManuallyAsync(new ConsumableId("A-1"), None));
+
+        Assert.False(f.Consumables.TryGetConsumable(new ConsumableId("A-1"), out _));
+        Assert.Empty(ActiveCargo(f));
+    }
+
     // ---- 上位システムの出庫の指示 ----
 
     [Fact]
