@@ -65,6 +65,8 @@ export interface ServerLink {
   loadMapDraft(): Promise<MapDraftLoad | 'failed'>;
   /** マップの下書きを保存する（読んだときの番号を渡す。応答がなければ failed。やり直さない）。 */
   saveMapDraft(revision: number, draft: MapDraft): Promise<MapDraftSaveOutcome>;
+  /** マップの下書きをサーバーで検証し、見つかった問題を返す（検証できなければ、そのことを問題として返す）。 */
+  validateMapDraft(draft: MapDraft): Promise<readonly string[]>;
 }
 
 /** 操作を送って、応答を待つ長さ。 */

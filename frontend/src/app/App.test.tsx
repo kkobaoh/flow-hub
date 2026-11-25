@@ -385,6 +385,15 @@ describe('App', () => {
     });
     expect(link.savedMapDrafts.map((d) => d.revision)).toEqual([7, 8]);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('ほかの人が下書きを保存したか公開したので、保存しませんでした');
+
+    // 検証は、サーバーが確かめた問題を出す
+    link.respondToMapDraftValidation(['P9 がどこにもつながっていません。']);
+    await act(async () => {
+      click(buttonByText(container, '確かめる（検証）'));
+      await Promise.resolve();
+    });
+    expect(link.validatedMapDrafts).toHaveLength(1);
+    expect(container.textContent).toContain('P9 がどこにもつながっていません。');
     window.location.hash = '';
   });
 

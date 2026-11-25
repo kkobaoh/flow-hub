@@ -163,6 +163,30 @@ export async function saveMapDraft(baseUrl: string, revision: number, draft: Map
   }
 }
 
+/** 検証できなかったとき（応答がない、思わない応答）に、問題の代わりに出す文。公開できないようにするため、問題として扱う。 */
+export const VALIDATION_FAILED = '検証できませんでした。サーバーから応答がありません。もう一度確かめてください。';
+
+/** 下書きをサーバーで検証し、見つかった問題を返す（保存はしない）。検証できなければ、そのことを問題として返す（やり直さない）。 */
+export async function validateMapDraft(baseUrl: string, draft: MapDraft, timeoutMs: number): Promise<readonly string[]> {
+  try {
+    const response = await fetch(`${baseUrl}/map/draft/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft: toWireDraft(draft) }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const body: unknown = response.ok ? await response.json() : null;
+    if (isRecord(body) && Array.isArray(body.problems) && body.problems.every((p) => typeof p === 'string')) {
+      return body.problems as string[];
+    }
+    console.warn(`マップの下書きを検証できませんでした（${response.status}）。`);
+    return [VALIDATION_FAILED];
+  } catch (error) {
+    console.warn('マップの下書きを検証できませんでした。', error);
+    return [VALIDATION_FAILED];
+  }
+}
+
 /** 画面に出す、下書きの保存の結果の知らせ（保存できたら null）。 */
 export function mapDraftNotice(outcome: MapDraftSaveOutcome): string | null {
   switch (outcome.result) {

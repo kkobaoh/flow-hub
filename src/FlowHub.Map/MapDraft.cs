@@ -34,6 +34,89 @@ public sealed record MapDraft(int PanelSizeMm, IReadOnlyList<DraftPanel> Panels,
             [.. snapshot.Connections.Select(c => new DraftConnection(c.From.Value, c.To.Value, c.DistanceMm, c.Heading.Degrees, c.OneWay))]);
     }
 
+    /// <summary>
+    /// 公開するときと同じに検証し、違反がなければスナップショットにする。違反はすべてまとめて返す。
+    /// 値の型にできない値（ID が空、知らない種類、範囲の外の角度など）があれば、それだけを返す（形が決まらないので、その先は確かめられないため）。
+    /// </summary>
+    public MapSnapshotResult ToSnapshot(MapValidationOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var invalid = new List<MapValidationError>();
+        void Invalid(string message) => invalid.Add(new MapValidationError(MapValidationErrorCode.InvalidValue, message));
+
+        if (PanelSizeMm <= 0)
+        {
+            Invalid($"パネルの一辺の長さは、1 以上にしてください（{PanelSizeMm}）。");
+        }
+
+        var panels = new List<Panel>();
+        var placements = new Dictionary<PanelId, PanelPlacement>();
+        foreach (var (draft, index) in Panels.Select((p, i) => (p, i)))
+        {
+            var name = $"パネル「{draft.Id}」";
+            if (string.IsNullOrWhiteSpace(draft.Id))
+            {
+                Invalid($"{index + 1} 枚目のパネルの ID がありません。");
+            }
+
+            if (!Enum.GetNames<PanelType>().Contains(draft.Type, StringComparer.Ordinal))
+            {
+                Invalid($"{name}の種類がわかりません（{draft.Type}）。");
+            }
+
+            if (draft.CarrierLoweringHeading is { } lowering && !IsHeading(lowering))
+            {
+                Invalid($"{name}のキャリアを下ろす角度は、0 以上 360 未満にしてください（{lowering}）。");
+            }
+
+            if (draft.Outline is { WidthMm: <= 0 } or { HeightMm: <= 0 })
+            {
+                Invalid($"{name}の外形の幅と奥行きは、1 以上にしてください。");
+            }
+
+            if (invalid.Count > 0)
+            {
+                continue; // 値の型にできないものがあれば、この先は作らない
+            }
+
+            var id = new PanelId(draft.Id);
+            panels.Add(new Panel(id, Enum.Parse<PanelType>(draft.Type), draft.HasChargingPin)
+            {
+                CarrierLoweringHeading = draft.CarrierLoweringHeading is { } degrees ? new Heading(degrees) : null,
+            });
+
+            // 同じ ID のパネルは、検証で重複として返す（描く情報は、先のものを使う）
+            placements.TryAdd(id, new PanelPlacement(
+                new GridPosition(draft.Column, draft.Row),
+                new CrossOffset(draft.CrossOffsetEastMm, draft.CrossOffsetSouthMm),
+                draft.Outline is { } o ? new Outline(o.XMm, o.YMm, o.WidthMm, o.HeightMm) : null));
+        }
+
+        var connections = new List<Connection>();
+        foreach (var draft in Connections)
+        {
+            if (string.IsNullOrWhiteSpace(draft.From) || string.IsNullOrWhiteSpace(draft.To))
+            {
+                Invalid("つながりの元か先のパネルがありません。");
+                continue;
+            }
+
+            if (!IsHeading(draft.Heading))
+            {
+                Invalid($"{draft.From} から {draft.To} へのつながりの向きは、0 以上 360 未満にしてください（{draft.Heading}）。");
+                continue;
+            }
+
+            connections.Add(new Connection(new PanelId(draft.From), new PanelId(draft.To), draft.DistanceMm, new Heading(draft.Heading), draft.OneWay));
+        }
+
+        return invalid.Count > 0
+            ? new MapSnapshotResult(null, invalid)
+            : MapSnapshot.Create(panels, connections, options, new MapDrawing(PanelSizeMm, placements));
+    }
+
+    private static bool IsHeading(int degrees) => degrees is >= 0 and < 360;
+
     /// <summary>中身が同じか（並びの中身まで比べる）。</summary>
     public bool SameAs(MapDraft other)
     {

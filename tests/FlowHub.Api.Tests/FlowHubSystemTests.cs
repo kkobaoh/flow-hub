@@ -560,6 +560,30 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal("NOWHERE", (string)second["draft"]!["connections"]![0]!["to"]!);
     }
 
+    [Fact]
+    public async Task 下書きを公開するときと同じに検証して見つかった問題を文で返す()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        var published = (await GetJsonAsync(client, "/map/draft"))["draft"]!.ToJsonString();
+        const string Broken = """{ "panelSizeMm": 1000, "panels": [{ "id": "P1", "type": "Normal", "hasChargingPin": false, "carrierLoweringHeading": null, "column": 0, "row": 0, "crossOffsetEastMm": 0, "crossOffsetSouthMm": 0, "outline": null }], "connections": [{ "from": "P1", "to": "NOWHERE", "distanceMm": 1000, "heading": 90, "oneWay": false }] }""";
+
+        var ok = await PostJsonAsync(client, "/map/draft/validate", $$"""{ "draft": {{published}} }""");
+        var broken = await PostJsonAsync(client, "/map/draft/validate", $$"""{ "draft": {{Broken}} }""");
+
+        Assert.Empty(ok["problems"]!.AsArray());
+        Assert.Contains(broken["problems"]!.AsArray(), p => ((string)p!).Contains("NOWHERE", StringComparison.Ordinal));
+        Assert.Equal(0, (int)(await GetJsonAsync(client, "/map/draft"))["revision"]!); // 検証では保存しない
+    }
+
+    private static async Task<JsonNode> PostJsonAsync(HttpClient client, string path, string body)
+    {
+        using var response = await client.PostAsync(new Uri(path, UriKind.Relative), new StringContent(body, Encoding.UTF8, "application/json"), Token);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return JsonNode.Parse(await response.Content.ReadAsStringAsync(Token))!;
+    }
+
     private static async Task<JsonNode> GetJsonAsync(HttpClient client, string path)
     {
         using var response = await client.GetAsync(new Uri(path, UriKind.Relative), Token);

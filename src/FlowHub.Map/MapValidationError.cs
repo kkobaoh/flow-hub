@@ -64,6 +64,9 @@ public enum MapValidationErrorCode
 
     /// <summary>上下左右に隣り合う、つながっているパネルのつながりの距離が、最小の距離より短い。</summary>
     ConnectionDistanceTooShort,
+
+    /// <summary>下書きの値が、値の型にできない（ID が空、知らない種類、範囲の外の角度など）。</summary>
+    InvalidValue,
 }
 
 /// <summary>

@@ -64,6 +64,9 @@ test('マップの編集：パネルを置いて保存しないまま移ろう�
   await expect(page.getByText('保存していない変更があります')).toHaveCount(0);
   await page.reload();
   await expect(page.getByText(/に保存/)).toBeVisible();
+  // 検証はサーバーが行う（つないでいないパネルを置いたので、問題が見つかる）
+  await page.getByRole('button', { name: '確かめる（検証）' }).click();
+  await expect(page.getByText('検証で見つかった問題')).toBeVisible();
   await openMenu(page, 'transports');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('搬送の一覧');
   expect(errors).toEqual([]);

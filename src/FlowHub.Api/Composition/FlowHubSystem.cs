@@ -37,6 +37,7 @@ internal sealed partial class FlowHubSystem : IDisposable
     private readonly AgvEndpointOptions _agvEndpoints;
     private readonly TimeProvider _timeProvider;
     private readonly DbMapStore _map;
+    private readonly MapValidationOptions _mapValidation;
     private volatile ScreenFeed? _screen;
 
     private FlowHubSystem(
@@ -47,6 +48,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ToolPlanningService toolPlanning,
         INoticeBoard notices,
         DbMapStore map,
+        MapValidationOptions mapValidation,
         FleetCatalog fleet,
         AgvEndpointOptions agvEndpoints,
         TimeProvider timeProvider)
@@ -59,6 +61,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ToolPlanning = toolPlanning;
         Notices = notices;
         _map = map;
+        _mapValidation = mapValidation;
         _agvEndpoints = agvEndpoints;
         _timeProvider = timeProvider;
     }
@@ -123,7 +126,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         await fleet.ReloadAsync(cancellationToken).ConfigureAwait(false);
         ApiSubscriptions.Register(subscriptions, loggerFactory, notices, fleet.ReloadAsync);
 
-        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, map, fleet, settings.AgvEndpoints, timeProvider);
+        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, map, settings.MapValidation, fleet, settings.AgvEndpoints, timeProvider);
 
         // シミュレーターの通知も、処理を終えたあとに後始末をする
         simulator.Attach(new ConsumablesSimulationTarget(consumables), system.AfterWorkAsync);
@@ -263,7 +266,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         app.MapAgvRegistrationEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.AgvRegistrations"));
         app.MapFleetEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.FleetOperations"));
         app.MapConsumableEndpoints(Consumables, ToolPlanning, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConsumableOperations"));
-        app.MapMapDraftEndpoints(_map, _timeProvider, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.MapDrafts"));
+        app.MapMapDraftEndpoints(_map, _mapValidation, _timeProvider, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.MapDrafts"));
         app.MapConfigurationEndpoints(Consumables, TransferPanels, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConfigurationOperations"));
     }
 

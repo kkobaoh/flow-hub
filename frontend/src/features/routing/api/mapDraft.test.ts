@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { heading, panelId } from '../model';
 import type { MapDraft } from '../mapEdit';
-import { loadMapDraft, parseMapDraft, saveMapDraft, toWireDraft } from './mapDraft';
+import { loadMapDraft, parseMapDraft, saveMapDraft, toWireDraft, VALIDATION_FAILED, validateMapDraft } from './mapDraft';
 
 const wireDraft = {
   panelSizeMm: 1000,
@@ -81,6 +81,20 @@ describe('loadMapDraft と saveMapDraft', () => {
 
     expect(await loadMapDraft('', 1000)).toMatchObject({ revision: 1, draft });
     expect(await loadMapDraft('', 1000)).toBe('failed');
+  });
+
+  it('検証する。見つかった問題を返し、応答がなければ、検証できなかったことを問題として返す', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ problems: ['P1 がつながっていません。'] }), { status: 200 }))
+      .mockRejectedValueOnce(new Error('切れた'));
+    vi.stubGlobal('fetch', fetch);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(await validateMapDraft('', draft, 1000)).toEqual(['P1 がつながっていません。']);
+    expect((fetch.mock.calls[0] as [string, RequestInit])[0]).toBe('/map/draft/validate');
+    expect(JSON.parse((fetch.mock.calls[0] as [string, RequestInit])[1].body as string)).toEqual({ draft: wireDraft });
+    expect(await validateMapDraft('', draft, 1000)).toEqual([VALIDATION_FAILED]);
   });
 
   it('保存する。古い番号なら stale、応答がなければ failed', async () => {

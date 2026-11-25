@@ -3,7 +3,6 @@ import {
   demoHeights,
   demoRoles,
   demoUsers,
-  demoValidate,
 } from './demo/demo';
 import { FleetPage } from '../pages/FleetPage';
 import { ConnectionBanner } from './layouts/ConnectionBanner';
@@ -438,7 +437,7 @@ export function App({ link }: AppProps) {
               return mapDraftNotice(outcome);
             }}
             onReload={() => void reloadDraft()}
-            onValidate={(d) => Promise.resolve(demoValidate(d))}
+            onValidate={(d) => link.validateMapDraft(d)}
             // 公開は、まだサーバーとつないでいない（CN-16c）
             onPublish={() => Promise.resolve('公開は、まだサーバーとつないでいません。')}
             onSaveHeight={(panel, mm) => setHeights((hs) => ({ ...hs, [panel]: mm === null ? null : { heightMm: mm, source: 'manual', at: new Date() } }))}

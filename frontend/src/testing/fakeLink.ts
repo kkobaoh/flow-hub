@@ -59,6 +59,10 @@ export interface FakeLink extends ServerLink {
   respondToMapDraftLoad(result: MapDraftLoad | 'failed'): void;
   /** マップの下書きを保存したときの答えを決める（既定は、番号を1つ進めて saved）。 */
   respondToMapDraftSave(result: MapDraftSaveOutcome): void;
+  /** 検証を頼まれたマップの下書き。 */
+  readonly validatedMapDrafts: readonly MapDraft[];
+  /** マップの下書きを検証したときの問題を決める（既定は、問題なし）。 */
+  respondToMapDraftValidation(problems: readonly string[]): void;
   /** AGV の種類へ送られた操作。 */
   readonly agvTypeCommands: readonly AgvTypeCommand[];
   /** AGV の種類の操作の結果を決める（既定は、受け付けたときの結果）。 */
@@ -128,6 +132,8 @@ export function createFakeLink(initial?: {
   const savedMapDrafts: { revision: number; draft: MapDraft }[] = [];
   let mapDraftLoad: MapDraftLoad | 'failed' = { revision: 0, savedAt: null, publishedVersion: 1, draft: demoMapDraft };
   let mapDraftSave: MapDraftSaveOutcome | null = null;
+  const validatedMapDrafts: MapDraft[] = [];
+  let mapDraftProblems: readonly string[] = [];
   let configurationResult: ConfigurationResult = 'saved';
 
   const operateConsumables = (command: ConsumableCommand): Promise<ConsumableCommandResult> => {
@@ -191,6 +197,14 @@ export function createFakeLink(initial?: {
       mapDraftSave = next;
     },
     loadMapDraft: () => Promise.resolve(mapDraftLoad),
+    validatedMapDrafts,
+    respondToMapDraftValidation(next) {
+      mapDraftProblems = next;
+    },
+    validateMapDraft(draft) {
+      validatedMapDrafts.push(draft);
+      return Promise.resolve(mapDraftProblems);
+    },
     saveMapDraft(revision, draft) {
       savedMapDrafts.push({ revision, draft });
       return Promise.resolve(mapDraftSave ?? { result: 'saved', revision: revision + 1 });
