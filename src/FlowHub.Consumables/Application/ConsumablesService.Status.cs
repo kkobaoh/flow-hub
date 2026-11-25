@@ -85,7 +85,8 @@ public sealed partial class ConsumablesService
             new SlotSummary(Layout(device).SlotsPerStocker.Sum(), needs.FreeSlots, reserved.Length),
             Processing: HeldWhere(l => l is InProcessing p && p.Device == device),
             StockerSlots: slots,
-            Handover: HeldWhere(l => l is AtTransferUnit u && u.Device == device));
+            Handover: HeldWhere(l => l is AtTransferUnit u && u.Device == device),
+            TransferPanel: Layout(device).TransferPanel);
     }
 
     /// <summary>ストッカーにあるもの、現物がスロットにある所在不明のもののスロット。</summary>
@@ -115,7 +116,7 @@ public sealed partial class ConsumablesService
             .OrderBy(c => c.Id.Value, StringComparer.Ordinal)
             .Select(c => new StationItem(c.Id, c.Variety, c.Condition, _arrivals[c.Id].At, StationItemStateOf(c)))
             .ToArray();
-        return new StationStatus(station, here.Count(c => c.NeedsCheck), _outstanding.Values.Sum(), stock, items);
+        return new StationStatus(station, here.Count(c => c.NeedsCheck), _outstanding.Values.Sum(), stock, items, Station(station).TransferPanel);
     }
 
     /// <summary>ステーションにある消耗品の状態（要確認、出庫を頼んだ、届ける予約、指名、の順に1つ）。</summary>

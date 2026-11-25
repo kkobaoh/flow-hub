@@ -1,3 +1,5 @@
+using FlowHub.Map;
+
 namespace FlowHub.Consumables;
 
 /// <summary>画面に出す、装置とステーションの様子（気をつけること、ストッカー、在庫）。装置とステーションは、それぞれ ID の順。</summary>
@@ -15,6 +17,7 @@ public sealed record ConsumablesStatuses(IReadOnlyList<DeviceStatus> Devices, IR
 /// <param name="Processing">加工部にある消耗品（ID の順）。</param>
 /// <param name="StockerSlots">すべてのスロットの中身（スロットの番号の順）。取り込み中の元のスロットは、空きとして出す。</param>
 /// <param name="Handover">受け渡し部にある消耗品（ID の順）。</param>
+/// <param name="TransferPanel">装置の受け渡しパネル。</param>
 public sealed record DeviceStatus(
     DeviceId Device,
     int Shortage,
@@ -25,7 +28,8 @@ public sealed record DeviceStatus(
     SlotSummary Slots,
     IReadOnlyList<HeldConsumable> Processing,
     IReadOnlyList<StockerSlot> StockerSlots,
-    IReadOnlyList<HeldConsumable> Handover)
+    IReadOnlyList<HeldConsumable> Handover,
+    PanelId TransferPanel)
 {
     public bool Equals(DeviceStatus? other) =>
         other is not null
@@ -38,7 +42,8 @@ public sealed record DeviceStatus(
         && Slots == other.Slots
         && Processing.SequenceEqual(other.Processing)
         && StockerSlots.SequenceEqual(other.StockerSlots)
-        && Handover.SequenceEqual(other.Handover);
+        && Handover.SequenceEqual(other.Handover)
+        && TransferPanel == other.TransferPanel;
 
     public override int GetHashCode() => HashCode.Combine(Device, Shortage, CollectWaiting, Slots);
 }
@@ -60,7 +65,8 @@ public sealed record SlotSummary(int Total, int Free, int Delivering);
 /// <param name="ReplenishWaiting">補充を頼んで、まだ入っていない数（すべての品種の合計。どのステーションに入るかは決まっていないので、どのステーションにも同じ数を出す）。</param>
 /// <param name="Stock">品種ごとの数（登録してあるすべての品種。ID の順）。</param>
 /// <param name="Items">ステーションにある消耗品（ID の順）。</param>
-public sealed record StationStatus(StationId Station, int NeedsCheck, int ReplenishWaiting, IReadOnlyList<StationLine> Stock, IReadOnlyList<StationItem> Items)
+/// <param name="TransferPanel">ステーションの受け渡しパネル。</param>
+public sealed record StationStatus(StationId Station, int NeedsCheck, int ReplenishWaiting, IReadOnlyList<StationLine> Stock, IReadOnlyList<StationItem> Items, PanelId TransferPanel)
 {
     public bool Equals(StationStatus? other) =>
         other is not null
@@ -68,7 +74,8 @@ public sealed record StationStatus(StationId Station, int NeedsCheck, int Replen
         && NeedsCheck == other.NeedsCheck
         && ReplenishWaiting == other.ReplenishWaiting
         && Stock.SequenceEqual(other.Stock)
-        && Items.SequenceEqual(other.Items);
+        && Items.SequenceEqual(other.Items)
+        && TransferPanel == other.TransferPanel;
 
     public override int GetHashCode() => HashCode.Combine(Station, NeedsCheck, ReplenishWaiting);
 }

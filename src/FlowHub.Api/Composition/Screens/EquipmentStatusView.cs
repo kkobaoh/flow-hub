@@ -28,7 +28,8 @@ internal sealed record DeviceStatusView(
     SlotSummaryView Slots,
     IReadOnlyList<HeldView> Processing,
     IReadOnlyList<StockerSlotView> StockerSlots,
-    IReadOnlyList<HeldView> Handover)
+    IReadOnlyList<HeldView> Handover,
+    string Panel)
 {
     public static DeviceStatusView From(DeviceStatus status)
     {
@@ -43,7 +44,8 @@ internal sealed record DeviceStatusView(
             new SlotSummaryView(status.Slots.Total, status.Slots.Free, status.Slots.Delivering),
             [.. status.Processing.Select(HeldView.From)],
             [.. status.StockerSlots.Select(StockerSlotView.From)],
-            [.. status.Handover.Select(HeldView.From)]);
+            [.. status.Handover.Select(HeldView.From)],
+            status.TransferPanel.Value);
     }
 
     public bool Equals(DeviceStatusView? other) =>
@@ -57,7 +59,8 @@ internal sealed record DeviceStatusView(
         && Slots == other.Slots
         && Processing.SequenceEqual(other.Processing)
         && StockerSlots.SequenceEqual(other.StockerSlots)
-        && Handover.SequenceEqual(other.Handover);
+        && Handover.SequenceEqual(other.Handover)
+        && Panel == other.Panel;
 
     public override int GetHashCode() => HashCode.Combine(Id, Shortage, CollectWaiting, Slots);
 }
@@ -125,7 +128,7 @@ internal sealed record RecoveryView(string State, string? Reason)
 }
 
 /// <summary>画面へ送るステーションの様子（中身の意味は <see cref="StationStatus"/>）。</summary>
-internal sealed record StationStatusView(string Id, int NeedsCheck, int ReplenishWaiting, IReadOnlyList<StationLineView> Stock, IReadOnlyList<StationItemView> Items)
+internal sealed record StationStatusView(string Id, int NeedsCheck, int ReplenishWaiting, IReadOnlyList<StationLineView> Stock, IReadOnlyList<StationItemView> Items, string Panel)
 {
     public static StationStatusView From(StationStatus status)
     {
@@ -135,7 +138,8 @@ internal sealed record StationStatusView(string Id, int NeedsCheck, int Replenis
             status.NeedsCheck,
             status.ReplenishWaiting,
             [.. status.Stock.Select(l => new StationLineView(l.Variety.Value, l.Available, l.Reserved, l.ReplenishWaiting))],
-            [.. status.Items.Select(StationItemView.From)]);
+            [.. status.Items.Select(StationItemView.From)],
+            status.TransferPanel.Value);
     }
 
     public bool Equals(StationStatusView? other) =>
@@ -144,7 +148,8 @@ internal sealed record StationStatusView(string Id, int NeedsCheck, int Replenis
         && NeedsCheck == other.NeedsCheck
         && ReplenishWaiting == other.ReplenishWaiting
         && Stock.SequenceEqual(other.Stock)
-        && Items.SequenceEqual(other.Items);
+        && Items.SequenceEqual(other.Items)
+        && Panel == other.Panel;
 
     public override int GetHashCode() => HashCode.Combine(Id, NeedsCheck, ReplenishWaiting);
 }

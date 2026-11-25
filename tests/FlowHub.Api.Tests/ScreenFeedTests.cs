@@ -1,5 +1,6 @@
 using FlowHub.Api.Composition.Screens;
 using FlowHub.Consumables;
+using FlowHub.Map;
 using FlowHub.Notifications;
 using Microsoft.Extensions.Logging;
 
@@ -147,8 +148,8 @@ public sealed class ScreenFeedTests : IDisposable
     public async Task 装置とステーションの様子が変わったら番号を進めて送る()
     {
         static ConsumablesStatuses Statuses(int shortage) => new(
-            [new DeviceStatus(new DeviceId("DEV-1"), shortage, 1, [new SlotRef(1, 2)], [new VarietyId("DR-8")], [new StockerLine(new VarietyId("DR-5"), 2, 1)], new SlotSummary(10, 7, 1), [], [], [])],
-            [new StationStatus(new StationId("ST-1"), 1, 2, [new StationLine(new VarietyId("DR-5"), 3, 0, 2)], [])],
+            [new DeviceStatus(new DeviceId("DEV-1"), shortage, 1, [new SlotRef(1, 2)], [new VarietyId("DR-8")], [new StockerLine(new VarietyId("DR-5"), 2, 1)], new SlotSummary(10, 7, 1), [], [], [], new PanelId("D1"))],
+            [new StationStatus(new StationId("ST-1"), 1, 2, [new StationLine(new VarietyId("DR-5"), 3, 0, 2)], [], new PanelId("S"))],
             [new VarietyId("DR-5")]);
         _equipment = () => Statuses(shortage: 1);
         Attach();
@@ -163,9 +164,9 @@ public sealed class ScreenFeedTests : IDisposable
         var snapshot = Assert.IsType<EquipmentStatusSnapshot>(sent.Payload);
         Assert.Equal(2, snapshot.Version);
         Assert.Equal(
-            new DeviceStatusView("DEV-1", 2, 1, [new SlotView(1, 2)], ["DR-8"], [new StockerLineView("DR-5", 2, 1)], new SlotSummaryView(10, 7, 1), [], [], []),
+            new DeviceStatusView("DEV-1", 2, 1, [new SlotView(1, 2)], ["DR-8"], [new StockerLineView("DR-5", 2, 1)], new SlotSummaryView(10, 7, 1), [], [], [], "D1"),
             Assert.Single(snapshot.Devices));
-        Assert.Equal(new StationStatusView("ST-1", 1, 2, [new StationLineView("DR-5", 3, 0, 2)], []), Assert.Single(snapshot.Stations));
+        Assert.Equal(new StationStatusView("ST-1", 1, 2, [new StationLineView("DR-5", 3, 0, 2)], [], "S"), Assert.Single(snapshot.Stations));
     }
 
     [Fact]
@@ -185,14 +186,15 @@ public sealed class ScreenFeedTests : IDisposable
                         new StockerSlot(new SlotRef(1, 2), new OccupiedSlot(Held("X-9", new RecoveryRequested(), mismatched: true))),
                         new StockerSlot(new SlotRef(2, 1), new EmptySlot()),
                     ],
-                    Handover: []),
+                    Handover: [],
+                    TransferPanel: new PanelId("D1")),
             ],
             [
                 new StationStatus(new StationId("ST-1"), 1, 0, [], [
                     new StationItem(new ConsumableId("T-3"), new VarietyId("DR-5"), ConsumableCondition.New, at, new ReservedForDelivery(new DeviceId("DEV-1"))),
                     new StationItem(new ConsumableId("X-1"), null, ConsumableCondition.New, at, new CheckNeeded(NeedsCheckReason.UnregisteredId)),
                     new StationItem(new ConsumableId("U-1"), new VarietyId("DR-5"), ConsumableCondition.Used, at, new NotDeliverable()),
-                ]),
+                ], new PanelId("S")),
             ],
             [new VarietyId("DR-5"), new VarietyId("DR-6")]);
 
@@ -200,6 +202,8 @@ public sealed class ScreenFeedTests : IDisposable
 
         Assert.Equal(["DR-5", "DR-6"], snapshot.Varieties);
         var device = Assert.Single(snapshot.Devices);
+        Assert.Equal("D1", device.Panel);
+        Assert.Equal("S", Assert.Single(snapshot.Stations).Panel);
         Assert.Equal([new HeldView("T-1", "DR-5", "used", false, false, new RecoveryView("none", null))], device.Processing);
         Assert.Equal(
             [
