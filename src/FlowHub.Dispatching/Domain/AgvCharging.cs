@@ -57,7 +57,13 @@ internal sealed record AgvSituation(bool OnChargingPinPanel, bool HasActiveTrans
 /// </summary>
 internal sealed class AgvCharging(AgvId agv, ChargingPolicy policy)
 {
+    /// <summary>充電に向かう値と割り当てに戻す値（AGV の種類の値を変えたら、置き換える）。</summary>
+    private ChargingPolicy _policy = policy;
+
     public AgvId Agv { get; } = agv;
+
+    /// <summary>充電の値を置き換える。次の充電残量の知らせから、新しい値で判断する。</summary>
+    public void ChangePolicy(ChargingPolicy policy) => _policy = policy ?? throw new ArgumentNullException(nameof(policy));
 
     public ChargingState State { get; private set; } = ChargingState.Normal;
 
@@ -83,7 +89,7 @@ internal sealed class AgvCharging(AgvId agv, ChargingPolicy policy)
 
         switch (State)
         {
-            case ChargingState.Normal when percent < policy.GoChargeBelowPercent:
+            case ChargingState.Normal when percent < _policy.GoChargeBelowPercent:
                 // 搬送の途中なら、充電ピンのあるパネルにいても、搬送を終えてから充電する（届けることを優先する）
                 if (situation.HasActiveTransport)
                 {
@@ -93,7 +99,7 @@ internal sealed class AgvCharging(AgvId agv, ChargingPolicy policy)
 
                 return StartCharging(situation);
 
-            case ChargingState.Charging when percent >= policy.ResumeAtPercent:
+            case ChargingState.Charging when percent >= _policy.ResumeAtPercent:
                 return Recover();
 
             default:
@@ -188,7 +194,7 @@ internal sealed class AgvCharging(AgvId agv, ChargingPolicy policy)
         }
 
         State = ChargingState.Charging;
-        return BatteryPercent >= policy.ResumeAtPercent ? Recover() : ChargingDecision.None;
+        return BatteryPercent >= _policy.ResumeAtPercent ? Recover() : ChargingDecision.None;
     }
 
     private ChargingDecision Recover()

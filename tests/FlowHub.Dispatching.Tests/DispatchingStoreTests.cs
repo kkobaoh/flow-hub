@@ -31,6 +31,45 @@ public sealed class DispatchingStoreTests : IDisposable
     private async Task<DispatchingAgvConfiguration> LoadSingleAsync() =>
         Assert.Single(await (await OpenAsync()).LoadAgvsAsync(Token));
 
+    // ---- AGV の種類の一覧、変える・消す ----
+
+    [Fact]
+    public async Task 種類の充電の値を読み変えられない種類は断る()
+    {
+        var store = await OpenAsync();
+        await store.AddAgvTypeAsync("small", 30, null, Token);
+
+        Assert.Equal(AgvTypeChangeResult.Changed, await store.UpdateAgvTypeAsync("small", 40, 90, Token));
+        Assert.Equal(AgvTypeChangeResult.NotFound, await store.UpdateAgvTypeAsync("none", 40, 90, Token));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.UpdateAgvTypeAsync("small", 90, 40, Token)); // 戻す値が向かう値より小さい
+
+        Assert.Equal([new DispatchingAgvTypeSettings("small", 40, 90)], await (await OpenAsync()).LoadAgvTypesAsync(Token));
+    }
+
+    [Fact]
+    public async Task 使うAGVがない種類だけを消せる()
+    {
+        var store = await OpenAsync();
+        await store.AddAgvTypeAsync("small", null, null, Token);
+        await store.AddAgvTypeAsync("large", null, null, Token);
+        await store.AddAgvAsync(Agv, "small", Carrier, Token);
+
+        Assert.Equal(AgvTypeChangeResult.InUse, await store.DeleteAgvTypeAsync("small", Token));
+        Assert.Equal(AgvTypeChangeResult.Changed, await store.DeleteAgvTypeAsync("large", Token));
+        Assert.Equal(AgvTypeChangeResult.NotFound, await store.DeleteAgvTypeAsync("large", Token));
+        Assert.Equal([Agv], await store.AgvsOfTypeAsync("small", Token));
+    }
+
+    [Fact]
+    public async Task 充電の既定値を読む設定していなければ20と80()
+    {
+        var store = await OpenAsync();
+        Assert.Equal((20, 80), await store.ChargingDefaultsAsync(Token));
+
+        await store.SetChargingDefaultsAsync(25, 85, Token);
+        Assert.Equal((25, 85), await store.ChargingDefaultsAsync(Token));
+    }
+
     [Fact]
     public async Task 登録したAGVをキャリアの種類と充電の設定値と一緒に読む()
     {

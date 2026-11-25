@@ -16,6 +16,17 @@ public class AgvChargingTests
     private static AgvCharging NewCharging() => new(new AgvId("AGV-1"), Policy);
 
     [Fact]
+    public void 充電の値を変えたら次の充電残量の知らせから新しい値で判断する()
+    {
+        var charging = NewCharging();
+        Assert.Equal(ChargingDecision.None, charging.OnBatteryChanged(50, IdleElsewhere));
+
+        charging.ChangePolicy(new ChargingPolicy(GoChargeBelowPercent: 60, ResumeAtPercent: 90));
+
+        Assert.Equal(ChargingDecision.FindPort, charging.OnBatteryChanged(50, IdleElsewhere));
+    }
+
+    [Fact]
     public void はじめは通常で割り当てに使える()
     {
         var charging = NewCharging();

@@ -58,6 +58,25 @@ public sealed class DispatchingService(
     }
 
     /// <summary>
+    /// AGV の種類の充電の値が変わったので、その AGV の充電の値を置き換える。次の充電残量の知らせから効く。
+    /// </summary>
+    public void UpdateChargingPolicy(AgvId id, int goChargeBelowPercent, int resumeAtPercent)
+    {
+        var policy = new ChargingPolicy(goChargeBelowPercent, resumeAtPercent);
+        _gate.Wait();
+        try
+        {
+            var agv = _agvs.TryGetValue(id, out var found) ? found : throw new InvalidOperationException($"{id} は登録されていません。");
+            agv.Policy = policy;
+            agv.Charging.ChangePolicy(policy);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
     /// AGV に割り当てている搬送（中断したものも含む）を、AGV の ID の順に返す（画面に出すため）。
     /// </summary>
     public IReadOnlyList<AgvAssignment> ListAssignments()
@@ -801,7 +820,8 @@ public sealed class DispatchingService(
     {
         public CarrierTypeId Carrier { get; } = carrier;
 
-        public ChargingPolicy Policy { get; } = policy;
+        /// <summary>充電の値（AGV の種類の値を変えたら、置き換える）。</summary>
+        public ChargingPolicy Policy { get; set; } = policy;
 
         public AgvCharging Charging { get; } = charging;
 

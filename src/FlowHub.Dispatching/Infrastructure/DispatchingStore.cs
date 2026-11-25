@@ -8,6 +8,20 @@ namespace FlowHub.Dispatching.Infrastructure;
 /// </summary>
 public sealed record DispatchingAgvConfiguration(AgvId Id, CarrierTypeId Carrier, int GoChargeBelowPercent, int ResumeAtPercent);
 
+/// <summary>配車が持つ、AGV の種類の設定（充電に向かう値と、割り当てに戻す値）。</summary>
+public sealed record DispatchingAgvTypeSettings(string Id, int GoChargeBelowPercent, int ResumeAtPercent);
+
+/// <summary>AGV の種類を変える・消した結果。断ったときは、何も変えていない。</summary>
+public enum AgvTypeChangeResult
+{
+    Changed,
+
+    NotFound,
+
+    /// <summary>その種類を使う AGV がある（消すとき）。</summary>
+    InUse,
+}
+
 /// <summary>
 /// 配車のコンテキストの DB の入り口。DbContext は外に出さず、DB の設定を受け取って保存場所を開く。
 /// </summary>
@@ -113,6 +127,67 @@ public sealed class DispatchingStore
 
         context.AgvTypes.Add(new DispatchingAgvTypeRow { Id = id, GoChargeBelowPercent = filledGoBelow, ResumeAtPercent = filledResumeAt });
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>システム全体の充電の既定値（設定していなければ 20% と 80%）。種類を加えるときに省いた値を埋めるのに使う。</summary>
+    public async Task<(int GoChargeBelowPercent, int ResumeAtPercent)> ChargingDefaultsAsync(CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        var defaults = await context.ChargingDefaults.FindAsync([ChargingDefaultsRow.SingleId], cancellationToken).ConfigureAwait(false);
+        return (defaults?.GoChargeBelowPercent ?? InitialGoChargeBelowPercent, defaults?.ResumeAtPercent ?? InitialResumeAtPercent);
+    }
+
+    /// <summary>AGV の種類の充電の値を変える。</summary>
+    /// <exception cref="ArgumentException">値が 0〜100% でないか、割り当てに戻す値が充電に向かう値より小さいとき（頼みの誤り）。</exception>
+    public async Task<AgvTypeChangeResult> UpdateAgvTypeAsync(string id, int goChargeBelowPercent, int resumeAtPercent, CancellationToken cancellationToken)
+    {
+        EnsureValid(goChargeBelowPercent, resumeAtPercent);
+
+        await using var context = _createContext();
+        if (await context.AgvTypes.FindAsync([id], cancellationToken).ConfigureAwait(false) is not { } row)
+        {
+            return AgvTypeChangeResult.NotFound;
+        }
+
+        row.GoChargeBelowPercent = goChargeBelowPercent;
+        row.ResumeAtPercent = resumeAtPercent;
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return AgvTypeChangeResult.Changed;
+    }
+
+    /// <summary>AGV の種類を消す。使う AGV があれば、断る。</summary>
+    public async Task<AgvTypeChangeResult> DeleteAgvTypeAsync(string id, CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        if (await context.AgvTypes.FindAsync([id], cancellationToken).ConfigureAwait(false) is not { } row)
+        {
+            return AgvTypeChangeResult.NotFound;
+        }
+
+        if (await context.Agvs.AnyAsync(a => a.TypeId == id, cancellationToken).ConfigureAwait(false))
+        {
+            return AgvTypeChangeResult.InUse;
+        }
+
+        context.AgvTypes.Remove(row);
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return AgvTypeChangeResult.Changed;
+    }
+
+    /// <summary>AGV の種類（ID の順）。</summary>
+    public async Task<IReadOnlyList<DispatchingAgvTypeSettings>> LoadAgvTypesAsync(CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        var rows = await context.AgvTypes.ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. rows.OrderBy(r => r.Id, StringComparer.Ordinal).Select(r => new DispatchingAgvTypeSettings(r.Id, r.GoChargeBelowPercent, r.ResumeAtPercent))];
+    }
+
+    /// <summary>その種類を使う AGV（ID の順）。</summary>
+    public async Task<IReadOnlyList<AgvId>> AgvsOfTypeAsync(string typeId, CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        var ids = await context.Agvs.Where(a => a.TypeId == typeId).Select(a => a.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. ids.Order(StringComparer.Ordinal).Select(id => new AgvId(id))];
     }
 
     /// <summary>AGV を登録する。種類は、先に登録しておく。</summary>
