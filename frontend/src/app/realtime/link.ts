@@ -4,6 +4,8 @@ import type { AgvCommand, AgvCommandResult } from '../../features/fleet/api/agvC
 import type { AgvsSnapshot } from '../../features/fleet/api/agvSnapshots';
 import type { MapSnapshot } from '../../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../../features/tool/api/equipmentStatus';
+import type { TransportsSnapshot } from '../../features/dispatch/api/transportsSnapshot';
+import type { TransportCancelResult } from '../../features/dispatch/api/transportCommands';
 import type { ConsumableCommand, ConsumableCommandResult } from '../../features/tool/api/consumableCommands';
 import type { MessagesSnapshot } from '../../features/alarm/api/messages';
 import type { SystemStatusSnapshot } from '../../features/system/systemStatus';
@@ -24,6 +26,7 @@ export interface ServerHandlers {
   readonly onMessages: (snapshot: MessagesSnapshot) => void;
   readonly onMap: (snapshot: MapSnapshot) => void;
   readonly onEquipment: (snapshot: EquipmentStatusSnapshot) => void;
+  readonly onTransports: (snapshot: TransportsSnapshot) => void;
 }
 
 /**
@@ -42,6 +45,8 @@ export interface ServerLink {
   operateAgv(id: AgvId, command: AgvCommand): Promise<AgvCommandResult>;
   /** 消耗品の操作を送る（ストッカーの設定、出庫、要確認を直す。応答がなければ、あきらめて failed。やり直さない）。 */
   operateConsumables(command: ConsumableCommand): Promise<ConsumableCommandResult>;
+  /** 搬送を取りやめる（応答がなければ、あきらめて failed。やり直さない）。 */
+  cancelTransport(number: number): Promise<TransportCancelResult>;
 }
 
 /** 操作を送って、応答を待つ長さ。 */

@@ -22,7 +22,7 @@ describe('useServer', () => {
     const { latest } = watch(link);
 
     expect(link.connected).toBe(true);
-    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' }, messages: { kind: 'waiting' }, map: { kind: 'waiting' }, equipment: { kind: 'waiting' } });
+    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' }, messages: { kind: 'waiting' }, map: { kind: 'waiting' }, equipment: { kind: 'waiting' }, transports: { kind: 'waiting' } });
   });
 
   it('届いた運転状態の様子と、つながりの様子を持つ', () => {
@@ -125,6 +125,21 @@ describe('useServer', () => {
 
     act(() => link.emitConnection('reconnecting'));
     expect(latest().equipment).toEqual({ kind: 'stale', snapshot: equipment });
+  });
+
+  it('搬送の一覧も、番号の古いものは捨て、切れたら古いものにする', () => {
+    const link = createFakeLink();
+    const { latest } = watch(link);
+    const transports = { version: 2, transports: [] };
+
+    act(() => {
+      link.emitTransports(transports);
+      link.emitTransports({ version: 1, transports: [] });
+    });
+    expect(latest().transports).toEqual({ kind: 'live', snapshot: transports });
+
+    act(() => link.emitConnection('reconnecting'));
+    expect(latest().transports).toEqual({ kind: 'stale', snapshot: transports });
   });
 
   it('消したら切る', () => {

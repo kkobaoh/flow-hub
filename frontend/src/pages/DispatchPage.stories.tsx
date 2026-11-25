@@ -6,7 +6,7 @@ import { DispatchPage } from './DispatchPage';
 const meta = {
   title: '搬送の一覧/TransportsScreen',
   component: DispatchPage,
-  args: { transports: demoTransports, permissions: initialRoles.運用, onCancel: () => {}, onRetry: () => {} },
+  args: { transports: demoTransports, permissions: initialRoles.運用, offline: false, onCancel: () => Promise.resolve(null) },
   decorators: [
     (Story) => (
       <div className="flex flex-col gap-4 bg-ground p-5 font-sans text-graphite">

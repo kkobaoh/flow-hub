@@ -5,6 +5,8 @@ import type { AgvCommand, AgvCommandResult } from '../features/fleet/api/agvComm
 import type { AgvsSnapshot } from '../features/fleet/api/agvSnapshots';
 import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../features/tool/api/equipmentStatus';
+import type { TransportsSnapshot } from '../features/dispatch/api/transportsSnapshot';
+import type { TransportCancelResult } from '../features/dispatch/api/transportCommands';
 import type { ConsumableCommand, ConsumableCommandResult } from '../features/tool/api/consumableCommands';
 import type { MessagesSnapshot } from '../features/alarm/api/messages';
 import type { SystemStatusSnapshot } from '../features/system/systemStatus';
@@ -37,6 +39,11 @@ export interface FakeLink extends ServerLink {
   emitMessages(snapshot: MessagesSnapshot): void;
   emitMap(snapshot: MapSnapshot): void;
   emitEquipment(snapshot: EquipmentStatusSnapshot): void;
+  emitTransports(snapshot: TransportsSnapshot): void;
+  /** 取りやめを頼まれた搬送（頼まれた順）。 */
+  readonly canceledTransports: readonly number[];
+  /** 取りやめの結果を決める（既定は canceled）。holdResponses で止めておける。 */
+  respondToCancel(result: TransportCancelResult): void;
 }
 
 /**
@@ -50,6 +57,7 @@ export function createFakeLink(initial?: {
   readonly messages?: MessagesSnapshot;
   readonly map?: MapSnapshot;
   readonly equipment?: EquipmentStatusSnapshot;
+  readonly transports?: TransportsSnapshot;
 }): FakeLink {
   let handlers: ServerHandlers | null = null;
   let result: CommandResult = 'ok';
@@ -59,6 +67,8 @@ export function createFakeLink(initial?: {
   const agvCommands: { id: AgvId; command: AgvCommand }[] = [];
   let agvResult: AgvCommandResult = 'accepted';
   const consumableCommands: ConsumableCommand[] = [];
+  const canceledTransports: number[] = [];
+  let cancelResult: TransportCancelResult = 'canceled';
   let consumableResult: ConsumableCommandResult | null = null;
   const accepted = { stockerSetting: 'saved', ship: 'requested', correct: 'corrected' } as const;
 
@@ -93,6 +103,18 @@ export function createFakeLink(initial?: {
     sent,
     agvCommands,
     consumableCommands,
+    canceledTransports,
+    respondToCancel(next) {
+      cancelResult = next;
+    },
+    cancelTransport(number) {
+      canceledTransports.push(number);
+      const answer = cancelResult;
+      if (!holding) {
+        return Promise.resolve(answer);
+      }
+      return new Promise((resolve) => held.push(() => resolve(answer)));
+    },
     respondToConsumables(next) {
       consumableResult = next;
     },
@@ -122,6 +144,9 @@ export function createFakeLink(initial?: {
         }
         if (initial.equipment) {
           h.onEquipment(initial.equipment);
+        }
+        if (initial.transports) {
+          h.onTransports(initial.transports);
         }
       }
       return () => {
@@ -161,6 +186,9 @@ export function createFakeLink(initial?: {
     },
     emitEquipment(snapshot) {
       handlers?.onEquipment(snapshot);
+    },
+    emitTransports(snapshot) {
+      handlers?.onTransports(snapshot);
     },
   };
 }

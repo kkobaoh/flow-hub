@@ -50,7 +50,8 @@ const equipmentStatus: EquipmentStatusSnapshot = {
 };
 
 /** つながって、運転中の様子が届いた偽物のつながり。 */
-const connected = (): FakeLink => createFakeLink({ connection: 'connected', status: { version: 1, state: 'started' }, map: serverMap });
+const connected = (): FakeLink =>
+  createFakeLink({ connection: 'connected', status: { version: 1, state: 'started' }, map: serverMap, transports: { version: 1, transports: [] } });
 
 function buttonByText(root: ParentNode, text: string): HTMLButtonElement {
   const found = [...root.querySelectorAll('button')].find((b) => b.textContent === text);
@@ -94,6 +95,47 @@ describe('App', () => {
     click(container.querySelector('button[aria-controls="main-menu"]')!);
     click(container.querySelector('[data-screen="map"]')!);
     expect(container.querySelector('svg[aria-label="マップ"]')).not.toBeNull();
+  });
+
+  it('搬送の一覧は、届いた搬送で出し、取りやめをサーバーへ送って、結果の知らせを出す', async () => {
+    window.location.hash = '#/transports';
+    const link = createFakeLink({ connection: 'connected', status: { version: 1, state: 'started' }, map: serverMap });
+    const { container } = render(<App link={link} />);
+    expect(container.textContent).toContain('搬送の一覧を読み込んでいます。');
+
+    act(() =>
+      link.emitTransports({
+        version: 1,
+        transports: [
+          {
+            id: 12,
+            source: 'ST-1',
+            destination: 'DEV-1',
+            neededBy: new Date('2026-11-25T10:00:00Z'),
+            purpose: 'delivery',
+            cargo: [{ variety: 'DR-5', count: 2 }],
+            stage: 'movingToSource',
+            agv: 'AGV-1',
+            paused: false,
+          },
+        ],
+      }),
+    );
+    const row = container.querySelector('tbody tr')!;
+    expect(row.textContent).toContain('ST-1 から DEV-1');
+    expect(row.textContent).toContain('DR-5 2個');
+    expect(row.textContent).toContain('搬送元へ移動');
+
+    link.respondToCancel('canceling');
+    click(buttonByText(row, '取りやめる'));
+    await act(async () => {
+      click(buttonByText(container.querySelector('[role="alertdialog"]')!, '取りやめる'));
+      await Promise.resolve();
+    });
+
+    expect(link.canceledTransports).toEqual([12]);
+    expect(container.querySelector('main [role="status"]')?.textContent).toContain('キャリアを上げたところで止まります');
+    window.location.hash = '';
   });
 
   it('URL で指定した装置を、装置とストッカーの画面で開く', () => {
@@ -193,7 +235,8 @@ describe('App', () => {
     ['', false],
     ['#/devices', false],
     ['#/station', false],
-    ['#/transports', true],
+    ['#/transports', false],
+    ['#/agvs', true],
     ['#/consumables', true],
   ])('見本のデータで動かしている画面だけ、そのことを帯で知らせる（%s）', (hash, demo) => {
     window.location.hash = hash;

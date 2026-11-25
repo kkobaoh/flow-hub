@@ -5,6 +5,7 @@ import type { Permissions } from '../features/auth/permissions';
 import {
   cancelBlockedReason,
   initialTransportTab,
+  permissionNote,
   retryBlockedReason,
   transportsOf,
   type Transport,
@@ -14,10 +15,10 @@ import {
 export interface DispatchPageProps {
   readonly transports: readonly Transport[];
   readonly permissions: Permissions;
-  /** 搬送を取りやめる（確かめる画面で選んだあと）。 */
-  readonly onCancel: (number: number) => void;
-  /** 中断した搬送をやり直す（確かめる画面で選んだあと）。 */
-  readonly onRetry: (number: number) => void;
+  /** サーバーとつながっていない（操作を送れない）。 */
+  readonly offline: boolean;
+  /** 搬送を取りやめる（確かめる画面で選んだあと）。結果の知らせがあれば、その文を返す。 */
+  readonly onCancel: (number: number) => Promise<string | null>;
 }
 
 const TABS: readonly { readonly stage: TransportStage; readonly label: string; readonly note: string; readonly empty: string }[] = [
@@ -36,7 +37,7 @@ const TABS: readonly { readonly stage: TransportStage; readonly label: string; r
   {
     stage: 'suspended',
     label: '中断した',
-    note: '位置リセットのあとに、やり直すか取りやめるかを選びます。やり直すと、今いる段階の続きから進めます。',
+    note: 'AGV が異常になったか、経路が見つからずに止まった搬送です。やり直すか取りやめるかは、異常のときの扱いを決めてから作ります。',
     empty: '中断した搬送はありません。',
   },
 ];
@@ -47,26 +48,34 @@ const CANCEL_BODY: Record<TransportStage, string> = {
   suspended: '中断した搬送を終わりにします。AGV がものを積んでいれば、載せたまま待ちます。',
 };
 
-type Pending = { readonly action: 'cancel' | 'retry'; readonly transport: Transport };
-
 const actionButton =
   'min-h-11 rounded-lg px-3.5 text-sm font-bold whitespace-nowrap focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed';
 const cell = 'px-3 py-3.5 align-top';
 
 /** 搬送の一覧（docs/screens.md の「2 搬送の一覧」）。待ち行列、走っている搬送、中断した搬送をタブで分けて見る。 */
-export function DispatchPage({ transports, permissions, onCancel, onRetry }: DispatchPageProps) {
+export function DispatchPage({ transports, permissions, offline, onCancel }: DispatchPageProps) {
   const [stage, setStage] = useState<TransportStage>(() => initialTransportTab(transports));
-  const [pending, setPending] = useState<Pending | null>(null);
+  const [pending, setPending] = useState<Transport | null>(null);
+  // 送って結果を待っているあいだは、取りやめを押せなくする。結果の知らせは、一覧の上に出す（次に送ったら消す）
+  const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const current = TABS.find((t) => t.stage === stage) ?? TABS[1]!;
   const rows = transportsOf(transports, stage);
-  const cancelBlocked = cancelBlockedReason(permissions);
+  const noPermission = permissionNote(permissions);
 
-  const confirm = () => {
+  const confirm = async () => {
     if (pending === null) {
       return;
     }
-    (pending.action === 'cancel' ? onCancel : onRetry)(pending.transport.number);
+    const number = pending.number;
     setPending(null);
+    setSending(true);
+    setNotice(null);
+    try {
+      setNotice(await onCancel(number));
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -96,7 +105,12 @@ export function DispatchPage({ transports, permissions, onCancel, onRetry }: Dis
         })}
       </div>
       <p className="m-0 text-sm text-ink-muted">{current.note}</p>
-      {cancelBlocked !== null && <p className="m-0 text-sm font-bold text-graphite">{cancelBlocked}</p>}
+      {noPermission !== null && <p className="m-0 text-sm font-bold text-graphite">{noPermission}</p>}
+      {notice !== null && (
+        <p role="status" className="m-0 text-sm font-bold text-attention">
+          {notice}
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">{current.empty}</p>
@@ -130,7 +144,10 @@ export function DispatchPage({ transports, permissions, onCancel, onRetry }: Dis
             </thead>
             <tbody>
               {rows.map((t) => {
-                const retryBlocked = t.status.stage === 'suspended' ? retryBlockedReason(t, permissions) : null;
+                const suspended = t.status.stage === 'suspended';
+                const cancelBlocked = cancelBlockedReason(t, permissions, offline);
+                // 権限がないことは、一覧の上に1つだけ出す
+                const reason = noPermission === null ? (suspended ? retryBlockedReason(permissions) : cancelBlocked) : null;
                 return (
                   <tr key={t.number} className="border-b border-disabled-border last:border-b-0">
                     <td className="px-4 py-3.5 align-top font-number text-lg font-bold">#{t.number}</td>
@@ -149,28 +166,21 @@ export function DispatchPage({ transports, permissions, onCancel, onRetry }: Dis
                     </td>
                     <td className="px-4 py-2.5 align-top">
                       <div className="flex justify-end gap-2">
-                        {t.status.stage === 'suspended' && (
-                          <button
-                            type="button"
-                            disabled={retryBlocked !== null}
-                            onClick={() => setPending({ action: 'retry', transport: t })}
-                            className={`${actionButton} bg-graphite text-white disabled:bg-disabled-border disabled:text-disabled-text`}
-                          >
+                        {suspended && (
+                          <button type="button" disabled className={`${actionButton} bg-graphite text-white disabled:bg-disabled-border disabled:text-disabled-text`}>
                             やり直す
                           </button>
                         )}
                         <button
                           type="button"
-                          disabled={cancelBlocked !== null}
-                          onClick={() => setPending({ action: 'cancel', transport: t })}
+                          disabled={cancelBlocked !== null || sending}
+                          onClick={() => setPending(t)}
                           className={`${actionButton} border border-control-border bg-white text-graphite disabled:border-disabled-border disabled:bg-ground disabled:text-disabled-text`}
                         >
                           取りやめる
                         </button>
                       </div>
-                      {retryBlocked !== null && cancelBlocked === null && (
-                        <p className="m-0 mt-1.5 max-w-60 text-right text-[13px] text-ink-muted">{retryBlocked}</p>
-                      )}
+                      {reason !== null && <p className="m-0 mt-1.5 ml-auto max-w-60 text-right text-[13px] text-ink-muted">{reason}</p>}
                     </td>
                   </tr>
                 );
@@ -180,26 +190,16 @@ export function DispatchPage({ transports, permissions, onCancel, onRetry }: Dis
         </div>
       )}
 
-      {pending !== null &&
-        (pending.action === 'cancel' ? (
-          <ConfirmDialog
-            title={`搬送 #${pending.transport.number} を取りやめますか？`}
-            body={CANCEL_BODY[pending.transport.status.stage]}
-            confirmLabel="取りやめる"
-            tone="danger"
-            onConfirm={confirm}
-            onCancel={() => setPending(null)}
-          />
-        ) : (
-          <ConfirmDialog
-            title={`搬送 #${pending.transport.number} をやり直しますか？`}
-            body={`${pending.transport.agv ?? 'AGV'} が、今いる段階の続きから動き出します。`}
-            confirmLabel="やり直す"
-            tone="primary"
-            onConfirm={confirm}
-            onCancel={() => setPending(null)}
-          />
-        ))}
+      {pending !== null && (
+        <ConfirmDialog
+          title={`搬送 #${pending.number} を取りやめますか？`}
+          body={CANCEL_BODY[pending.status.stage]}
+          confirmLabel="取りやめる"
+          tone="danger"
+          onConfirm={() => void confirm()}
+          onCancel={() => setPending(null)}
+        />
+      )}
     </>
   );
 }

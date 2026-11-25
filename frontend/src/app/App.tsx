@@ -14,7 +14,6 @@ import {
   demoRoles,
   demoStationConfigs,
   demoStations,
-  demoTransports,
   demoUsers,
   demoValidate,
   demoVarieties,
@@ -51,6 +50,8 @@ import { sampleLayout } from './demo/sampleLayout';
 import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
 import { equipmentDetails } from '../features/tool/equipmentDetails';
 import { deviceInsideOf, stationInventoryOf } from '../features/tool/inside';
+import { toTransports } from '../features/dispatch/api/transportsSnapshot';
+import { cancelNotice } from '../features/dispatch/api/transportCommands';
 import { consumableNotice, type ConsumableCommand } from '../features/tool/api/consumableCommands';
 
 const user = { name: '[ユーザー名]', role: '管理者' } as const;
@@ -90,11 +91,11 @@ const commandFailed = {
 } as const;
 
 /** サーバーとつないだデータで出す画面（ほかの画面には、見本のデータだと帯で知らせる）。 */
-const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'devices', 'station']);
+const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station']);
 
-/** 装置とステーションの様子が届くまで出す。 */
-function Loading() {
-  return <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">装置とステーションの様子を読み込んでいます。</p>;
+/** サーバーから様子が届くまで出す。 */
+function Loading({ what }: { readonly what: string }) {
+  return <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">{what}を読み込んでいます。</p>;
 }
 
 export interface AppProps {
@@ -103,7 +104,7 @@ export interface AppProps {
 }
 
 /**
- * 画面の入り口。マップ、運転状態、AGV、メッセージ、装置とストッカー、ステーションの在庫はサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
+ * 画面の入り口。マップ、運転状態、AGV、メッセージ、搬送の一覧、装置とストッカー、ステーションの在庫はサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
  * 見本のデータを操作した結果は、この中で覚えて、画面が切り替わるようにしている。
  */
 export function App({ link }: AppProps) {
@@ -128,7 +129,6 @@ export function App({ link }: AppProps) {
   const [sendingAgvs, setSendingAgvs] = useState<ReadonlyMap<AgvId, number>>(new Map());
   const [agvNotices, setAgvNotices] = useState<ReadonlyMap<AgvId, string>>(new Map());
   const offline = server.connection !== 'connected';
-  const [transports, setTransports] = useState(demoTransports);
   const [records, setRecords] = useState(demoRecords);
   const [agvEntries, setAgvEntries] = useState(demoAgvEntries);
   const [agvTypes, setAgvTypes] = useState(demoAgvTypes);
@@ -152,6 +152,8 @@ export function App({ link }: AppProps) {
   const deviceInsides = useMemo(() => equipmentStatus?.devices.map(deviceInsideOf) ?? [], [equipmentStatus]);
   const stationInventories = useMemo(() => equipmentStatus?.stations.map(stationInventoryOf) ?? [], [equipmentStatus]);
   /** 消耗品の操作を送り、断られたら理由の文を返す（やり直さない。表示は、届いた様子で変える）。 */
+  // 搬送の一覧も、届いた様子から出す
+  const transportList = useMemo(() => (server.transports.kind === 'waiting' ? [] : toTransports(server.transports.snapshot.transports)), [server.transports]);
   const operateConsumables = async (command: ConsumableCommand) => consumableNotice(await link.operateConsumables(command));
   // AGV は、サーバーから届いた様子を、描いているマップに合わせて使う（まだ届いていなければ、いない）
   const agvs = useMemo(
@@ -239,17 +241,19 @@ export function App({ link }: AppProps) {
   const content = (r: Route): ReactNode => {
     switch (r.screen) {
       case 'transports':
-        return (
+        return server.transports.kind === 'waiting' ? (
+          <Loading what="搬送の一覧" />
+        ) : (
           <DispatchPage
-            transports={transports}
+            transports={transportList}
             permissions={permissions}
-            onCancel={(n) => setTransports((ts) => ts.filter((t) => t.number !== n))}
-            onRetry={(n) => setTransports((ts) => ts.map((t) => (t.number === n ? { ...t, status: { stage: 'running' }, step: '搬送先へ移動', stepNote: 'やり直しました' } : t)))}
+            offline={offline}
+            onCancel={async (n) => cancelNotice(await link.cancelTransport(n))}
           />
         );
       case 'devices':
         return equipmentStatus === null ? (
-          <Loading />
+          <Loading what="装置とステーションの様子" />
         ) : (
           <DevicesPage
             devices={deviceInsides}
@@ -263,7 +267,7 @@ export function App({ link }: AppProps) {
         );
       case 'station':
         return equipmentStatus === null ? (
-          <Loading />
+          <Loading what="装置とステーションの様子" />
         ) : (
           <StationPage
             stations={stationInventories}

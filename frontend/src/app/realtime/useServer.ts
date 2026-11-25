@@ -3,6 +3,7 @@ import type { ConnectionState, ServerLink } from './link';
 import type { AgvsSnapshot } from '../../features/fleet/api/agvSnapshots';
 import type { MapSnapshot } from '../../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../../features/tool/api/equipmentStatus';
+import type { TransportsSnapshot } from '../../features/dispatch/api/transportsSnapshot';
 import type { MessagesSnapshot } from '../../features/alarm/api/messages';
 import { receiveStatus, type StatusView } from '../../features/system/systemStatus';
 import { receiveSnapshot, type SnapshotInput, type SnapshotView } from '../../shared/realtime/versioned';
@@ -15,6 +16,7 @@ export interface ServerView {
   readonly messages: SnapshotView<MessagesSnapshot>;
   readonly map: SnapshotView<MapSnapshot>;
   readonly equipment: SnapshotView<EquipmentStatusSnapshot>;
+  readonly transports: SnapshotView<TransportsSnapshot>;
 }
 
 const initialStatus: StatusView = { kind: 'waiting' };
@@ -26,6 +28,8 @@ const initialMap: SnapshotView<MapSnapshot> = { kind: 'waiting' };
 const receiveMap = (view: SnapshotView<MapSnapshot>, input: SnapshotInput<MapSnapshot>) => receiveSnapshot(view, input);
 const initialEquipment: SnapshotView<EquipmentStatusSnapshot> = { kind: 'waiting' };
 const receiveEquipment = (view: SnapshotView<EquipmentStatusSnapshot>, input: SnapshotInput<EquipmentStatusSnapshot>) => receiveSnapshot(view, input);
+const initialTransports: SnapshotView<TransportsSnapshot> = { kind: 'waiting' };
+const receiveTransports = (view: SnapshotView<TransportsSnapshot>, input: SnapshotInput<TransportsSnapshot>) => receiveSnapshot(view, input);
 
 /**
  * サーバーとつなぎ、つながりの様子と、届いた様子（運転状態、AGV、メッセージ、マップ）を持つ。部品を消したら切る。
@@ -38,6 +42,7 @@ export function useServer(link: ServerLink): ServerView {
   const [messages, dispatchMessages] = useReducer(receiveMessages, initialMessages);
   const [map, dispatchMap] = useReducer(receiveMap, initialMap);
   const [equipment, dispatchEquipment] = useReducer(receiveEquipment, initialEquipment);
+  const [transports, dispatchTransports] = useReducer(receiveTransports, initialTransports);
 
   useEffect(
     () =>
@@ -50,6 +55,7 @@ export function useServer(link: ServerLink): ServerView {
             dispatchMessages({ type: 'disconnected' });
             dispatchMap({ type: 'disconnected' });
             dispatchEquipment({ type: 'disconnected' });
+            dispatchTransports({ type: 'disconnected' });
           }
         },
         onSystemStatus: (snapshot) => dispatch({ type: 'snapshot', snapshot }),
@@ -57,9 +63,10 @@ export function useServer(link: ServerLink): ServerView {
         onMessages: (snapshot) => dispatchMessages({ type: 'snapshot', snapshot }),
         onMap: (snapshot) => dispatchMap({ type: 'snapshot', snapshot }),
         onEquipment: (snapshot) => dispatchEquipment({ type: 'snapshot', snapshot }),
+        onTransports: (snapshot) => dispatchTransports({ type: 'snapshot', snapshot }),
       }),
     [link],
   );
 
-  return { connection, status, agvs, messages, map, equipment };
+  return { connection, status, agvs, messages, map, equipment, transports };
 }

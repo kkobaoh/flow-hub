@@ -25,18 +25,14 @@ test('入り口はマップの画面で、メニューからどの画面へも�
   expect(errors).toEqual([]);
 });
 
-test('搬送の一覧：中断した搬送を、確かめる画面で取りやめる', async ({ page }) => {
+test('搬送の一覧：サーバーの搬送の一覧を、段階ごとのタブで出す', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/#/transports');
 
-  await expect(page.getByRole('tab', { name: /中断した/ })).toHaveAttribute('aria-selected', 'true');
-  const row = page.getByRole('row', { name: /#11/ });
-  await row.getByRole('button', { name: '取りやめる' }).click();
-  const dialog = page.getByRole('alertdialog');
-  await expect(dialog.getByRole('button', { name: 'やめる', exact: true })).toBeFocused();
-  await dialog.getByRole('button', { name: '取りやめる' }).click();
-
-  await expect(page.getByText('中断した搬送はありません。')).toBeVisible();
+  // 搬送があるかどうかは、そのときのシミュレーターの動きによるので、タブがそろうことだけを確かめる
+  const tabs = page.getByRole('tablist', { name: '搬送の段階' });
+  await expect(tabs.getByRole('tab')).toHaveText([/^待ち行列\d+$/, /^走っている\d+$/, /^中断した\d+$/]);
+  await expect(page.getByText('この画面は、見本のデータです')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

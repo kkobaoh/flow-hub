@@ -20,7 +20,7 @@ export type TransportStageWire =
   | 'interrupted';
 
 /** 段階を、画面に出す言葉にする（搬送の一覧の見本と同じ言い方）。 */
-const STAGE_LABELS: Record<TransportStageWire, string> = {
+export const STAGE_LABELS: Record<TransportStageWire, string> = {
   movingToSource: '搬送元へ移動',
   loweringAtSource: '搬送元でキャリアを下げている',
   transferringAtSource: '搬送元で受け渡し中',
