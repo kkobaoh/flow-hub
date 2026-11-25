@@ -1,7 +1,10 @@
 using FlowHub.Api.Composition.Screens;
 using FlowHub.Consumables;
+using FlowHub.Dispatching;
 using FlowHub.Map;
 using FlowHub.Notifications;
+using FlowHub.ToolPlanning;
+using FlowHub.Traffic;
 using Microsoft.Extensions.Logging;
 
 namespace FlowHub.Api.Tests;
@@ -23,6 +26,7 @@ public sealed class ScreenFeedTests : IDisposable
     private Func<IReadOnlyList<Notice>> _notices = () => [];
     private Func<ScreenMapState> _map = () => ScreenMapState.Empty;
     private Func<ConsumablesStatuses> _equipment = () => new([], [], []);
+    private Func<IReadOnlyList<TransportSnapshot>> _transports = () => [];
 
     public ScreenFeedTests()
     {
@@ -38,7 +42,7 @@ public sealed class ScreenFeedTests : IDisposable
         _logs.Dispose();
     }
 
-    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices(), () => _map(), () => _equipment()));
+    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices(), () => _map(), () => _equipment(), () => _transports()));
 
     [Fact]
     public void つなぐ前は様子がない()
@@ -60,6 +64,7 @@ public sealed class ScreenFeedTests : IDisposable
                 new ScreenMessage(ScreenFeed.MessagesMethod, new MessagesSnapshot(1, [])),
                 new ScreenMessage(ScreenFeed.MapMethod, ScreenMapState.Empty.ToSnapshot(1)),
                 new ScreenMessage(ScreenFeed.EquipmentMethod, EquipmentStatusSnapshot.From(1, new([], [], []))),
+                new ScreenMessage(ScreenFeed.TransportsMethod, new TransportsSnapshot(1, [])),
             ],
             _feed.Current(),
             MessageComparer.Instance);
@@ -167,6 +172,43 @@ public sealed class ScreenFeedTests : IDisposable
             new DeviceStatusView("DEV-1", 2, 1, [new SlotView(1, 2)], ["DR-8"], [new StockerLineView("DR-5", 2, 1)], new SlotSummaryView(10, 7, 1), [], [], [], "D1"),
             Assert.Single(snapshot.Devices));
         Assert.Equal(new StationStatusView("ST-1", 1, 2, [new StationLineView("DR-5", 3, 0, 2)], [], "S"), Assert.Single(snapshot.Stations));
+    }
+
+    // ---- 搬送の一覧 ----
+
+    private static readonly DateTimeOffset NeededBy = new(2026, 11, 25, 10, 0, 0, TimeSpan.Zero);
+
+    private static TransportListing Listing(long id, TransportProgress progress, AssignmentSource? source = null) => new(
+        new TransportId(id), "consumables", ["T-1", "T-2"], source ?? new SourceTransferPoint(new PanelId("ST"), "station:ST-1"), new PanelId("D1"), "device:DEV-1", NeededBy, progress);
+
+    [Fact]
+    public void 搬送の一覧は頼んだ側から聞いた中身と受け渡しの相手の名前で画面へ送る形にする()
+    {
+        var description = new TransportDescription(TransportPurpose.Delivery, [new CargoCount(new VarietyId("DR-5"), 1), new CargoCount(null, 1)]);
+
+        var waiting = TransportSnapshot.From(Listing(3, new WaitingForAgv()), description, n => n.Split(':')[1]);
+        var running = TransportSnapshot.From(Listing(4, new AssignedTo(new AgvId("AGV-1"), AssignedTransportStage.MovingToDestination, Paused: true), new SourceAgv(new AgvId("AGV-1"))), null, n => n.Split(':')[1]);
+
+        Assert.Equal(new TransportSnapshot(3, "ST-1", "DEV-1", NeededBy, "delivery", [new CargoCountView("DR-5", 1), new CargoCountView(null, 1)], "waiting", null, Paused: false), waiting);
+        // 頼んだ側から中身を聞けなかったものは、目的がわからず、運ぶものは数だけ
+        Assert.Equal(new TransportSnapshot(4, "AGV-1", "DEV-1", NeededBy, null, [new CargoCountView(null, 2)], "movingToDestination", "AGV-1", Paused: true), running);
+    }
+
+    [Fact]
+    public async Task 搬送の一覧が変わったら番号を進めて送る()
+    {
+        var first = TransportSnapshot.From(Listing(3, new WaitingForAgv()), null, n => n);
+        _transports = () => [first];
+        Attach();
+
+        _transports = () => [first with { }]; // 中身が同じなら送らない
+        await _feed.PublishIfChangedAsync(Token);
+        _transports = () => [];
+        await _feed.PublishIfChangedAsync(Token);
+
+        var sent = Assert.Single(_broadcast.Sent);
+        Assert.Equal(ScreenFeed.TransportsMethod, sent.Method);
+        Assert.Equal(new TransportsSnapshot(2, []), sent.Payload);
     }
 
     [Fact]

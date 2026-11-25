@@ -160,6 +160,16 @@ internal sealed partial class FlowHubSystem : IDisposable
     }
 
     /// <summary>
+    /// 画面へ送る搬送の一覧を読む。配車の搬送に、頼んだ側（搬送計画）から聞いた中身を、搬送の番号で結び付ける（それぞれ別々に読む）。
+    /// 中身を先に読むので、読むあいだに頼まれた搬送は、中身がわからないまま送ることがある（そのあとの後始末で読み直す）。
+    /// </summary>
+    private IReadOnlyList<TransportSnapshot> ReadTransports()
+    {
+        var descriptions = ToolPlanning.DescribeTransports();
+        return [.. Dispatching.ListTransports().Select(t => TransportSnapshot.From(t, descriptions.GetValueOrDefault(t.Transport), TransferEndpointNames.DisplayName))];
+    }
+
+    /// <summary>
     /// 画面へ送るマップの様子を読む。公開中の版と、消耗品の管理の装置とステーションを、受け渡しパネルで結び付ける（それぞれ別々に読む）。
     /// 外形のない受け渡しパネルの装置とステーションは、マップに描けないので入れない。
     /// </summary>
@@ -204,7 +214,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ArgumentNullException.ThrowIfNull(app);
 
         var screen = app.Services.GetRequiredService<ScreenFeed>();
-        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent, ReadMap, Consumables.ReadStatuses));
+        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent, ReadMap, Consumables.ReadStatuses, ReadTransports));
         _screen = screen;
 
         app.Use(async (context, next) =>

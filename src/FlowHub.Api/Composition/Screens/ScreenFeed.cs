@@ -12,12 +12,14 @@ namespace FlowHub.Api.Composition.Screens;
 /// <param name="Notices">残しているメッセージ（新しい順）。</param>
 /// <param name="Map">公開中のマップと、その上に描く装置とステーション。</param>
 /// <param name="Equipment">装置とステーションの様子（気をつけること、ストッカー、在庫）。</param>
+/// <param name="Transports">搬送の一覧（番号の順）。</param>
 internal sealed record ScreenSources(
     Func<bool> IsRunning,
     Func<IReadOnlyList<AgvSnapshot>> Agvs,
     Func<IReadOnlyList<Notice>> Notices,
     Func<ScreenMapState> Map,
-    Func<ConsumablesStatuses> Equipment);
+    Func<ConsumablesStatuses> Equipment,
+    Func<IReadOnlyList<TransportSnapshot>> Transports);
 
 /// <summary>画面へ送るもの（受け取る名前と、中身）。</summary>
 internal sealed record ScreenMessage(string Method, object Payload);
@@ -50,6 +52,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     /// <summary>装置とステーションの様子を送るときの名前（画面の側も、この名前で受け取る）。</summary>
     public const string EquipmentMethod = "equipment";
 
+    /// <summary>搬送の一覧を送るときの名前（画面の側も、この名前で受け取る）。</summary>
+    public const string TransportsMethod = "transports";
+
     /// <summary>送るのを待つ長さ。</summary>
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
 
@@ -60,6 +65,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     private Topic<IReadOnlyList<Notice>>? _messages;
     private Topic<ScreenMapState>? _map;
     private Topic<ConsumablesStatuses>? _equipment;
+    private Topic<IReadOnlyList<TransportSnapshot>>? _transports;
     private long _issuedTickets;
     private long _appliedTicket;
 
@@ -76,6 +82,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         var notices = sources.Notices();
         var map = sources.Map();
         var equipment = sources.Equipment();
+        var transports = sources.Transports();
         lock (_lock)
         {
             if (_sources is not null)
@@ -89,6 +96,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             _messages = new Topic<IReadOnlyList<Notice>>(MessagesMethod, notices, ToMessages, NoticeListComparer.Instance);
             _map = new Topic<ScreenMapState>(MapMethod, map, (version, state) => state.ToSnapshot(version), MapComparer.Instance);
             _equipment = new Topic<ConsumablesStatuses>(EquipmentMethod, equipment, EquipmentStatusSnapshot.From, StatusesComparer.Instance);
+            _transports = new Topic<IReadOnlyList<TransportSnapshot>>(TransportsMethod, transports, (version, list) => new TransportsSnapshot(version, list), TransportListComparer.Instance);
         }
     }
 
@@ -97,9 +105,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     {
         lock (_lock)
         {
-            return _systemStatus is null || _agvs is null || _messages is null || _map is null || _equipment is null
+            return _systemStatus is null || _agvs is null || _messages is null || _map is null || _equipment is null || _transports is null
                 ? []
-                : [_systemStatus.Current, _agvs.Current, _messages.Current, _map.Current, _equipment.Current];
+                : [_systemStatus.Current, _agvs.Current, _messages.Current, _map.Current, _equipment.Current, _transports.Current];
         }
     }
 
@@ -127,6 +135,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         var notices = sources.Notices();
         var map = sources.Map();
         var equipment = sources.Equipment();
+        var transports = sources.Transports();
 
         List<ScreenMessage> changed = [];
         lock (_lock)
@@ -160,6 +169,11 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             if (_equipment!.TryAdvance(equipment, out var equipmentMessage))
             {
                 changed.Add(equipmentMessage);
+            }
+
+            if (_transports!.TryAdvance(transports, out var transportsMessage))
+            {
+                changed.Add(transportsMessage);
             }
         }
 
@@ -227,6 +241,17 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             ReferenceEquals(x, y) || (x is not null && y is not null && x.SequenceEqual(y));
 
         public int GetHashCode(IReadOnlyList<AgvSnapshot> obj) => obj.Count;
+    }
+
+    /// <summary>搬送の一覧を、中身で比べる。</summary>
+    private sealed class TransportListComparer : IEqualityComparer<IReadOnlyList<TransportSnapshot>>
+    {
+        public static readonly TransportListComparer Instance = new();
+
+        public bool Equals(IReadOnlyList<TransportSnapshot>? x, IReadOnlyList<TransportSnapshot>? y) =>
+            ReferenceEquals(x, y) || (x is not null && y is not null && x.SequenceEqual(y));
+
+        public int GetHashCode(IReadOnlyList<TransportSnapshot> obj) => obj.Count;
     }
 
     /// <summary>装置とステーションの様子を、中身で比べる。</summary>

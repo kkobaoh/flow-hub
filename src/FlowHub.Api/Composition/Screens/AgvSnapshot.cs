@@ -78,30 +78,13 @@ internal sealed record AgvSnapshot(string Id, string? Panel, int? Heading, strin
 
     public override int GetHashCode() => HashCode.Combine(Id, Panel, Heading, State, Control, CarrierMoving, BatteryPercent, Transport);
 
-    private static AgvTransportSnapshot TransportOf(AgvAssignment assignment, Func<string, string> endpointName)
-    {
-        var from = assignment.Source switch
-        {
-            SourceTransferPoint point => endpointName(point.Endpoint),
-            SourceAgv agv => agv.Agv.Value,
-            _ => throw new ArgumentOutOfRangeException(nameof(assignment), assignment.Source, "知らない搬送元です。"),
-        };
-        return new AgvTransportSnapshot(assignment.Transport.Value, from, endpointName(assignment.DestinationEndpoint), StageText(assignment.Stage), assignment.Paused);
-    }
-
-    private static string StageText(AssignedTransportStage stage) => stage switch
-    {
-        AssignedTransportStage.MovingToSource => "movingToSource",
-        AssignedTransportStage.LoweringAtSource => "loweringAtSource",
-        AssignedTransportStage.TransferringAtSource => "transferringAtSource",
-        AssignedTransportStage.RaisingAtSource => "raisingAtSource",
-        AssignedTransportStage.MovingToDestination => "movingToDestination",
-        AssignedTransportStage.LoweringAtDestination => "loweringAtDestination",
-        AssignedTransportStage.TransferringAtDestination => "transferringAtDestination",
-        AssignedTransportStage.RaisingAtDestination => "raisingAtDestination",
-        AssignedTransportStage.Interrupted => "interrupted",
-        _ => throw new ArgumentOutOfRangeException(nameof(stage), stage, "知らない搬送の段階です。"),
-    };
+    private static AgvTransportSnapshot TransportOf(AgvAssignment assignment, Func<string, string> endpointName) =>
+        new(
+            assignment.Transport.Value,
+            TransportTexts.SourceName(assignment.Source, endpointName),
+            endpointName(assignment.DestinationEndpoint),
+            TransportTexts.Stage(assignment.Stage),
+            assignment.Paused);
 
     private static string StateText(AgvState state) => state switch
     {
