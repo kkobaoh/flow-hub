@@ -14,6 +14,24 @@ describe('consumableCommandRequest（消耗品の操作を、サーバーの窓�
     expect(consumableCommandRequest({ kind: 'cancelDesignation', consumable: 'T-1' })).toEqual({ path: '/consumables/T-1/cancel-designation', body: {} });
   });
 
+  it('在庫の手入力（登録・直す・消す）', () => {
+    const record = { id: 'T-1', variety: 'DR-5', condition: '新品', location: { kind: 'slot', device: 'DEV-1', stocker: 1, slot: 2 } } as const;
+
+    expect(consumableCommandRequest({ kind: 'register', record })).toEqual({
+      path: '/consumables',
+      body: { id: 'T-1', variety: 'DR-5', condition: 'new', location: { kind: 'slot', device: 'DEV-1', stocker: 1, slot: 2 } },
+    });
+    expect(consumableCommandRequest({ kind: 'edit', record: { ...record, condition: '中古品', location: { kind: 'station', station: 'ST-1' } } })).toEqual({
+      path: '/consumables/T-1/edit',
+      body: { variety: 'DR-5', condition: 'used', location: { kind: 'station', station: 'ST-1' } },
+    });
+    expect(consumableCommandRequest({ kind: 'delete', consumable: 'T-1' })).toEqual({ path: '/consumables/T-1/delete', body: {} });
+  });
+
+  it('手入力で選べない所在（AGV の中など）は、送らずに例外にする', () => {
+    expect(() => consumableCommandRequest({ kind: 'register', record: { id: 'T-1', variety: 'DR-5', condition: '新品', location: { kind: 'unknown' } } })).toThrow();
+  });
+
   it('出庫と、要確認を直す', () => {
     expect(consumableCommandRequest({ kind: 'ship', consumable: 'T-1' })).toEqual({ path: '/consumables/T-1/ship', body: {} });
     expect(consumableCommandRequest({ kind: 'correct', consumable: 'X-1', variety: 'DR-5', condition: '中古品' })).toEqual({
@@ -65,6 +83,14 @@ describe('consumableNotice（断られたときに出す知らせ）', () => {
     ['cancelDesignation', 'inAssignedTransport', '届ける搬送に AGV を割り当て済みなので、指名を取り消せませんでした。'],
     ['correct', 'notNeedingCheck', 'もう要確認ではないので、直しませんでした（ほかの人が直したか、出庫したなど）。表示を確かめてください。'],
     ['designate', 'notDesignatable', '指名できませんでした。指名できるのは、ステーションにある、要確認でない新品で、届ける予約も出庫の頼みも指名もないものです。表示を確かめてください。'],
+    ['register', 'saved', null],
+    ['register', 'alreadyRegistered', 'その ID は、もう登録してあります。'],
+    ['edit', 'notFound', '記録にないので、直せませんでした（ほかの人が消したか、出庫したなど）。表示を確かめてください。'],
+    ['delete', 'notFound', '記録にないので、消せませんでした（ほかの人が消したか、出庫したなど）。表示を確かめてください。'],
+    ['edit', 'notEditable', 'AGV の中や、加工部・受け渡し部にあるもの、出庫を頼んだものは、直したり消したりできません。表示を確かめてください。'],
+    ['edit', 'inAssignedTransport', '搬送に AGV を割り当て済みなので、直したり消したりできませんでした。'],
+    ['delete', 'inAssignedTransport', '搬送に AGV を割り当て済みなので、直したり消したりできませんでした。'],
+    ['register', 'slotTaken', '選んだスロットには、ほかの消耗品があります。別の所在を選んでください。'],
     ['ship', 'failed', 'サーバーから応答がなく、届いたかわかりません。表示を確かめてください。'],
   ] as const)('%s の %s', (kind, result, notice) => {
     expect(consumableNotice(kind, result)).toBe(notice);

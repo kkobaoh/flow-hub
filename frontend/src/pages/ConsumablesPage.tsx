@@ -38,16 +38,15 @@ export interface ConsumablesPageProps {
   readonly permissions: Permissions;
   /** サーバーとつながっていない（指名と取り消しを送れない）。 */
   readonly offline: boolean;
-  /** 在庫の手入力（登録・直す・消す）を使えない理由。使えるなら null。 */
-  readonly manualEntryNote: string | null;
   readonly onOpen: (id: string) => void;
   /** 指名する。受け付けたら null、断られたら理由の文を返す。 */
   readonly onNominate: (id: string, device: string) => Promise<string | null>;
   /** 指名を取り消す。受け付けたら null、断られたら理由の文を返す。 */
   readonly onCancelNomination: (id: string) => Promise<string | null>;
-  readonly onRegister: (record: RecordInput) => void;
-  readonly onEdit: (record: RecordInput) => void;
-  readonly onDelete: (id: string) => void;
+  /** 在庫の手入力。受け付けたら null、断られたら理由の文を返す。 */
+  readonly onRegister: (record: RecordInput) => Promise<string | null>;
+  readonly onEdit: (record: RecordInput) => Promise<string | null>;
+  readonly onDelete: (id: string) => Promise<string | null>;
 }
 
 const section = 'flex flex-col gap-4 rounded-[10px] border border-line bg-paper p-5';
@@ -59,6 +58,8 @@ const field =
   'min-h-11 rounded-lg border border-control-border bg-white px-2.5 text-[15px] text-graphite focus-visible:outline-3 focus-visible:outline-focus';
 const note = 'm-0 text-[13px] text-ink-muted';
 
+const MANUAL_OFFLINE = 'サーバーとつながっていないので、在庫の手入力はできません。';
+
 type Dialog = { readonly kind: 'register' } | { readonly kind: 'edit'; readonly record: ConsumableRecord } | { readonly kind: 'delete'; readonly record: ConsumableRecord };
 
 /** 消耗品の検索と手入力（docs/screens.md の「5 消耗品の検索と手入力」）。1個の消耗品の所在と動きを見て、指名し、記録を直す。 */
@@ -68,7 +69,19 @@ export function ConsumablesPage(props: ConsumablesPageProps) {
   const [results, setResults] = useState<{ readonly query: string; readonly hits: readonly ConsumableRecord[] } | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const opened = records.find((r) => r.id === selected) ?? null;
-  const registerBlocked = permissions.has('stockEdit') ? props.manualEntryNote : '在庫の手入力は、保守以上のロールで使えます。';
+  const registerBlocked = permissions.has('stockEdit') ? (props.offline ? MANUAL_OFFLINE : null) : '在庫の手入力は、保守以上のロールで使えます。';
+  // 在庫の手入力は、送って結果を待つあいだは押せなくする。断られたら、理由を出す（次に送ったら消す）
+  const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const send = async (operation: () => Promise<string | null>) => {
+    setSending(true);
+    setNotice(null);
+    try {
+      setNotice(await operation());
+    } finally {
+      setSending(false);
+    }
+  };
 
   const submit = () => {
     const q = query.trim();
@@ -102,12 +115,18 @@ export function ConsumablesPage(props: ConsumablesPageProps) {
           </button>
         </form>
         <div className="flex flex-col items-end gap-1">
-          <button type="button" disabled={registerBlocked !== null} onClick={() => setDialog({ kind: 'register' })} className={plainButton}>
+          <button type="button" disabled={registerBlocked !== null || sending} onClick={() => setDialog({ kind: 'register' })} className={plainButton}>
             手入力で登録する
           </button>
           {registerBlocked !== null && <p className={note}>{registerBlocked}</p>}
         </div>
       </div>
+
+      {notice !== null && (
+        <p role="alert" data-manual-notice className="m-0 text-sm font-bold text-attention">
+          {notice}
+        </p>
+      )}
 
       {results !== null &&
         (results.hits.length === 0 ? (
@@ -143,7 +162,14 @@ export function ConsumablesPage(props: ConsumablesPageProps) {
         )
       ) : (
         <>
-          <Detail key={opened.id} record={opened} {...props} onEditRecord={() => setDialog({ kind: 'edit', record: opened })} onDeleteRecord={() => setDialog({ kind: 'delete', record: opened })} />
+          <Detail
+            key={opened.id}
+            record={opened}
+            {...props}
+            manualSending={sending}
+            onEditRecord={() => setDialog({ kind: 'edit', record: opened })}
+            onDeleteRecord={() => setDialog({ kind: 'delete', record: opened })}
+          />
           <History />
         </>
       )}
@@ -155,8 +181,9 @@ export function ConsumablesPage(props: ConsumablesPageProps) {
           confirmLabel="記録を消す"
           tone="danger"
           onConfirm={() => {
-            props.onDelete(dialog.record.id);
+            const id = dialog.record.id;
             setDialog(null);
+            void send(() => props.onDelete(id));
           }}
           onCancel={() => setDialog(null)}
         />
@@ -168,8 +195,9 @@ export function ConsumablesPage(props: ConsumablesPageProps) {
           locations={locationOptions(props.stations, props.devices, dialog.kind === 'edit' ? dialog.record.location : null)}
           varieties={props.varieties}
           onSave={(input) => {
-            (dialog.kind === 'edit' ? props.onEdit : props.onRegister)(input);
+            const save = dialog.kind === 'edit' ? props.onEdit : props.onRegister;
             setDialog(null);
+            void send(() => save(input));
           }}
           onCancel={() => setDialog(null)}
         />
@@ -183,12 +211,18 @@ function Detail({
   devices,
   permissions,
   offline,
-  manualEntryNote,
+  manualSending,
   onNominate,
   onCancelNomination,
   onEditRecord,
   onDeleteRecord,
-}: ConsumablesPageProps & { readonly record: ConsumableRecord; readonly onEditRecord: () => void; readonly onDeleteRecord: () => void }) {
+}: ConsumablesPageProps & {
+  readonly record: ConsumableRecord;
+  /** 在庫の手入力を送って、結果を待っている。 */
+  readonly manualSending: boolean;
+  readonly onEditRecord: () => void;
+  readonly onDeleteRecord: () => void;
+}) {
   const [device, setDevice] = useState('');
   // 送って結果を待っているあいだは、指名と取り消しを押せなくする。断られたら、理由を出す（次に送ったら消す）
   const [sending, setSending] = useState(false);
@@ -196,7 +230,7 @@ function Detail({
   const offlineNote = offline ? 'サーバーとつながっていないので、指名も取り消しもできません。' : null;
   const nominateBlocked = nominateBlockedReason(r, permissions) ?? offlineNote;
   const cancelBlocked = cancelNominationBlockedReason(r, permissions) ?? offlineNote;
-  const editBlocked = editBlockedReason(r, permissions) ?? manualEntryNote;
+  const editBlocked = editBlockedReason(r, permissions) ?? (offline ? MANUAL_OFFLINE : null);
   const send = async (operation: () => Promise<string | null>) => {
     setSending(true);
     setNotice(null);
@@ -274,10 +308,10 @@ function Detail({
           )}
           <h3 className="m-0 mt-1 text-sm font-bold text-ink-muted">記録</h3>
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={editBlocked !== null} onClick={onEditRecord} className={plainButton}>
+            <button type="button" disabled={editBlocked !== null || manualSending} onClick={onEditRecord} className={plainButton}>
               記録を直す
             </button>
-            <button type="button" disabled={editBlocked !== null} onClick={onDeleteRecord} className={plainButton}>
+            <button type="button" disabled={editBlocked !== null || manualSending} onClick={onDeleteRecord} className={plainButton}>
               記録を消す
             </button>
           </div>

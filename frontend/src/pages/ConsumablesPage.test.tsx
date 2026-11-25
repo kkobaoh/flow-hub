@@ -29,9 +29,9 @@ function setup(overrides: Partial<ConsumablesPageProps> = {}) {
     onOpen: vi.fn(),
     onNominate: vi.fn<ConsumablesPageProps['onNominate']>().mockResolvedValue(null),
     onCancelNomination: vi.fn<ConsumablesPageProps['onCancelNomination']>().mockResolvedValue(null),
-    onRegister: vi.fn(),
-    onEdit: vi.fn(),
-    onDelete: vi.fn(),
+    onRegister: vi.fn<ConsumablesPageProps['onRegister']>().mockResolvedValue(null),
+    onEdit: vi.fn<ConsumablesPageProps['onEdit']>().mockResolvedValue(null),
+    onDelete: vi.fn<ConsumablesPageProps['onDelete']>().mockResolvedValue(null),
   };
   const view = render(
     <ConsumablesPage
@@ -42,7 +42,6 @@ function setup(overrides: Partial<ConsumablesPageProps> = {}) {
       varieties={['[品種A]', '[品種B]']}
       permissions={initialRoles.保守}
       offline={false}
-      manualEntryNote={null}
       {...handlers}
       {...overrides}
     />,
@@ -134,13 +133,26 @@ describe('ConsumablesPage（消耗品の検索と手入力）', () => {
     expect(container.textContent).toContain('サーバーとつながっていないので、指名も取り消しもできません。');
   });
 
-  it('在庫の手入力が使えないときは、登録も直すも消すも押せず、理由を出す', () => {
-    const { container } = setup({ selected: 'T-0110', manualEntryNote: '在庫の手入力は、まだ作っていません。' });
+  it('サーバーとつながっていないときは、登録も直すも消すも押せず、理由を出す', () => {
+    const { container } = setup({ selected: 'T-0110', offline: true });
 
     expect(byText(container, '手入力で登録する').disabled).toBe(true);
     expect(byText(container, '記録を直す').disabled).toBe(true);
     expect(byText(container, '記録を消す').disabled).toBe(true);
-    expect(container.textContent).toContain('在庫の手入力は、まだ作っていません。');
+    expect(container.textContent).toContain('サーバーとつながっていないので、在庫の手入力はできません。');
+  });
+
+  it('在庫の手入力をサーバーが断ったら、理由を出す', async () => {
+    const onDelete = vi.fn<ConsumablesPageProps['onDelete']>().mockResolvedValue('記録にないので、消せませんでした。');
+    const { container } = setup({ selected: 'T-0110', onDelete });
+
+    click(byText(container, '記録を消す'));
+    await act(async () => {
+      click(byText(container.querySelector('[role="alertdialog"]')!, '記録を消す'));
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[data-manual-notice]')?.textContent).toBe('記録にないので、消せませんでした。');
   });
 
   it('装置にあるものは指名できず、理由を出す', () => {

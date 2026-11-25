@@ -105,3 +105,29 @@ test('消耗品の検索：サーバーの消耗品の記録から探す', async
   await expect(page.getByText('この画面は、見本のデータです')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('消耗品の検索：在庫を手入力で登録して開き、消す', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/#/consumables');
+
+  // 中古品にしておく（届けるものにならないので、ほかのテストの搬送の様子を変えない）
+  await page.getByRole('button', { name: '手入力で登録する' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'ID' }).fill('E2E-1');
+  await dialog.getByRole('combobox', { name: '品種' }).selectOption('DR-5');
+  await dialog.getByRole('radio', { name: '中古品' }).check();
+  await dialog.getByRole('combobox', { name: '所在' }).selectOption({ label: 'ST-1' });
+  await dialog.getByRole('button', { name: '記録を保存する' }).click();
+
+  await page.getByRole('searchbox').fill('E2E-1');
+  await page.getByRole('button', { name: '探す' }).click();
+  await expect(page.locator('[aria-labelledby="item-title"]')).toContainText('DR-5・中古品');
+
+  await page.getByRole('button', { name: '記録を消す' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '記録を消す' }).click();
+  await expect(page).toHaveURL(/#\/consumables$/);
+  await page.getByRole('searchbox').fill('E2E-1');
+  await page.getByRole('button', { name: '探す' }).click();
+  await expect(page.getByText('「E2E-1」に合う消耗品はありません。ID を確かめてください。')).toBeVisible();
+  expect(errors).toEqual([]);
+});

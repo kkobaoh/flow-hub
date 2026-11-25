@@ -73,7 +73,7 @@ export function createFakeLink(initial?: {
   const canceledTransports: number[] = [];
   let cancelResult: TransportCancelResult = 'canceled';
   let consumableResult: ConsumableCommandResult | null = null;
-  const accepted = { stockerSetting: 'saved', ship: 'requested', correct: 'corrected', designate: 'designated', cancelDesignation: 'canceled' } as const;
+  const accepted = { stockerSetting: 'saved', ship: 'requested', correct: 'corrected', designate: 'designated', cancelDesignation: 'canceled', register: 'saved', edit: 'saved', delete: 'saved' } as const;
 
   const send = (command: Command): Promise<CommandResult> => {
     sent.push(command);

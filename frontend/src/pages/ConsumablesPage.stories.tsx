@@ -14,13 +14,12 @@ const meta = {
     varieties: demoVarieties,
     permissions: initialRoles.保守,
     offline: false,
-    manualEntryNote: null,
     onOpen: () => {},
     onNominate: () => Promise.resolve(null),
     onCancelNomination: () => Promise.resolve(null),
-    onRegister: () => {},
-    onEdit: () => {},
-    onDelete: () => {},
+    onRegister: () => Promise.resolve(null),
+    onEdit: () => Promise.resolve(null),
+    onDelete: () => Promise.resolve(null),
   },
   decorators: [
     (Story) => (

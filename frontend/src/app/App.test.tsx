@@ -165,7 +165,7 @@ describe('App', () => {
     });
     const item = container.querySelector('[aria-labelledby="item-title"]')!;
     expect(item.textContent).toContain('ST-1');
-    expect(container.textContent).toContain('在庫の手入力（登録・直す・消す）は、まだ使えません。');
+    expect(buttonByText(container, '手入力で登録する').disabled).toBe(false);
 
     const select = item.querySelector<HTMLSelectElement>('select[aria-label="届ける装置"]')!;
     act(() => {
@@ -178,6 +178,32 @@ describe('App', () => {
     });
 
     expect(link.consumableCommands).toEqual([{ kind: 'designate', consumable: 'T-5', device: 'DEV-2' }]);
+    window.location.hash = '';
+  });
+
+  it('在庫の手入力で消したら、サーバーへ送り、開いていた消耗品を閉じる', async () => {
+    window.location.hash = '#/consumables/T-5';
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    act(() => {
+      link.emitEquipment(equipmentStatus);
+      link.emitConsumables({
+        version: 1,
+        consumables: [
+          { id: 'T-5', variety: 'DR-5', processType: 'drill', condition: 'new', location: { kind: 'station', station: 'ST-1' }, checkReason: null, reservation: null, designation: null, shipping: false },
+        ],
+      });
+    });
+
+    click(buttonByText(container, '記録を消す'));
+    await act(async () => {
+      click(buttonByText(container.querySelector('[role="alertdialog"]')!, '記録を消す'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(link.consumableCommands).toEqual([{ kind: 'delete', consumable: 'T-5' }]);
+    expect(window.location.hash).toBe('#/consumables');
     window.location.hash = '';
   });
 

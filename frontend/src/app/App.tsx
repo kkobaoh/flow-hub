@@ -88,9 +88,6 @@ const commandFailed = {
 /** サーバーとつないだデータで出す画面（ほかの画面には、見本のデータだと帯で知らせる）。 */
 const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables']);
 
-/** 在庫の手入力（登録・直す・消す）を、まだサーバーとつないでいないことの知らせ（CN-11 でつなぐ）。 */
-const MANUAL_ENTRY_NOTE = '在庫の手入力（登録・直す・消す）は、まだ使えません。';
-
 /** サーバーから様子が届くまで出す。 */
 function Loading({ what }: { readonly what: string }) {
   return <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">{what}を読み込んでいます。</p>;
@@ -297,14 +294,18 @@ export function App({ link }: AppProps) {
             varieties={equipmentStatus.varieties}
             permissions={permissions}
             offline={offline}
-            manualEntryNote={MANUAL_ENTRY_NOTE}
             onOpen={(id) => navigate('consumables', id)}
             onNominate={(id, device) => operateConsumables({ kind: 'designate', consumable: id, device })}
             onCancelNomination={(id) => operateConsumables({ kind: 'cancelDesignation', consumable: id })}
-            // 在庫の手入力は、まだサーバーとつないでいない（CN-11）。押せないので、呼ばれない
-            onRegister={() => {}}
-            onEdit={() => {}}
-            onDelete={() => {}}
+            onRegister={(record) => operateConsumables({ kind: 'register', record })}
+            onEdit={(record) => operateConsumables({ kind: 'edit', record })}
+            onDelete={async (id) => {
+              const notice = await operateConsumables({ kind: 'delete', consumable: id });
+              if (notice === null) {
+                navigate('consumables'); // 消したので、開いていた消耗品を閉じる
+              }
+              return notice;
+            }}
           />
         );
       case 'agvs':
