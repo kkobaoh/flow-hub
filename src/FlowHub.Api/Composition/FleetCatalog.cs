@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using FlowHub.Dispatching;
 using FlowHub.Dispatching.Application;
 using FlowHub.Dispatching.Infrastructure;
 using FlowHub.Notifications;
@@ -22,7 +23,7 @@ internal sealed record AgvTypeView(string Id, string Name, double Forward, doubl
 /// <summary>画面に出す、登録してある AGV。</summary>
 /// <param name="Type">使う種類の ID。配車にだけ登録してあれば null。</param>
 /// <param name="Carrier">キャリアの種類。交通整理にだけ登録してあれば null。</param>
-/// <param name="Registration"><c>both</c>、<c>trafficOnly</c>、<c>dispatchOnly</c>。</param>
+/// <param name="Registration"><c>both</c>、<c>trafficOnly</c>、<c>dispatchOnly</c>、<c>unconfigured</c>（自動で登録して、種類とキャリアの種類がまだない）。</param>
 internal sealed record AgvRegistrationView(string Id, string? Type, string? Carrier, string Registration);
 
 /// <summary>AGV と AGV の種類の登録の、今の様子。</summary>
@@ -75,6 +76,7 @@ internal sealed partial class FleetCatalog(
     TrafficService traffic,
     DispatchingService dispatching,
     INoticeBoard notices,
+    Func<IReadOnlyList<CarrierTypeId>> carriers,
     ILogger logger) : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -108,7 +110,7 @@ internal sealed partial class FleetCatalog(
                 a.Id.Value,
                 a.Traffic?.TypeId ?? a.Dispatching?.TypeId,
                 a.Dispatching?.Carrier.Value,
-                a.Traffic is null ? "dispatchOnly" : a.Dispatching is null ? "trafficOnly" : "both"))
+                a.Traffic is null ? "dispatchOnly" : a.Dispatching is not null ? "both" : a.Traffic.TypeId is null ? "unconfigured" : "trafficOnly"))
             .ToArray();
 
         var (chargeAt, resumeAt) = await dispatchingStore.ChargingDefaultsAsync(cancellationToken).ConfigureAwait(false);
@@ -290,15 +292,15 @@ internal sealed partial class FleetCatalog(
         {
             LogUndoFailed(logger, exception, typeId);
             await notices.PostAsync(
-                "AGV の種類の登録が食い違っています",
-                $"種類 {typeId} を保存するときに、走行と配車の片方にだけ書けたまま、元に戻せませんでした。AGV と AGV の種類の登録の画面で確かめてください。",
+                "AGV の登録が食い違っています",
+                $"{typeId} を保存するときに、走行と配車の片方にだけ書けたまま、元に戻せませんでした。AGV と AGV の種類の登録の画面で確かめてください。",
                 CancellationToken.None).ConfigureAwait(false);
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "AGV の種類 {TypeId} を配車の DB に書けなかったので、交通整理の DB を元に戻します。")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{TypeId} を配車の DB に書けなかったので、交通整理の DB を元に戻します。")]
     private static partial void LogDispatchingFailed(ILogger logger, Exception exception, string typeId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "AGV の種類 {TypeId} の交通整理の DB を、元に戻せませんでした。走行と配車の登録が食い違っています。")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "{TypeId} の交通整理の DB を、元に戻せませんでした。走行と配車の登録が食い違っています。")]
     private static partial void LogUndoFailed(ILogger logger, Exception exception, string typeId);
 }

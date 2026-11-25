@@ -108,7 +108,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         var events = new InProcessEventBus(subscriptions);
         var simulator = new EquipmentSimulator(settings.Simulator, timeProvider, loggerFactory.CreateLogger<EquipmentSimulator>());
 
-        var traffic = new TrafficService(map, events, timeProvider, trafficStore, settings.Planning, controlStatuses: trafficStore);
+        var traffic = new TrafficService(map, events, timeProvider, trafficStore, settings.Planning, controlStatuses: trafficStore, autoRegistrations: trafficStore);
         var dispatching = new DispatchingService(traffic, map, events, timeProvider);
         await RegisterAgvsAsync(traffic, trafficStore, dispatching, dispatchingStore, notices, logger, cancellationToken).ConfigureAwait(false);
 
@@ -119,10 +119,10 @@ internal sealed partial class FlowHubSystem : IDisposable
         DispatchingSubscriptions.Register(subscriptions, dispatching);
         ConsumablesSubscriptions.Register(subscriptions, consumables);
         ToolPlanningSubscriptions.Register(subscriptions, toolPlanning);
-        ApiSubscriptions.Register(subscriptions, loggerFactory, notices);
-
-        var fleet = new FleetCatalog(trafficStore, dispatchingStore, traffic, dispatching, notices, loggerFactory.CreateLogger<FleetCatalog>());
+        var fleet = new FleetCatalog(trafficStore, dispatchingStore, traffic, dispatching, notices, () => consumables.CarrierTypes, loggerFactory.CreateLogger<FleetCatalog>());
         await fleet.ReloadAsync(cancellationToken).ConfigureAwait(false);
+        ApiSubscriptions.Register(subscriptions, loggerFactory, notices, fleet.ReloadAsync);
+
         var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, map, fleet, settings.AgvEndpoints, timeProvider);
 
         // シミュレーターの通知も、処理を終えたあとに後始末をする
@@ -256,6 +256,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         app.MapSystemEndpoints(Dispatching);
         app.MapTransportEndpoints(Dispatching);
         app.MapAgvOperationEndpoints(Traffic, Dispatching, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.AgvOperations"));
+        app.MapAgvRegistrationEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.AgvRegistrations"));
         app.MapFleetEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.FleetOperations"));
         app.MapConsumableEndpoints(Consumables, ToolPlanning, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConsumableOperations"));
     }
@@ -301,6 +302,12 @@ internal sealed partial class FlowHubSystem : IDisposable
         {
             LogMissingIn(logger, id.ToString(), "交通整理");
             await PostMismatchAsync(notices, id.ToString(), "配車", cancellationToken).ConfigureAwait(false);
+        }
+
+        // 自動で登録して、種類が決まっていない AGV は、切り離しの AGV と同じに答える
+        foreach (var unconfigured in (await trafficStore.LoadAgvRegistrationsAsync(cancellationToken).ConfigureAwait(false)).Where(r => r.TypeId is null))
+        {
+            traffic.MarkUnconfigured(unconfigured.Id);
         }
     }
 

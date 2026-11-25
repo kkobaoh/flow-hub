@@ -124,9 +124,9 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         return _client;
     }
 
-    private static async Task<JsonArray> CommandsAsync(HttpClient client, long lastReceived)
+    private static async Task<JsonArray> CommandsAsync(HttpClient client, long lastReceived, string agv = "AGV-1")
     {
-        using var response = await client.GetAsync(new Uri($"/agv/AGV-1/commands?lastReceived={lastReceived}", UriKind.Relative), Token);
+        using var response = await client.GetAsync(new Uri($"/agv/{agv}/commands?lastReceived={lastReceived}", UriKind.Relative), Token);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return JsonNode.Parse(await response.Content.ReadAsStringAsync(Token))!["commands"]!.AsArray();
     }
@@ -476,6 +476,87 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal((HttpStatusCode.OK, "deleted"), deleted);
         Assert.True(system.Traffic.GetAgv(Agv1).CanTravelSpecialTransfer); // 動いている AGV に効いた
         Assert.Equal([new AgvTypeView("small", "小さい", 600, 300, 45, 30, 90, true)], system.Fleet.Current.Types);
+    }
+
+    // ---- AGV の登録（AGV と AGV の種類の登録の画面から） ----
+
+    private static async Task<bool> EventuallyAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 100 && !condition(); i++)
+        {
+            await Task.Delay(50, Token);
+        }
+
+        return condition();
+    }
+
+    private static AgvRegistrationView? RegistrationOf(FlowHubSystem system, string id) => system.Fleet.Current.Agvs.SingleOrDefault(a => a.Id == id);
+
+    [Fact]
+    public async Task AGVを加え変え消す()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []); // 種類 small
+        await SeedConsumablesAsync(); // キャリアの種類 X
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        await OperateAsync(client, "/agv-types", """{ "id": "large", "name": "大きい", "forward": 800, "backward": 400, "rotation": 90, "special": true }""");
+
+        var added = await OperateAsync(client, "/agv-registrations", """{ "id": "AGV-5", "type": "small", "carrier": "X" }""");
+        var again = await OperateAsync(client, "/agv-registrations", """{ "id": "AGV-5", "type": "small", "carrier": "X" }""");
+        var unknownCarrier = await OperateAsync(client, "/agv-registrations", """{ "id": "AGV-6", "type": "small", "carrier": "Q" }""");
+        Assert.Equal(ControlStatus.Detached, system.Traffic.GetAgv(new AgvId("AGV-5")).Control); // 加えた AGV は切り離しから
+        var changed = await OperateAsync(client, "/agv-registrations/AGV-5/edit", """{ "type": "large", "carrier": "X" }""");
+        Assert.True(system.Traffic.GetAgv(new AgvId("AGV-5")).CanTravelSpecialTransfer); // 変えた種類が、動かす AGV に効いた
+        Assert.Equal(new AgvRegistrationView("AGV-5", "large", "X", "both"), RegistrationOf(system, "AGV-5"));
+        var deleted = await OperateAsync(client, "/agv-registrations/AGV-5/delete", "{}");
+
+        Assert.Equal((HttpStatusCode.OK, "saved"), added);
+        Assert.Equal((HttpStatusCode.OK, "idTaken"), again);
+        Assert.Equal(HttpStatusCode.BadRequest, unknownCarrier.Status);
+        Assert.Equal((HttpStatusCode.OK, "saved"), changed);
+        Assert.Equal((HttpStatusCode.OK, "deleted"), deleted);
+        Assert.Null(RegistrationOf(system, "AGV-5"));
+        Assert.DoesNotContain(system.Traffic.ListAgvs(), a => a.Id.Value == "AGV-5");
+    }
+
+    [Fact]
+    public async Task 初めてGETしてきたAGVを自動で登録して知らせ種類とキャリアの種類を入れたら動かすAGVになる()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        await SeedConsumablesAsync();
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        Assert.Empty(await CommandsAsync(client, -1, "AGV-9"));
+        // 知らせは、リクエストのあとの後始末で届く（応答が返ってから届くことがある）
+        Assert.True(await EventuallyAsync(() => RegistrationOf(system, "AGV-9") is not null));
+        Assert.Equal(new AgvRegistrationView("AGV-9", null, null, "unconfigured"), RegistrationOf(system, "AGV-9"));
+        Assert.Contains(system.Notices.Recent, n => n.Title == "AGV を登録しました" && n.Detail.Contains("AGV-9", StringComparison.Ordinal));
+
+        var configured = await OperateAsync(client, "/agv-registrations/AGV-9/edit", """{ "type": "small", "carrier": "X" }""");
+
+        Assert.Equal((HttpStatusCode.OK, "saved"), configured);
+        Assert.Equal(new AgvRegistrationView("AGV-9", "small", "X", "both"), RegistrationOf(system, "AGV-9"));
+        Assert.Equal(ControlStatus.Detached, system.Traffic.GetAgv(new AgvId("AGV-9")).Control);
+    }
+
+    [Fact]
+    public async Task 登録が食い違っているAGVを足りない側に登録してそろえる()
+    {
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv2]); // AGV-1 は走行だけ、AGV-2 は配車だけ
+        await SeedConsumablesAsync();
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        var trafficOnly = await OperateAsync(client, "/agv-registrations/AGV-1/align", """{ "carrier": "X" }""");
+        var dispatchOnly = await OperateAsync(client, "/agv-registrations/AGV-2/align", """{ "type": "small" }""");
+
+        Assert.Equal((HttpStatusCode.OK, "saved"), trafficOnly);
+        Assert.Equal((HttpStatusCode.OK, "saved"), dispatchOnly);
+        Assert.Equal("both", RegistrationOf(system, "AGV-1")!.Registration);
+        Assert.Equal("both", RegistrationOf(system, "AGV-2")!.Registration);
+        Assert.Equal(ControlStatus.Detached, system.Traffic.GetAgv(Agv1).Control); // そろえた AGV は切り離しから
+        Assert.Equal(ControlStatus.Detached, system.Traffic.GetAgv(Agv2).Control);
     }
 
     [Fact]

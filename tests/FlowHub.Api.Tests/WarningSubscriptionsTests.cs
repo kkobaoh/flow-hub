@@ -45,7 +45,7 @@ public class WarningSubscriptionsTests
         using var factory = LoggerFactory.Create(builder => builder.AddProvider(provider));
         var board = new InMemoryNoticeBoard(Time);
         var subscriptions = new EventSubscriptions();
-        ApiSubscriptions.Register(subscriptions, factory, board);
+        ApiSubscriptions.Register(subscriptions, factory, board, _ => Task.CompletedTask);
         var bus = new InProcessEventBus(subscriptions);
 
         await bus.PublishAsync(integrationEvent, TestContext.Current.CancellationToken);
@@ -118,8 +118,8 @@ public class WarningSubscriptionsTests
         var subscriptions = new EventSubscriptions();
         using var factory = LoggerFactory.Create(_ => { });
 
-        ApiSubscriptions.Register(subscriptions, factory, new InMemoryNoticeBoard(Time));
+        ApiSubscriptions.Register(subscriptions, factory, new InMemoryNoticeBoard(Time), _ => Task.CompletedTask);
 
-        Assert.Equal([typeof(TransportInterrupted), typeof(MoveBlocked), typeof(NoChargingPortAvailable), typeof(NoParkingSpace), typeof(ManualStepsDropped)], subscriptions.SubscribedEventTypes);
+        Assert.Equal([typeof(TransportInterrupted), typeof(MoveBlocked), typeof(NoChargingPortAvailable), typeof(NoParkingSpace), typeof(ManualStepsDropped), typeof(AgvAutoRegistered)], subscriptions.SubscribedEventTypes);
     }
 }

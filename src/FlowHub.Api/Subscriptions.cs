@@ -15,8 +15,9 @@ namespace FlowHub.Api;
 /// </remarks>
 internal static class ApiSubscriptions
 {
-    public static void Register(EventSubscriptions subscriptions, ILoggerFactory loggerFactory, INoticeBoard notices)
+    public static void Register(EventSubscriptions subscriptions, ILoggerFactory loggerFactory, INoticeBoard notices, Func<CancellationToken, Task> reloadFleet)
     {
+        ArgumentNullException.ThrowIfNull(reloadFleet);
         ArgumentNullException.ThrowIfNull(subscriptions);
         ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(notices);
@@ -29,6 +30,7 @@ internal static class ApiSubscriptions
 
         // 交通整理から
         subscriptions.Subscribe(() => new ManualStepsDroppedNotifier(loggerFactory.CreateLogger<ManualStepsDroppedNotifier>(), notices));
+        subscriptions.Subscribe(() => new AgvAutoRegisteredNotifier(loggerFactory.CreateLogger<AgvAutoRegisteredNotifier>(), notices, reloadFleet));
     }
 }
 
@@ -84,6 +86,26 @@ internal sealed partial class NoChargingPortAvailableNotifier(ILogger<NoCharging
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Agv} が行ける充電ポートがありません。空いたら向かわせます。EventId={EventId} CorrelationId={CorrelationId} CausationId={CausationId}")]
     private static partial void Log(ILogger logger, string agv, Guid eventId, string correlationId, Guid? causationId);
+}
+
+/// <summary>未登録の AGV が初めて GET してきたので、種類を決めないまま登録した。画面で知らせ、AGV の登録の様子を読み直す。</summary>
+internal sealed partial class AgvAutoRegisteredNotifier(ILogger<AgvAutoRegisteredNotifier> logger, INoticeBoard notices, Func<CancellationToken, Task> reloadFleet) : IEventSubscriber<AgvAutoRegistered>
+{
+    public async Task HandleAsync(AgvAutoRegistered integrationEvent, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(integrationEvent);
+        var m = integrationEvent.Metadata;
+        Log(logger, integrationEvent.Agv, m.EventId, m.CorrelationId, m.CausationId);
+
+        await notices.PostAsync(
+            "AGV を登録しました",
+            $"{integrationEvent.Agv} から初めて通信があったので、登録しました。AGV と AGV の種類の登録の画面で、種類とキャリアの種類を入れてください。入れるまでは動かしません。",
+            cancellationToken).ConfigureAwait(false);
+        await reloadFleet(cancellationToken).ConfigureAwait(false);
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{Agv} から初めて通信があったので、種類を決めないまま登録しました。EventId={EventId} CorrelationId={CorrelationId} CausationId={CausationId}")]
+    private static partial void Log(ILogger logger, AgvId agv, Guid eventId, string correlationId, Guid? causationId);
 }
 
 /// <summary>マニュアルで並べた1つずつの動作を、予約が取れずに止めて捨てた。</summary>
