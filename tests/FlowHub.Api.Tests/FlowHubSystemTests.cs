@@ -323,6 +323,82 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal((HttpStatusCode.OK, "accepted"), turn);
     }
 
+    // ---- 消耗品の操作（装置とストッカー、ステーションの在庫の画面から） ----
+
+    /// <summary>装置 DEV-1（スロット2つ）とステーション ST-1、品種 DR-5 と DR-6 を DB に入れる。</summary>
+    private async Task SeedConsumablesAsync()
+    {
+        var options = Database;
+        var consumables = await ConsumablesDatabase.OpenAsync(b => Databases.Configure(b, options, ConsumablesDatabase.Schema), (c, t) => Databases.InitializeAsync(c, options, t), Token);
+        await consumables.AddProcessTypeAsync(new ProcessTypeSettings(new ProcessTypeId("P"), CarrierX, 2), Token);
+        await consumables.AddVarietyAsync(new VarietyId("DR-5"), new ProcessTypeId("P"), Token);
+        await consumables.AddVarietyAsync(new VarietyId("DR-6"), new ProcessTypeId("P"), Token);
+        await consumables.AddStationAsync(new StationLayout(new StationId("ST-1"), S), Token);
+        await consumables.AddDeviceAsync(new DeviceLayout(new DeviceId("DEV-1"), D, [2]), Token);
+    }
+
+    [Fact]
+    public async Task ストッカーの設定を保存しスロットの数を超える設定は断る()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        await SeedConsumablesAsync();
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        var saved = await OperateAsync(client, "/devices/DEV-1/stocker-setting", """{ "counts": [{ "variety": "DR-5", "count": 2 }] }""");
+        var exceeds = await OperateAsync(client, "/devices/DEV-1/stocker-setting", """{ "counts": [{ "variety": "DR-5", "count": 2 }, { "variety": "DR-6", "count": 1 }] }""");
+        var unknownVariety = await OperateAsync(client, "/devices/DEV-1/stocker-setting", """{ "counts": [{ "variety": "DR-9", "count": 1 }] }""");
+        var negative = await OperateAsync(client, "/devices/DEV-1/stocker-setting", """{ "counts": [{ "variety": "DR-5", "count": -1 }] }""");
+        var unknownDevice = await OperateAsync(client, "/devices/DEV-9/stocker-setting", """{ "counts": [] }""");
+
+        Assert.Equal((HttpStatusCode.OK, "saved"), saved);
+        Assert.Equal((HttpStatusCode.OK, "exceedsSlots"), exceeds);
+        Assert.Equal(HttpStatusCode.BadRequest, unknownVariety.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, negative.Status);
+        Assert.Equal(HttpStatusCode.NotFound, unknownDevice.Status);
+        Assert.Equal([new StockerLine(new VarietyId("DR-5"), 2, 0)], system.Consumables.ReadStatuses().Devices.Single().Stocker);
+    }
+
+    [Fact]
+    public async Task ステーションの消耗品の出庫を頼みステーションにないものは断る()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        await SeedConsumablesAsync();
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        system.Consumables.RegisterConsumable(new ConsumableId("T-1"), new VarietyId("DR-5"), new ProcessTypeId("P"), ConsumableCondition.New, new AtStation(new StationId("ST-1")));
+        system.Consumables.RegisterConsumable(new ConsumableId("T-2"), new VarietyId("DR-5"), new ProcessTypeId("P"), ConsumableCondition.New, new InStocker(new DeviceId("DEV-1"), new SlotRef(1, 1)));
+
+        var requested = await OperateAsync(client, "/consumables/T-1/ship", "{}");
+        var notAtStation = await OperateAsync(client, "/consumables/T-2/ship", "{}");
+        var unknown = await OperateAsync(client, "/consumables/T-9/ship", "{}");
+
+        Assert.Equal((HttpStatusCode.OK, "requested"), requested);
+        Assert.Equal((HttpStatusCode.OK, "notAtStation"), notAtStation);
+        Assert.Equal((HttpStatusCode.OK, "notAtStation"), unknown); // 登録されていない ID も、ステーションにないものとして断る
+    }
+
+    [Fact]
+    public async Task 要確認の消耗品を直しもう要確認でなければ断る()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        await SeedConsumablesAsync();
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        await system.Consumables.ReportReadAtStationAsync(new StationId("ST-1"), new ConsumableId("X-1"), Token); // 登録されていない ID は要確認
+
+        var corrected = await OperateAsync(client, "/consumables/X-1/correct", """{ "variety": "DR-5", "condition": "used" }""");
+        var again = await OperateAsync(client, "/consumables/X-1/correct", """{ "variety": "DR-5", "condition": "new" }""");
+        var unknownVariety = await OperateAsync(client, "/consumables/X-1/correct", """{ "variety": "DR-9", "condition": "new" }""");
+        var unknownCondition = await OperateAsync(client, "/consumables/X-1/correct", """{ "variety": "DR-5", "condition": "broken" }""");
+
+        Assert.Equal((HttpStatusCode.OK, "corrected"), corrected);
+        Assert.Equal((HttpStatusCode.OK, "notNeedingCheck"), again);
+        Assert.Equal(HttpStatusCode.BadRequest, unknownVariety.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, unknownCondition.Status);
+        Assert.Equal(ConsumableCondition.Used, system.Consumables.GetConsumable(new ConsumableId("X-1")).Condition);
+    }
+
     private static async Task<(HttpStatusCode Status, string? Result)> OperateAsync(HttpClient client, string path, string body)
     {
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), new StringContent(body, Encoding.UTF8, "application/json"), Token);

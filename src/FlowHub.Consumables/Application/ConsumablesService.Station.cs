@@ -105,13 +105,13 @@ public sealed partial class ConsumablesService
     /// ステーションに、消耗品の出庫を頼む（上位システムの指示）。出るまで、届ける候補にしない。
     /// 届ける予約が付いているかどうかは、搬送の要求を持つ搬送計画が確かめてから呼ぶ。
     /// </summary>
-    /// <returns>頼んだか。ステーションにない消耗品なら、頼まずに断る。</returns>
+    /// <returns>頼んだか。ステーションにない消耗品（登録されていないものも）なら、頼まずに断る。</returns>
     public async Task<ShipmentResult> RequestShipmentAsync(ConsumableId id, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (Consumable(id).Location is not AtStation at)
+            if (!_consumables.TryGetValue(id, out var consumable) || consumable.Location is not AtStation at)
             {
                 return ShipmentResult.NotAtStation;
             }

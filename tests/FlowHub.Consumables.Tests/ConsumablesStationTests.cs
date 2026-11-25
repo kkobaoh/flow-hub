@@ -278,6 +278,7 @@ public class ConsumablesStationTests
         var result = await f.Service.RequestShipmentAsync(C1, None);
 
         Assert.Equal(ShipmentResult.NotAtStation, result);
+        Assert.Equal(ShipmentResult.NotAtStation, await f.Service.RequestShipmentAsync(new ConsumableId("C-9"), None)); // 登録されていない
         Assert.Empty(f.Stations.Shipments);
     }
 

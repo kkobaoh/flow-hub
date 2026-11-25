@@ -162,9 +162,56 @@ public sealed class ScreenFeedTests : IDisposable
         var snapshot = Assert.IsType<EquipmentStatusSnapshot>(sent.Payload);
         Assert.Equal(2, snapshot.Version);
         Assert.Equal(
-            new DeviceStatusView("DEV-1", 2, 1, [new SlotView(1, 2)], ["DR-8"], [new StockerLineView("DR-5", 2, 1)], new SlotSummaryView(10, 7, 1)),
+            new DeviceStatusView("DEV-1", 2, 1, [new SlotView(1, 2)], ["DR-8"], [new StockerLineView("DR-5", 2, 1)], new SlotSummaryView(10, 7, 1), [], [], []),
             Assert.Single(snapshot.Devices));
-        Assert.Equal(new StationStatusView("ST-1", 1, 2, [new StationLineView("DR-5", 3, 2)]), Assert.Single(snapshot.Stations));
+        Assert.Equal(new StationStatusView("ST-1", 1, 2, [new StationLineView("DR-5", 3, 0, 2)], []), Assert.Single(snapshot.Stations));
+    }
+
+    [Fact]
+    public void 装置の中とステーションにある消耗品を画面へ送る形にする()
+    {
+        var at = new DateTimeOffset(2026, 11, 25, 9, 30, 0, TimeSpan.Zero);
+        HeldConsumable Held(string id, RecoveryState recovery, bool mismatched = false) =>
+            new(new ConsumableId(id), mismatched ? null : new VarietyId("DR-5"), ConsumableCondition.New, mismatched, DiscardRequested: false, recovery);
+        var statuses = new ConsumablesStatuses(
+            [
+                new DeviceStatus(
+                    new DeviceId("DEV-1"), 0, 2, [], [], [], new SlotSummary(2, 0, 0),
+                    Processing: [Held("T-1", new NotRecovering()) with { Condition = ConsumableCondition.Used }],
+                    StockerSlots:
+                    [
+                        new StockerSlot(new SlotRef(1, 1), new OccupiedSlot(Held("T-2", new RecoveryNeeded(RecoveryReason.NotInSetting)))),
+                        new StockerSlot(new SlotRef(1, 2), new OccupiedSlot(Held("X-9", new RecoveryRequested(), mismatched: true))),
+                        new StockerSlot(new SlotRef(2, 1), new EmptySlot()),
+                    ],
+                    Handover: []),
+            ],
+            [
+                new StationStatus(new StationId("ST-1"), 1, 0, [], [
+                    new StationItem(new ConsumableId("T-3"), new VarietyId("DR-5"), ConsumableCondition.New, at, new ReservedForDelivery(new DeviceId("DEV-1"))),
+                    new StationItem(new ConsumableId("X-1"), null, ConsumableCondition.New, at, new CheckNeeded(NeedsCheckReason.UnregisteredId)),
+                    new StationItem(new ConsumableId("U-1"), new VarietyId("DR-5"), ConsumableCondition.Used, at, new NotDeliverable()),
+                ]),
+            ]);
+
+        var snapshot = EquipmentStatusSnapshot.From(1, statuses);
+
+        var device = Assert.Single(snapshot.Devices);
+        Assert.Equal([new HeldView("T-1", "DR-5", "used", false, false, new RecoveryView("none", null))], device.Processing);
+        Assert.Equal(
+            [
+                new StockerSlotView(1, 1, new HeldView("T-2", "DR-5", "new", false, false, new RecoveryView("needed", "notInSetting"))),
+                new StockerSlotView(1, 2, new HeldView("X-9", null, null, true, false, new RecoveryView("requested", null))),
+                new StockerSlotView(2, 1, null),
+            ],
+            device.StockerSlots);
+        Assert.Equal(
+            [
+                new StationItemView("T-3", "DR-5", "new", at, new StationItemStateView("reserved", "DEV-1", null)),
+                new StationItemView("X-1", null, null, at, new StationItemStateView("needsCheck", null, "unregisteredId")),
+                new StationItemView("U-1", "DR-5", "used", at, new StationItemStateView("notDeliverable", null, null)),
+            ],
+            Assert.Single(snapshot.Stations).Items);
     }
 
     [Fact]
