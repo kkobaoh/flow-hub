@@ -4,10 +4,50 @@ import { click, render } from '../testing/render';
 import { App } from './App';
 import { createFakeLink, type FakeLink } from '../testing/fakeLink';
 import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
+import type { DeviceStatus, EquipmentStatusSnapshot } from '../features/tool/api/equipmentStatus';
 import { sampleEquipment, sampleLayout } from './demo/sampleLayout';
 
 /** サーバーから届いたことにするマップ（見本と同じ並び。気をつけることは、まだ届かないので空）。 */
 const serverMap: MapSnapshot = { version: 1, mapVersion: 3, layout: sampleLayout, equipment: sampleEquipment.map((e) => ({ ...e, attentions: [] })) };
+
+/** サーバーから届いたことにする装置の様子。 */
+const deviceStatus = (id: string, more: Partial<DeviceStatus> = {}): DeviceStatus => ({
+  id,
+  panel: 'D1',
+  shortage: 0,
+  collectWaiting: 0,
+  mismatchedSlots: [],
+  setupErrors: [],
+  stocker: [{ variety: 'DR-5', target: 1, have: 1 }],
+  slots: { total: 2, free: 1, delivering: 0 },
+  processing: [],
+  stockerSlots: [
+    { stocker: 1, slot: 1, consumable: { id: 'T-1', variety: 'DR-5', condition: 'new', mismatched: false, discardRequested: false, recovery: { state: 'none' } } },
+    { stocker: 1, slot: 2, consumable: null },
+  ],
+  handover: [],
+  ...more,
+});
+
+/** サーバーから届いたことにする装置とステーションの様子。 */
+const equipmentStatus: EquipmentStatusSnapshot = {
+  version: 1,
+  devices: [deviceStatus('DEV-1'), deviceStatus('DEV-2', { panel: 'D2' })],
+  stations: [
+    {
+      id: 'ST-1',
+      panel: 'ST',
+      needsCheck: 1,
+      replenishWaiting: 0,
+      stock: [{ variety: 'DR-5', available: 0, reserved: 1, replenishWaiting: 0 }],
+      items: [
+        { id: 'T-5', variety: 'DR-5', condition: 'new', arrivedAt: new Date('2026-11-25T09:30:00Z'), state: { kind: 'reserved', device: 'DEV-1' } },
+        { id: 'X-1', variety: null, condition: null, arrivedAt: new Date('2026-11-25T08:12:00Z'), state: { kind: 'needsCheck', reason: 'idMismatch' } },
+      ],
+    },
+  ],
+  varieties: ['DR-5', 'DR-6'],
+};
 
 /** つながって、運転中の様子が届いた偽物のつながり。 */
 const connected = (): FakeLink => createFakeLink({ connection: 'connected', status: { version: 1, state: 'started' }, map: serverMap });
@@ -58,9 +98,78 @@ describe('App', () => {
 
   it('URL で指定した装置を、装置とストッカーの画面で開く', () => {
     window.location.hash = '#/devices/DEV-2';
-    const { container } = render(<App link={connected()} />);
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    expect(container.textContent).toContain('装置とステーションの様子を読み込んでいます。');
+
+    act(() => link.emitEquipment(equipmentStatus));
 
     expect(container.querySelector<HTMLSelectElement>('select[aria-label="装置"]')?.value).toBe('DEV-2');
+    expect(container.textContent).toContain('DEV-2（受け渡しパネル D2）');
+    window.location.hash = '';
+  });
+
+  it('装置とストッカーの画面で、届いた装置の中を出し、設定の保存をサーバーへ送って、断られたら理由を出す', async () => {
+    window.location.hash = '#/devices/DEV-1';
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    act(() => link.emitEquipment(equipmentStatus));
+    expect(container.querySelector('[aria-labelledby="inside-title"]')?.textContent).toContain('T-1');
+
+    link.respondToConsumables('exceedsSlots');
+    click(buttonByText(container, '設定を変える（段取り替え）'));
+    await act(async () => {
+      click(buttonByText(container, '設定を保存する'));
+      await Promise.resolve();
+    });
+
+    expect(link.consumableCommands).toEqual([{ kind: 'stockerSetting', device: 'DEV-1', counts: [{ variety: 'DR-5', count: 1 }] }]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('個数の合計がスロットの数を超えているので、保存できませんでした。');
+    window.location.hash = '';
+  });
+
+  it('ステーションの在庫の画面で、届いた消耗品を出し、出庫をサーバーへ送る', async () => {
+    window.location.hash = '#/station';
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    act(() => link.emitEquipment(equipmentStatus));
+    expect(container.textContent).toContain('届ける予約あり（DEV-1 へ）');
+
+    link.respondToConsumables('inAssignedTransport');
+    const row = [...container.querySelectorAll('[aria-labelledby="items-title"] tbody tr')].find((r) => r.textContent?.includes('T-5'))!;
+    click(buttonByText(row, '出庫する'));
+    await act(async () => {
+      click(buttonByText(container.querySelector('[role="alertdialog"]')!, '出庫する'));
+      await Promise.resolve();
+    });
+
+    expect(link.consumableCommands).toEqual([{ kind: 'ship', consumable: 'T-5' }]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('届ける搬送に AGV を割り当て済みなので、出庫できませんでした。');
+    window.location.hash = '';
+  });
+
+  it('要確認の消耗品を直すときは、要確認になったわけを出し、直した内容をサーバーへ送る', async () => {
+    window.location.hash = '#/station';
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    act(() => link.emitEquipment(equipmentStatus));
+
+    click(buttonByText(container, '確かめて直す'));
+    const dialog = container.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('装置で ID が食い違ったので、回収しました。');
+    const select = dialog.querySelector<HTMLSelectElement>('select')!;
+    expect([...select.options].map((o) => o.value)).toEqual(['', 'DR-5', 'DR-6']);
+    act(() => {
+      select.value = 'DR-6';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    click(dialog.querySelector<HTMLInputElement>('input[value="中古品"]')!);
+    await act(async () => {
+      click(buttonByText(dialog, '直して、要確認を外す'));
+      await Promise.resolve();
+    });
+
+    expect(link.consumableCommands).toEqual([{ kind: 'correct', consumable: 'X-1', variety: 'DR-6', condition: '中古品' }]);
     window.location.hash = '';
   });
 
@@ -80,10 +189,18 @@ describe('App', () => {
     window.location.hash = '';
   });
 
-  it('マップの画面と、運転状態、AGV、メッセージのほかは、見本のデータで動かしていることを知らせる', () => {
+  it.each([
+    ['', false],
+    ['#/devices', false],
+    ['#/station', false],
+    ['#/transports', true],
+    ['#/consumables', true],
+  ])('見本のデータで動かしている画面だけ、そのことを帯で知らせる（%s）', (hash, demo) => {
+    window.location.hash = hash;
     const { container } = render(<App link={connected()} />);
 
-    expect(container.textContent).toContain('マップの画面と、運転状態、AGV、メッセージのほかは、見本のデータです');
+    expect(container.textContent?.includes('この画面は、見本のデータです')).toBe(demo);
+    window.location.hash = '';
   });
 
   it('サーバーから届いた装置とステーションの様子で、マップの札とカードを出す', () => {
@@ -96,8 +213,23 @@ describe('App', () => {
     act(() =>
       link.emitEquipment({
         version: 1,
-        devices: [{ id: 'DEV-1', shortage: 2, collectWaiting: 0, mismatchedSlots: [], setupErrors: [], stocker: [{ variety: 'DR-5', target: 3, have: 1 }], slots: { total: 10, free: 8, delivering: 0 } }],
+        devices: [
+          {
+            id: 'DEV-1',
+            panel: 'D1',
+            shortage: 2,
+            collectWaiting: 0,
+            mismatchedSlots: [],
+            setupErrors: [],
+            stocker: [{ variety: 'DR-5', target: 3, have: 1 }],
+            slots: { total: 10, free: 8, delivering: 0 },
+            processing: [],
+            stockerSlots: [],
+            handover: [],
+          },
+        ],
         stations: [],
+        varieties: ['DR-5'],
       }),
     );
 

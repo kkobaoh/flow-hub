@@ -8,12 +8,14 @@ export type Condition = '新品' | '中古品';
 /** ステーションにある消耗品の状態。 */
 export type StationItemState =
   | { readonly kind: 'available' }
-  /** 届ける予約が付いている。assigned は、その搬送に AGV を割り当て済みか。 */
-  | { readonly kind: 'reserved'; readonly transport: number; readonly assigned: boolean }
+  /** 届ける予約が付いている。device は届け先の装置。 */
+  | { readonly kind: 'reserved'; readonly device: string }
   | { readonly kind: 'nominated'; readonly device: string }
-  /** 要確認。reason は、要確認になったわけ（サーバーが知らせる文）。 */
+  /** 要確認。reason は、要確認になったわけ（画面に出す文）。 */
   | { readonly kind: 'needsCheck'; readonly reason: string }
-  | { readonly kind: 'shipping' };
+  | { readonly kind: 'shipping' }
+  /** 届けない中古品。 */
+  | { readonly kind: 'notDeliverable' };
 
 export interface StationItem {
   readonly id: string;
@@ -59,25 +61,29 @@ export function stateLabel(state: StationItemState): string {
     case 'available':
       return '届けられる';
     case 'reserved':
-      return `届ける予約あり（搬送 #${state.transport}）`;
+      return `届ける予約あり（${state.device} へ）`;
     case 'nominated':
       return `指名あり（${state.device}）`;
     case 'needsCheck':
       return '要確認';
     case 'shipping':
       return '出庫を頼んだ';
+    case 'notDeliverable':
+      return '届けない（中古品）';
+    default:
+      throw new Error(`知らない状態です: ${JSON.stringify(state satisfies never)}`);
   }
 }
 
 const NO_PERMISSION = '出庫と、要確認の消耗品を直すのは、運用以上のロールで使えます。';
 
-/** 出庫を押せない理由（押せるなら null）。届ける搬送に AGV を割り当て済みのものと、出庫を頼んだものは出せない。 */
+/**
+ * 出庫を押せない理由（押せるなら null）。出庫を頼んだものは出せない。
+ * 届ける搬送に AGV を割り当て済みかは画面ではわからないので、送ってサーバーが断ったら知らせる。
+ */
 export function shipBlockedReason(item: StationItem, permissions: Permissions): string | null {
   if (!permissions.has('consumableOps')) {
     return NO_PERMISSION;
-  }
-  if (item.state.kind === 'reserved' && item.state.assigned) {
-    return `届ける搬送 #${item.state.transport} に AGV を割り当て済みなので、出庫できません。`;
   }
   if (item.state.kind === 'shipping') {
     return '出庫を頼んでいます。';
@@ -95,7 +101,7 @@ export function shipNote(item: StationItem): string {
   const base = 'ステーションに取り出しを頼みます。出たら、記録から消します。';
   switch (item.state.kind) {
     case 'reserved':
-      return `届ける予約（搬送 #${item.state.transport}）を解いて出します。${base}`;
+      return `届ける予約（${item.state.device} へ）を解いて出します。届ける搬送に AGV を割り当て済みなら、出庫できません。${base}`;
     case 'nominated':
       return `指名（${item.state.device}）を外して出します。${base}`;
     default:

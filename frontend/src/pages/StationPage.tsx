@@ -23,11 +23,16 @@ export interface StationPageProps {
   readonly selected: string | null;
   readonly varieties: readonly string[];
   readonly permissions: Permissions;
+  /** サーバーとつながっていない（操作を送れない）。 */
+  readonly offline: boolean;
   readonly onSelect: (id: EquipmentId) => void;
-  /** 出庫を頼む（確かめる画面で選んだあと）。 */
-  readonly onShip: (station: EquipmentId, item: string) => void;
-  readonly onFix: (station: EquipmentId, item: string, fix: Fix) => void;
+  /** 出庫を頼む（確かめる画面で選んだあと）。受け付けたら null、断られたら理由の文を返す。 */
+  readonly onShip: (station: EquipmentId, item: string) => Promise<string | null>;
+  /** 要確認の消耗品を直す。受け付けたら null、断られたら理由の文を返す。 */
+  readonly onFix: (station: EquipmentId, item: string, fix: Fix) => Promise<string | null>;
 }
+
+const OFFLINE = 'サーバーとつながっていないので、出庫も、要確認を直すこともできません。';
 
 const section = 'flex flex-col gap-3 rounded-[10px] border border-line bg-paper p-5';
 const th = 'border-b border-line px-3 py-2 text-left font-bold text-ink-muted';
@@ -42,10 +47,22 @@ function chooseStation(stations: readonly StationInventory[], wanted: string | n
 }
 
 /** ステーションの在庫（docs/screens.md の「4 ステーションの在庫」）。品種ごとの数、出庫、要確認の消耗品を直す。 */
-export function StationPage({ stations, selected, varieties, permissions, onSelect, onShip, onFix }: StationPageProps) {
+export function StationPage({ stations, selected, varieties, permissions, offline, onSelect, onShip, onFix }: StationPageProps) {
   const [checkOnly, setCheckOnly] = useState(false);
   const [shipping, setShipping] = useState<StationItem | null>(null);
   const [fixing, setFixing] = useState<StationItem | null>(null);
+  // 送って結果を待っているあいだは、ほかの操作も押せなくする。断られたら、理由を一覧の上に出す（次に送ったら消す）
+  const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const send = async (operation: () => Promise<string | null>) => {
+    setSending(true);
+    setNotice(null);
+    try {
+      setNotice(await operation());
+    } finally {
+      setSending(false);
+    }
+  };
   const station = chooseStation(stations, selected);
   if (station === null) {
     return <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">登録してあるステーションはありません。ステーションは、消耗品の構成の画面で加えます。</p>;
@@ -53,7 +70,7 @@ export function StationPage({ stations, selected, varieties, permissions, onSele
   const items = sortStationItems(station.items);
   const checkCount = items.filter((i) => i.state.kind === 'needsCheck').length;
   const shown = checkOnly ? items.filter((i) => i.state.kind === 'needsCheck') : items;
-  const fixBlocked = fixBlockedReason(permissions);
+  const fixBlocked = fixBlockedReason(permissions) ?? (offline ? OFFLINE : null);
 
   return (
     <>
@@ -141,6 +158,11 @@ export function StationPage({ stations, selected, varieties, permissions, onSele
           </div>
         </div>
         {fixBlocked !== null && <p className="m-0 text-sm font-bold">{fixBlocked}</p>}
+        {notice !== null && (
+          <p role="alert" className="m-0 text-sm font-bold text-attention">
+            {notice}
+          </p>
+        )}
         {shown.length === 0 ? (
           <p className="m-0 py-2 text-[15px] text-ink-muted">{checkOnly ? '要確認の消耗品はありません。' : 'ステーションに消耗品はありません。'}</p>
         ) : (
@@ -171,7 +193,7 @@ export function StationPage({ stations, selected, varieties, permissions, onSele
               <tbody>
                 {shown.map((i) => {
                   const check = i.state.kind === 'needsCheck';
-                  const blocked = shipBlockedReason(i, permissions);
+                  const blocked = fixBlocked ?? shipBlockedReason(i, permissions);
                   return (
                     <tr key={i.id} className={`border-b border-disabled-border align-top ${check ? 'bg-white' : ''}`}>
                       <td className="px-3 py-2.5 font-number text-[17px] font-semibold">{i.id}</td>
@@ -182,11 +204,11 @@ export function StationPage({ stations, selected, varieties, permissions, onSele
                       <td className="px-3 py-1.5">
                         <div className="flex justify-end gap-2">
                           {check && (
-                            <button type="button" disabled={fixBlocked !== null} onClick={() => setFixing(i)} className={darkButton}>
+                            <button type="button" disabled={fixBlocked !== null || sending} onClick={() => setFixing(i)} className={darkButton}>
                               確かめて直す
                             </button>
                           )}
-                          <button type="button" disabled={blocked !== null} onClick={() => setShipping(i)} className={plainButton}>
+                          <button type="button" disabled={blocked !== null || sending} onClick={() => setShipping(i)} className={plainButton}>
                             出庫する
                           </button>
                         </div>
@@ -208,8 +230,9 @@ export function StationPage({ stations, selected, varieties, permissions, onSele
           confirmLabel="出庫する"
           tone="neutral"
           onConfirm={() => {
-            onShip(station.id, shipping.id);
+            const item = shipping.id;
             setShipping(null);
+            void send(() => onShip(station.id, item));
           }}
           onCancel={() => setShipping(null)}
         />
@@ -219,8 +242,9 @@ export function StationPage({ stations, selected, varieties, permissions, onSele
           item={fixing}
           varieties={varieties}
           onSave={(fix) => {
-            onFix(station.id, fixing.id, fix);
+            const item = fixing.id;
             setFixing(null);
+            void send(() => onFix(station.id, item, fix));
           }}
           onCancel={() => setFixing(null)}
         />

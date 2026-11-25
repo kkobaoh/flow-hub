@@ -12,11 +12,8 @@ export interface HeldConsumable {
   readonly tone: 'normal' | 'collect' | 'blocked';
 }
 
-/** スロットの中身。空き、届ける途中などで空けておく（reserved）、消耗品がある。 */
-export type SlotContent =
-  | { readonly kind: 'empty' }
-  | { readonly kind: 'reserved'; readonly consumable: HeldConsumable }
-  | { readonly kind: 'held'; readonly consumable: HeldConsumable };
+/** スロットの中身。空きか、消耗品がある（届ける途中や、取り込み中の元のスロットは、空きとして出す。docs/screens.md）。 */
+export type SlotContent = { readonly kind: 'empty' } | { readonly kind: 'held'; readonly consumable: HeldConsumable };
 
 export interface Slot {
   readonly number: number;
@@ -44,10 +41,10 @@ export interface DeviceInside {
   /** 受け渡しパネル。 */
   readonly panel: PanelId;
   /** 加工部にあるもの。 */
-  readonly processing: HeldConsumable | null;
+  readonly processing: readonly HeldConsumable[];
   readonly stockers: readonly Stocker[];
   /** 受け渡し部にあるもの。 */
-  readonly handover: HeldConsumable | null;
+  readonly handover: readonly HeldConsumable[];
   readonly setting: readonly SettingRow[];
 }
 

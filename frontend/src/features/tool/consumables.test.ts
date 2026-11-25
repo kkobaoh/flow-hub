@@ -109,7 +109,7 @@ describe('cancelNominationBlockedReason（指名の取り消し）', () => {
 const dev1: DeviceInside = {
   id: equipmentId('DEV-1'),
   panel: panelId('D1'),
-  processing: null,
+  processing: [],
   stockers: [
     {
       name: 'ストッカー1',
@@ -120,7 +120,7 @@ const dev1: DeviceInside = {
       ],
     },
   ],
-  handover: null,
+  handover: [],
   setting: [],
 };
 const dev3: DeviceInside = { ...dev1, id: equipmentId('DEV-3'), stockers: [{ name: 'ストッカー1', layout: 'plate', items: [] }] };

@@ -14,15 +14,19 @@ const onMap = (id: string, kind: 'device' | 'station', panel: string): Equipment
 
 const device: DeviceStatus = {
   id: 'DEV-1',
+  panel: 'D1',
   shortage: 2,
   collectWaiting: 1,
   mismatchedSlots: [{ stocker: 1, slot: 3 }],
   setupErrors: ['DR-8', 'DR-9'],
   stocker: [{ variety: 'DR-5', target: 2, have: 1 }],
   slots: { total: 10, free: 7, delivering: 1 },
+  processing: [],
+  stockerSlots: [],
+  handover: [],
 };
-const station: StationStatus = { id: 'ST-1', needsCheck: 1, replenishWaiting: 2, stock: [{ variety: 'DR-5', available: 3, replenishWaiting: 2 }] };
-const statuses = (devices: DeviceStatus[], stations: StationStatus[]): EquipmentStatusSnapshot => ({ version: 1, devices, stations });
+const station: StationStatus = { id: 'ST-1', panel: 'ST', needsCheck: 1, replenishWaiting: 2, stock: [{ variety: 'DR-5', available: 3, reserved: 0, replenishWaiting: 2 }], items: [] };
+const statuses = (devices: DeviceStatus[], stations: StationStatus[]): EquipmentStatusSnapshot => ({ version: 1, devices, stations, varieties: [] });
 
 describe('equipmentDetails（マップに描き、カードに出す装置とステーション）', () => {
   it('位置と外形はマップの、気をつけることと中身は装置の様子のものを使う', () => {
@@ -60,7 +64,7 @@ describe('equipmentDetails（マップに描き、カードに出す装置とス
         { kind: 'needsCheck', count: 1 },
         { kind: 'replenishWaiting', count: 2 },
       ],
-      stock: [{ variety: 'DR-5', available: 3, replenishWaiting: 2 }],
+      stock: [{ variety: 'DR-5', available: 3, reserved: 0, replenishWaiting: 2 }],
     });
   });
 

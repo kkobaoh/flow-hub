@@ -15,11 +15,12 @@ describe('sortStationItems（並べ方）', () => {
 });
 
 describe('shipBlockedReason（出庫を押せない理由）', () => {
-  it('届ける搬送に AGV が割り当て済みなら、出庫できない', () => {
-    expect(shipBlockedReason(item('T-1', { kind: 'reserved', transport: 14, assigned: true }), initialRoles.運用)).toBe(
-      '届ける搬送 #14 に AGV を割り当て済みなので、出庫できません。',
-    );
-    expect(shipBlockedReason(item('T-1', { kind: 'reserved', transport: 14, assigned: false }), initialRoles.運用)).toBeNull();
+  it('届ける予約が付いていても押せる（AGV を割り当て済みかは、送ってサーバーが確かめる）', () => {
+    expect(shipBlockedReason(item('T-1', { kind: 'reserved', device: 'DEV-1' }), initialRoles.運用)).toBeNull();
+  });
+
+  it('届けない中古品も出庫できる', () => {
+    expect(shipBlockedReason(item('U-1', { kind: 'notDeliverable' }), initialRoles.運用)).toBeNull();
   });
 
   it('出庫を頼んだものは、もう一度は頼めない', () => {
@@ -37,7 +38,8 @@ describe('shipBlockedReason（出庫を押せない理由）', () => {
 
 describe('shipNote（確かめる画面の文）', () => {
   it('予約や指名が付いていれば、それを解いて出すことを書く', () => {
-    expect(shipNote(item('T-1', { kind: 'reserved', transport: 14, assigned: false }))).toContain('届ける予約（搬送 #14）を解いて');
+    expect(shipNote(item('T-1', { kind: 'reserved', device: 'DEV-1' }))).toContain('届ける予約（DEV-1 へ）を解いて');
+    expect(shipNote(item('T-1', { kind: 'reserved', device: 'DEV-1' }))).toContain('AGV を割り当て済みなら、出庫できません');
     expect(shipNote(item('T-1', { kind: 'nominated', device: 'DEV-1' }))).toContain('指名（DEV-1）を外して');
     expect(shipNote(item('T-1'))).toContain('記録から消します');
   });
@@ -46,10 +48,11 @@ describe('shipNote（確かめる画面の文）', () => {
 describe('stateLabel', () => {
   it('状態を文にする', () => {
     expect(stateLabel({ kind: 'available' })).toBe('届けられる');
-    expect(stateLabel({ kind: 'reserved', transport: 14, assigned: false })).toBe('届ける予約あり（搬送 #14）');
+    expect(stateLabel({ kind: 'reserved', device: 'DEV-1' })).toBe('届ける予約あり（DEV-1 へ）');
     expect(stateLabel({ kind: 'nominated', device: 'DEV-1' })).toBe('指名あり（DEV-1）');
     expect(stateLabel({ kind: 'needsCheck', reason: '' })).toBe('要確認');
     expect(stateLabel({ kind: 'shipping' })).toBe('出庫を頼んだ');
+    expect(stateLabel({ kind: 'notDeliverable' })).toBe('届けない（中古品）');
   });
 });
 

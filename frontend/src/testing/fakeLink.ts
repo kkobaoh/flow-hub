@@ -5,6 +5,7 @@ import type { AgvCommand, AgvCommandResult } from '../features/fleet/api/agvComm
 import type { AgvsSnapshot } from '../features/fleet/api/agvSnapshots';
 import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../features/tool/api/equipmentStatus';
+import type { ConsumableCommand, ConsumableCommandResult } from '../features/tool/api/consumableCommands';
 import type { MessagesSnapshot } from '../features/alarm/api/messages';
 import type { SystemStatusSnapshot } from '../features/system/systemStatus';
 
@@ -18,6 +19,10 @@ export interface FakeLink extends ServerLink {
   readonly agvCommands: readonly { readonly id: AgvId; readonly command: AgvCommand }[];
   /** AGV への操作の結果を決める（既定は accepted）。holdResponses で止めておける。 */
   respondToAgv(result: AgvCommandResult): void;
+  /** 消耗品へ送られた操作。 */
+  readonly consumableCommands: readonly ConsumableCommand[];
+  /** 消耗品の操作の結果を決める（既定は、受け付けたときの結果）。holdResponses で止めておける。 */
+  respondToConsumables(result: ConsumableCommandResult): void;
   /** 今つないでいるか。 */
   readonly connected: boolean;
   /** 操作の結果を決める（既定は ok）。 */
@@ -53,6 +58,9 @@ export function createFakeLink(initial?: {
   const sent: Command[] = [];
   const agvCommands: { id: AgvId; command: AgvCommand }[] = [];
   let agvResult: AgvCommandResult = 'accepted';
+  const consumableCommands: ConsumableCommand[] = [];
+  let consumableResult: ConsumableCommandResult | null = null;
+  const accepted = { stockerSetting: 'saved', ship: 'requested', correct: 'corrected' } as const;
 
   const send = (command: Command): Promise<CommandResult> => {
     sent.push(command);
@@ -72,9 +80,23 @@ export function createFakeLink(initial?: {
     return new Promise((resolve) => held.push(() => resolve(answer)));
   };
 
+  const operateConsumables = (command: ConsumableCommand): Promise<ConsumableCommandResult> => {
+    consumableCommands.push(command);
+    const answer = consumableResult ?? accepted[command.kind];
+    if (!holding) {
+      return Promise.resolve(answer);
+    }
+    return new Promise((resolve) => held.push(() => resolve(answer)));
+  };
+
   return {
     sent,
     agvCommands,
+    consumableCommands,
+    respondToConsumables(next) {
+      consumableResult = next;
+    },
+    operateConsumables,
     respondToAgv(next) {
       agvResult = next;
     },

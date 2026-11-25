@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { equipmentId } from '../features/tool/equipment';
 import { panelId } from '../features/routing/model';
@@ -9,7 +10,7 @@ import { initialRoles } from '../features/auth/permissions';
 const dev1: DeviceInside = {
   id: equipmentId('DEV-1'),
   panel: panelId('D1'),
-  processing: { id: 'T-0100', variety: '[品種A]', note: '中古品・取り込み中', tone: 'normal' },
+  processing: [{ id: 'T-0100', variety: '[品種A]', note: '中古品・取り込み中', tone: 'normal' }],
   stockers: [
     {
       name: 'ストッカー1',
@@ -21,7 +22,7 @@ const dev1: DeviceInside = {
       ],
     },
   ],
-  handover: null,
+  handover: [],
   setting: [
     { variety: '[品種A]', target: 2, have: 1, status: 'short' },
     { variety: '[品種D]', target: 0, have: 1, status: 'notInSetting' },
@@ -31,21 +32,22 @@ const dev1: DeviceInside = {
 const dev2: DeviceInside = {
   id: equipmentId('DEV-2'),
   panel: panelId('D2'),
-  processing: null,
+  processing: [],
   stockers: [{ name: 'ストッカー1', layout: 'plate', items: [{ id: 'T-0300', variety: '[品種C]', note: '新品', tone: 'normal' }] }],
-  handover: null,
+  handover: [],
   setting: [],
 };
 
 function setup(overrides: Partial<DevicesPageProps> = {}) {
   const onSelect = vi.fn();
-  const onSaveSetting = vi.fn();
+  const onSaveSetting = vi.fn<DevicesPageProps['onSaveSetting']>().mockResolvedValue(null);
   const view = render(
     <DevicesPage
       devices={[dev2, dev1]}
       selected={null}
       varieties={['[品種A]', '[品種B]', '[品種C]', '[品種D]']}
       permissions={initialRoles.運用}
+      offline={false}
       onSelect={onSelect}
       onSaveSetting={onSaveSetting}
       {...overrides}
@@ -55,6 +57,10 @@ function setup(overrides: Partial<DevicesPageProps> = {}) {
 }
 
 const byText = (c: HTMLElement, text: string) => [...c.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text)!;
+const flush = () =>
+  act(async () => {
+    await Promise.resolve();
+  });
 const deviceSelect = (c: HTMLElement) => c.querySelector<HTMLSelectElement>('select[aria-label="装置"]')!;
 
 describe('DevicesPage（装置とストッカー）', () => {
@@ -92,7 +98,7 @@ describe('DevicesPage（装置とストッカー）', () => {
     expect(rows).toEqual(['[品種A]21足りない（届ける）', '[品種D]－1設定にない（回収する）']);
   });
 
-  it('設定を変えて保存する。0個の品種は外し、外すボタンでも外せる', () => {
+  it('設定を変えて保存する。0個の品種は外し、外すボタンでも外せる', async () => {
     const { container, onSaveSetting } = setup();
 
     click(byText(container, '設定を変える（段取り替え）'));
@@ -104,9 +110,49 @@ describe('DevicesPage（装置とストッカー）', () => {
     click(byText(container, '加える'));
     click(container.querySelector('button[aria-label="[品種C] を設定から外す"]')!);
     click(byText(container, '設定を保存する'));
+    await flush();
 
     expect(onSaveSetting).toHaveBeenCalledWith('DEV-1', [{ variety: '[品種B]', target: 2 }]);
     expect(container.querySelector('input[type="number"]')).toBeNull();
+  });
+
+  it('サーバーが断ったら、変えた内容のまま理由を出す', async () => {
+    const onSaveSetting = vi.fn<DevicesPageProps['onSaveSetting']>().mockResolvedValue('個数の合計がスロットの数を超えているので、保存できませんでした。');
+    const { container } = setup({ onSaveSetting });
+
+    click(byText(container, '設定を変える（段取り替え）'));
+    click(byText(container, '設定を保存する'));
+    await flush();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('個数の合計がスロットの数を超えているので、保存できませんでした。');
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="[品種A] の設定の個数"]')?.value).toBe('2');
+  });
+
+  it('送って結果が返るまでは、もう一度保存できない', async () => {
+    let answer: (notice: string | null) => void = () => {};
+    const onSaveSetting = vi.fn<DevicesPageProps['onSaveSetting']>(() => new Promise((resolve) => (answer = resolve)));
+    const { container } = setup({ onSaveSetting });
+
+    click(byText(container, '設定を変える（段取り替え）'));
+    click(byText(container, '設定を保存する'));
+    expect(byText(container, '保存しています').disabled).toBe(true);
+
+    await act(async () => answer(null));
+    expect(container.querySelector('input[type="number"]')).toBeNull();
+  });
+
+  it('サーバーとつながっていないときは、設定を変えられず、理由を出す', () => {
+    const { container } = setup({ offline: true });
+
+    expect(byText(container, '設定を変える（段取り替え）').disabled).toBe(true);
+    expect(container.textContent).toContain('サーバーとつながっていないので、設定を変えられません。');
+  });
+
+  it('スロットごとに、番号と中身（ある消耗品か空き）を出す', () => {
+    const { container } = setup();
+    const slots = [...container.querySelectorAll('[aria-labelledby="inside-title"] [data-slot]')].map((s) => s.textContent);
+
+    expect(slots).toEqual(['スロット1[品種A]T-0101新品', 'スロット2空き', 'スロット3不明な消耗品ID が食い違った']);
   });
 
   it('合計がスロットの数を超えたら、保存できず理由を出す', () => {

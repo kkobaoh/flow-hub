@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  applyDemoSetting,
   demoAgvEntries,
   demoAgvTypes,
   demoCarriers,
@@ -36,6 +35,7 @@ import { MainLayout } from './layouts/MainLayout';
 import { screens, type ScreenKey } from './screens';
 import { StationPage } from '../pages/StationPage';
 import { DispatchPage } from '../pages/DispatchPage';
+import { fixProblem } from '../features/tool/station';
 import { UsersPage } from '../pages/UsersPage';
 import { agvId, type AgvId } from '../features/fleet/agv';
 import { panelOptions } from '../features/fleet/panelOptions';
@@ -50,6 +50,8 @@ import type { MapLayout } from '../features/routing/model';
 import { sampleLayout } from './demo/sampleLayout';
 import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
 import { equipmentDetails } from '../features/tool/equipmentDetails';
+import { deviceInsideOf, stationInventoryOf } from '../features/tool/inside';
+import { consumableNotice, type ConsumableCommand } from '../features/tool/api/consumableCommands';
 
 const user = { name: '[ユーザー名]', role: '管理者' } as const;
 const permissions = initialRoles.管理者;
@@ -87,13 +89,21 @@ const commandFailed = {
   stop: { title: '停止できたかわかりません', detail: 'サーバーから応答がなかったか、受け付けられませんでした。表示の運転状態を確かめてください。' },
 } as const;
 
+/** サーバーとつないだデータで出す画面（ほかの画面には、見本のデータだと帯で知らせる）。 */
+const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'devices', 'station']);
+
+/** 装置とステーションの様子が届くまで出す。 */
+function Loading() {
+  return <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">装置とステーションの様子を読み込んでいます。</p>;
+}
+
 export interface AppProps {
   /** サーバーとのつながり（本物は main.tsx で作る。テストと Storybook は偽物）。 */
   readonly link: ServerLink;
 }
 
 /**
- * 画面の入り口。マップ、運転状態、AGV、メッセージはサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
+ * 画面の入り口。マップ、運転状態、AGV、メッセージ、装置とストッカー、ステーションの在庫はサーバーとつないで、届いた様子を出す。ほかは、まだ見本のデータで画面を動かす。
  * 見本のデータを操作した結果は、この中で覚えて、画面が切り替わるようにしている。
  */
 export function App({ link }: AppProps) {
@@ -119,8 +129,6 @@ export function App({ link }: AppProps) {
   const [agvNotices, setAgvNotices] = useState<ReadonlyMap<AgvId, string>>(new Map());
   const offline = server.connection !== 'connected';
   const [transports, setTransports] = useState(demoTransports);
-  const [devices, setDevices] = useState(demoDevices);
-  const [stations, setStations] = useState(demoStations);
   const [records, setRecords] = useState(demoRecords);
   const [agvEntries, setAgvEntries] = useState(demoAgvEntries);
   const [agvTypes, setAgvTypes] = useState(demoAgvTypes);
@@ -140,6 +148,11 @@ export function App({ link }: AppProps) {
   const destinations = useMemo(() => panelOptions(layout), [layout]);
   const equipmentStatus = server.equipment.kind === 'waiting' ? null : server.equipment.snapshot;
   const equipment = useMemo(() => equipmentDetails(serverMap?.equipment ?? [], equipmentStatus), [serverMap, equipmentStatus]);
+  // 装置とストッカー、ステーションの在庫の画面も、届いた装置とステーションの様子から出す
+  const deviceInsides = useMemo(() => equipmentStatus?.devices.map(deviceInsideOf) ?? [], [equipmentStatus]);
+  const stationInventories = useMemo(() => equipmentStatus?.stations.map(stationInventoryOf) ?? [], [equipmentStatus]);
+  /** 消耗品の操作を送り、断られたら理由の文を返す（やり直さない。表示は、届いた様子で変える）。 */
+  const operateConsumables = async (command: ConsumableCommand) => consumableNotice(await link.operateConsumables(command));
   // AGV は、サーバーから届いた様子を、描いているマップに合わせて使う（まだ届いていなければ、いない）
   const agvs = useMemo(
     () => (server.agvs.kind === 'waiting' ? [] : toAgvDetails(server.agvs.snapshot.agvs, layout)),
@@ -235,33 +248,35 @@ export function App({ link }: AppProps) {
           />
         );
       case 'devices':
-        return (
+        return equipmentStatus === null ? (
+          <Loading />
+        ) : (
           <DevicesPage
-            devices={devices}
+            devices={deviceInsides}
             selected={r.target}
-            varieties={demoVarieties}
+            varieties={equipmentStatus.varieties}
             permissions={permissions}
+            offline={offline}
             onSelect={(id) => navigate('devices', id)}
-            onSaveSetting={(id, rows) => setDevices((ds) => ds.map((d) => (d.id === id ? applyDemoSetting(d, rows) : d)))}
+            onSaveSetting={(id, rows) => operateConsumables({ kind: 'stockerSetting', device: id, counts: rows.map((row) => ({ variety: row.variety, count: row.target })) })}
           />
         );
       case 'station':
-        return (
+        return equipmentStatus === null ? (
+          <Loading />
+        ) : (
           <StationPage
-            stations={stations}
+            stations={stationInventories}
             selected={r.target}
-            varieties={demoVarieties}
+            varieties={equipmentStatus.varieties}
             permissions={permissions}
+            offline={offline}
             onSelect={(id) => navigate('station', id)}
-            onShip={(sid, item) => setStations((ss) => ss.map((s) => (s.id === sid ? { ...s, items: s.items.filter((i) => i.id !== item) } : s)))}
-            onFix={(sid, item, fix) =>
-              setStations((ss) =>
-                ss.map((s) =>
-                  s.id === sid
-                    ? { ...s, items: s.items.map((i) => (i.id === item ? { ...i, variety: fix.variety, condition: fix.condition, state: { kind: 'available' } } : i)) }
-                    : s,
-                ),
-              )
+            onShip={(_, item) => operateConsumables({ kind: 'ship', consumable: item })}
+            onFix={(_, item, fix) =>
+              fix.condition === null
+                ? Promise.resolve(fixProblem(fix))
+                : operateConsumables({ kind: 'correct', consumable: item, variety: fix.variety, condition: fix.condition })
             }
           />
         );
@@ -271,8 +286,8 @@ export function App({ link }: AppProps) {
             key={r.target ?? ''}
             records={records}
             selected={r.target}
-            stations={stations.map((s) => s.id)}
-            devices={devices}
+            stations={demoStations.map((s) => s.id)}
+            devices={demoDevices}
             varieties={demoVarieties}
             permissions={permissions}
             onOpen={(id) => navigate('consumables', id)}
@@ -396,9 +411,7 @@ export function App({ link }: AppProps) {
   return (
     <>
       <ConnectionBanner connection={server.connection} />
-      <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">
-        マップの画面と、運転状態、AGV、メッセージのほかは、見本のデータです
-      </p>
+      {!SERVER_SCREENS.has(route.screen) && <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">この画面は、見本のデータです</p>}
       {route.screen === 'map' && layout.panels.length === 0 ? (
         <MainLayout {...frame} current="map" title="全体の様子（マップ）">
           <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">

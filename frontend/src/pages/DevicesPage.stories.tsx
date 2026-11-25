@@ -11,8 +11,9 @@ const meta = {
     selected: null,
     varieties: demoVarieties,
     permissions: initialRoles.運用,
+    offline: false,
     onSelect: () => {},
-    onSaveSetting: () => {},
+    onSaveSetting: () => Promise.resolve(null),
   },
   decorators: [
     (Story) => (

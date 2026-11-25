@@ -23,8 +23,11 @@ export interface DevicesPageProps {
   /** 登録してある品種（設定に加えられるもの）。 */
   readonly varieties: readonly string[];
   readonly permissions: Permissions;
+  /** サーバーとつながっていない（操作を送れない）。 */
+  readonly offline: boolean;
   readonly onSelect: (id: EquipmentId) => void;
-  readonly onSaveSetting: (id: EquipmentId, setting: readonly SavedRow[]) => void;
+  /** 設定を保存する。受け付けたら null、断られたら理由の文を返す。 */
+  readonly onSaveSetting: (id: EquipmentId, setting: readonly SavedRow[]) => Promise<string | null>;
 }
 
 const section = 'flex flex-col gap-4 rounded-[10px] border border-line bg-paper p-5';
@@ -35,7 +38,7 @@ const darkButton = `${button} bg-graphite text-white disabled:bg-disabled-border
 const th = 'border-b border-line px-3 py-2 text-left font-bold text-ink-muted';
 
 /** 装置とストッカー（docs/screens.md の「3 装置とストッカー」）。装置の中の様子と、ストッカーの設定（段取り替え）。 */
-export function DevicesPage({ devices, selected, varieties, permissions, onSelect, onSaveSetting }: DevicesPageProps) {
+export function DevicesPage({ devices, selected, varieties, permissions, offline, onSelect, onSaveSetting }: DevicesPageProps) {
   const device = chooseDevice(devices, selected);
   if (device === null) {
     return <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">登録してある装置はありません。装置は、消耗品の構成の画面で加えます。</p>;
@@ -60,7 +63,7 @@ export function DevicesPage({ devices, selected, varieties, permissions, onSelec
         </select>
       </label>
       <Inside device={device} />
-      <SettingSection key={device.id} device={device} varieties={varieties} permissions={permissions} onSave={(rows) => onSaveSetting(device.id, rows)} />
+      <SettingSection key={device.id} device={device} varieties={varieties} permissions={permissions} offline={offline} onSave={(rows) => onSaveSetting(device.id, rows)} />
     </>
   );
 }
@@ -73,7 +76,7 @@ function Inside({ device }: { readonly device: DeviceInside }) {
       </h2>
       <div className="flex flex-wrap items-stretch gap-4">
         <Part title="加工部" grow="flex-[1_1_180px]">
-          <Box item={device.processing} dashed />
+          <Items items={device.processing} dashed />
         </Part>
         {device.stockers.map((s) => (
           <Part key={s.name} title={s.name} grow="flex-[2_1_320px]">
@@ -92,7 +95,7 @@ function Inside({ device }: { readonly device: DeviceInside }) {
           </Part>
         ))}
         <Part title="受け渡し部" grow="flex-[1_1_160px]">
-          <Box item={device.handover} />
+          <Items items={device.handover} />
         </Part>
       </div>
     </section>
@@ -124,6 +127,11 @@ function Consumable({ item }: { readonly item: HeldConsumable }) {
   );
 }
 
+/** 加工部や受け渡し部にあるもの（なければ空き）。 */
+function Items({ items, dashed = false }: { readonly items: readonly HeldConsumable[]; readonly dashed?: boolean }) {
+  return items.length === 0 ? <Box item={null} /> : items.map((item, i) => <Box key={item.id ?? i} item={item} dashed={dashed} />);
+}
+
 function Box({ item, dashed = false }: { readonly item: HeldConsumable | null; readonly dashed?: boolean }) {
   if (item === null) {
     return <div className="flex min-h-[120px] flex-1 items-center justify-center rounded-lg border border-line bg-ground text-sm text-ink-muted">空き</div>;
@@ -140,7 +148,7 @@ function SlotBox({ number, content }: { readonly number: number; readonly conten
         : 'border border-control-border bg-white'
       : 'border border-dashed border-control-border bg-ground';
   return (
-    <div className={`flex min-h-[120px] flex-col gap-0.5 rounded-lg p-2.5 ${look}`}>
+    <div data-slot className={`flex min-h-[120px] flex-col gap-0.5 rounded-lg p-2.5 ${look}`}>
       <div className="text-xs text-ink-muted">スロット{number}</div>
       {content.kind === 'empty' ? <div className="mt-auto text-xs text-ink-muted">空き</div> : <Consumable item={content.consumable} />}
     </div>
@@ -165,16 +173,35 @@ function SettingSection({
   device,
   varieties,
   permissions,
+  offline,
   onSave,
 }: {
   readonly device: DeviceInside;
   readonly varieties: readonly string[];
   readonly permissions: Permissions;
-  readonly onSave: (rows: readonly SavedRow[]) => void;
+  readonly offline: boolean;
+  readonly onSave: (rows: readonly SavedRow[]) => Promise<string | null>;
 }) {
   const [draft, setDraft] = useState<DraftRow[] | null>(null);
   const [adding, setAdding] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const allowed = permissions.has('stockerSetting');
+  const blocked = !allowed ? 'ストッカーの設定は、運用以上のロールで使えます。' : offline ? 'サーバーとつながっていないので、設定を変えられません。' : null;
+  const save = async (rows: readonly SavedRow[]) => {
+    setSaving(true);
+    setNotice(null);
+    try {
+      const refused = await onSave(rows);
+      if (refused === null) {
+        setDraft(null);
+      } else {
+        setNotice(refused);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
   const capacity = slotCapacity(device);
   const problem = draft === null ? null : settingProblem(draft, capacity);
   const addable = draft === null ? [] : varieties.filter((v) => !draft.some((r) => r.variety === v));
@@ -189,7 +216,7 @@ function SettingSection({
           ストッカーの設定
         </h2>
         {draft === null && (
-          <button type="button" disabled={!allowed} onClick={() => setDraft(draftOf(device.setting))} className={plainButton}>
+          <button type="button" disabled={blocked !== null} onClick={() => setDraft(draftOf(device.setting))} className={plainButton}>
             設定を変える（段取り替え）
           </button>
         )}
@@ -198,7 +225,7 @@ function SettingSection({
         どの品種を何個置いておくかを決めます。設定を変えると、足りないものを届け、設定にないものを回収します。
         {capacity === null ? '' : `スロットは ${capacity} 個あります。`}
       </p>
-      {!allowed && <p className="m-0 text-sm font-bold">ストッカーの設定は、運用以上のロールで使えます。</p>}
+      {blocked !== null && <p className="m-0 text-sm font-bold">{blocked}</p>}
 
       <div className="relative overflow-x-auto">
         <table className="w-full min-w-[600px] border-collapse text-sm">
@@ -269,9 +296,9 @@ function SettingSection({
 
       {draft !== null && (
         <div className="flex flex-col gap-3">
-          {problem !== null && (
+          {(problem ?? notice) !== null && (
             <p role="alert" className="m-0 text-sm font-bold text-attention">
-              {problem}
+              {problem ?? notice}
             </p>
           )}
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -303,19 +330,18 @@ function SettingSection({
               </button>
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setDraft(null)} className={plainButton}>
-                やめる
-              </button>
               <button
                 type="button"
-                disabled={problem !== null}
                 onClick={() => {
-                  onSave(toSaved(draft));
                   setDraft(null);
+                  setNotice(null);
                 }}
-                className={darkButton}
+                className={plainButton}
               >
-                設定を保存する
+                やめる
+              </button>
+              <button type="button" disabled={problem !== null || saving || offline} onClick={() => void save(toSaved(draft))} className={darkButton}>
+                {saving ? '保存しています' : '設定を保存する'}
               </button>
             </div>
           </div>

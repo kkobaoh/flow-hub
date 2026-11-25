@@ -1,3 +1,4 @@
+import { postOperation } from '../../../shared/api/postCommand';
 import type { ManualStepCommand } from '../ManualPanel';
 import type { ManualOutcome } from '../manual';
 import type { ControlStatus } from '../controlStatus';
@@ -39,7 +40,7 @@ export type AgvCommandResult =
   | 'refused'
   | 'failed';
 
-const SERVER_RESULTS: ReadonlySet<string> = new Set<AgvCommandResult>([
+const SERVER_RESULTS: ReadonlySet<Exclude<AgvCommandResult, 'refused' | 'failed'>> = new Set([
   'accepted',
   'alreadyThere',
   'noRoute',
@@ -81,32 +82,9 @@ export function agvCommandRequest(id: AgvId, command: AgvCommand): { readonly pa
 }
 
 /** 操作を送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
-export async function sendAgvCommand(baseUrl: string, id: AgvId, command: AgvCommand, timeoutMs: number): Promise<AgvCommandResult> {
+export function sendAgvCommand(baseUrl: string, id: AgvId, command: AgvCommand, timeoutMs: number): Promise<AgvCommandResult> {
   const { path, body } = agvCommandRequest(id, command);
-  try {
-    const response = await fetch(`${baseUrl}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (response.status === 409) {
-      return 'refused';
-    }
-    if (!response.ok) {
-      console.warn(`${path} は受け付けられませんでした（${response.status}）。`);
-      return 'failed';
-    }
-    const result: unknown = ((await response.json()) as { result?: unknown }).result;
-    if (typeof result === 'string' && SERVER_RESULTS.has(result)) {
-      return result as AgvCommandResult;
-    }
-    console.warn(`${path} の結果がわかりません（${String(result)}）。`);
-    return 'failed';
-  } catch (error) {
-    console.warn(`${path} を送れませんでした。`, error);
-    return 'failed';
-  }
+  return postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS);
 }
 
 /** カードに出す、操作の結果の知らせ（受け付けたときは null）。マニュアル操作は、マニュアル操作の欄が出す。 */

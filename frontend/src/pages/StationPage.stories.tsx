@@ -11,9 +11,10 @@ const meta = {
     selected: null,
     varieties: demoVarieties,
     permissions: initialRoles.運用,
+    offline: false,
     onSelect: () => {},
-    onShip: () => {},
-    onFix: () => {},
+    onShip: () => Promise.resolve(null),
+    onFix: () => Promise.resolve(null),
   },
   decorators: [
     (Story) => (

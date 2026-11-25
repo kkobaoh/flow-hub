@@ -68,3 +68,32 @@ test('マップの編集：パネルを置いて保存しないまま移ろう�
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('搬送の一覧');
   expect(errors).toEqual([]);
 });
+
+test('装置とストッカー：サーバーの装置の中を出し、ストッカーの設定をサーバーへ保存する', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/#/devices/DEV-2');
+
+  const inside = page.locator('[aria-labelledby="inside-title"]');
+  await expect(inside).toContainText('スロット10'); // 初期データの DEV-2 は、スロットが 10
+  const setting = page.locator('[aria-labelledby="setting-title"]');
+  await expect(setting.getByRole('row', { name: /DR-5/ })).toBeVisible();
+
+  // 同じ個数のまま保存する（ほかのテストの搬送の様子を変えないため）
+  await setting.getByRole('button', { name: '設定を変える（段取り替え）' }).click();
+  await setting.getByRole('spinbutton', { name: 'DR-5 の設定の個数' }).fill('2');
+  await setting.getByRole('button', { name: '設定を保存する' }).click();
+
+  await expect(setting.getByRole('spinbutton')).toHaveCount(0);
+  await expect(setting.getByRole('alert')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('ステーションの在庫：サーバーの品種ごとの数を出す', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/#/station');
+
+  const summary = page.locator('[aria-labelledby="summary-title"]');
+  await expect(summary.getByRole('row', { name: /DR-5/ })).toBeVisible();
+  await expect(summary.getByRole('row', { name: /DR-8/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});

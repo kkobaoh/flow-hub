@@ -1,0 +1,82 @@
+import { postOperation } from '../../../shared/api/postCommand';
+import type { Condition } from '../station';
+
+/** 画面から送る消耗品の操作（装置とストッカー、ステーションの在庫の画面）。 */
+export type ConsumableCommand =
+  | { readonly kind: 'stockerSetting'; readonly device: string; readonly counts: readonly { readonly variety: string; readonly count: number }[] }
+  | { readonly kind: 'ship'; readonly consumable: string }
+  | { readonly kind: 'correct'; readonly consumable: string; readonly variety: string; readonly condition: Condition };
+
+/**
+ * 操作の結果。
+ * - saved・requested・corrected：受け付けた。
+ * - exceedsSlots：個数の合計がスロットの数を超えている。notAtStation：ステーションにない。
+ *   inAssignedTransport：AGV を割り当て済みの、届ける搬送に入っている。notNeedingCheck：もう要確認ではない。どれも、何も変えていない。
+ * - failed：応答がない、または思わない応答（届いたかわからない。やり直さない）。
+ */
+export type ConsumableCommandResult =
+  | 'saved'
+  | 'exceedsSlots'
+  | 'requested'
+  | 'notAtStation'
+  | 'inAssignedTransport'
+  | 'corrected'
+  | 'notNeedingCheck'
+  | 'failed';
+
+const SERVER_RESULTS: ReadonlySet<Exclude<ConsumableCommandResult, 'failed'>> = new Set([
+  'saved',
+  'exceedsSlots',
+  'requested',
+  'notAtStation',
+  'inAssignedTransport',
+  'corrected',
+  'notNeedingCheck',
+] as const);
+
+/** 操作を、サーバーの HTTP の窓口へ送る形にする。 */
+export function consumableCommandRequest(command: ConsumableCommand): { readonly path: string; readonly body: Record<string, unknown> } {
+  switch (command.kind) {
+    case 'stockerSetting':
+      return { path: `/devices/${encodeURIComponent(command.device)}/stocker-setting`, body: { counts: command.counts } };
+    case 'ship':
+      return { path: `/consumables/${encodeURIComponent(command.consumable)}/ship`, body: {} };
+    case 'correct':
+      return {
+        path: `/consumables/${encodeURIComponent(command.consumable)}/correct`,
+        body: { variety: command.variety, condition: command.condition === '新品' ? 'new' : 'used' },
+      };
+    default:
+      throw new Error(`知らない操作です: ${JSON.stringify(command satisfies never)}`);
+  }
+}
+
+/** 操作を送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
+export async function sendConsumableCommand(baseUrl: string, command: ConsumableCommand, timeoutMs: number): Promise<ConsumableCommandResult> {
+  const { path, body } = consumableCommandRequest(command);
+  const result = await postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS);
+  // 消耗品の窓口は 409 を返さないので、返ってきたら思わない応答として扱う
+  return result === 'refused' ? 'failed' : result;
+}
+
+/** 画面に出す、操作の結果の知らせ（受け付けたときは null）。 */
+export function consumableNotice(result: ConsumableCommandResult): string | null {
+  switch (result) {
+    case 'saved':
+    case 'requested':
+    case 'corrected':
+      return null;
+    case 'exceedsSlots':
+      return '個数の合計がスロットの数を超えているので、保存できませんでした。';
+    case 'notAtStation':
+      return 'ステーションにないので、出庫できませんでした。表示を確かめてください。';
+    case 'inAssignedTransport':
+      return '届ける搬送に AGV を割り当て済みなので、出庫できませんでした。';
+    case 'notNeedingCheck':
+      return 'もう要確認ではないので、直しませんでした（ほかの人が直したか、出庫したなど）。表示を確かめてください。';
+    case 'failed':
+      return 'サーバーから応答がなく、届いたかわかりません。表示を確かめてください。';
+    default:
+      throw new Error(`知らない結果です: ${JSON.stringify(result satisfies never)}`);
+  }
+}

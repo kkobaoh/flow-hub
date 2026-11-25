@@ -11,3 +11,41 @@ export async function postCommand(baseUrl: string, path: string, timeoutMs: numb
     return 'failed';
   }
 }
+
+/**
+ * HTTP の窓口へ JSON を POST で送り、返ってきた `{ "result": "…" }` を受け取る（応答を待つのは timeoutMs まで。やり直さない）。
+ * - 409（今の状態では受け付けられない）は refused。
+ * - results にない結果、ほかの応答、応答がない・つながらないときは failed（届いたかわからない）。
+ */
+export async function postOperation<T extends string>(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  timeoutMs: number,
+  results: ReadonlySet<T>,
+): Promise<T | 'refused' | 'failed'> {
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (response.status === 409) {
+      return 'refused';
+    }
+    if (!response.ok) {
+      console.warn(`${path} は受け付けられませんでした（${response.status}）。`);
+      return 'failed';
+    }
+    const result: unknown = ((await response.json()) as { result?: unknown }).result;
+    if (typeof result === 'string' && (results as ReadonlySet<string>).has(result)) {
+      return result as T;
+    }
+    console.warn(`${path} の結果がわかりません（${String(result)}）。`);
+    return 'failed';
+  } catch (error) {
+    console.warn(`${path} を送れませんでした。`, error);
+    return 'failed';
+  }
+}

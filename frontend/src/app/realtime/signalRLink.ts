@@ -5,6 +5,7 @@ import { sendAgvCommand } from '../../features/fleet/api/agvCommands';
 import { parseAgvs } from '../../features/fleet/api/agvSnapshots';
 import { parseMap } from '../../features/routing/api/mapSnapshot';
 import { parseEquipmentStatus } from '../../features/tool/api/equipmentStatus';
+import { sendConsumableCommand } from '../../features/tool/api/consumableCommands';
 import { parseMessages } from '../../features/alarm/api/messages';
 import { parseSystemStatus } from '../../features/system/systemStatus';
 
@@ -34,6 +35,7 @@ export function createSignalRLink(baseUrl = ''): ServerLink {
     startSystem: () => postCommand(baseUrl, '/system/start', COMMAND_TIMEOUT_MS),
     stopSystem: () => postCommand(baseUrl, '/system/stop', COMMAND_TIMEOUT_MS),
     operateAgv: (id, command) => sendAgvCommand(baseUrl, id, command, COMMAND_TIMEOUT_MS),
+    operateConsumables: (command) => sendConsumableCommand(baseUrl, command, COMMAND_TIMEOUT_MS),
   };
 }
 

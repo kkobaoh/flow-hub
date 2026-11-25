@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { equipmentId } from '../features/tool/equipment';
 import { panelId } from '../features/routing/model';
@@ -13,22 +14,36 @@ const st1: StationInventory = {
   panel: panelId('ST'),
   summary: [{ variety: '[品種A]', available: 1, reserved: 1, replenishWaiting: 2 }],
   items: [
-    { id: 'T-0111', variety: '[品種A]', condition: '新品', receivedAt: at, state: { kind: 'reserved', transport: 14, assigned: true } },
+    { id: 'T-0111', variety: '[品種A]', condition: '新品', receivedAt: at, state: { kind: 'reserved', device: 'DEV-1' } },
     { id: 'T-0110', variety: '[品種A]', condition: '新品', receivedAt: at, state: { kind: 'available' } },
     { id: 'X-9001', variety: null, condition: null, receivedAt: at, state: { kind: 'needsCheck', reason: '登録されていない ID として入ってきました。' } },
   ],
 };
 
 function setup(overrides: Partial<StationPageProps> = {}) {
-  const onShip = vi.fn();
-  const onFix = vi.fn();
+  const onShip = vi.fn<StationPageProps['onShip']>().mockResolvedValue(null);
+  const onFix = vi.fn<StationPageProps['onFix']>().mockResolvedValue(null);
   const view = render(
-    <StationPage stations={[st1]} selected={null} varieties={['[品種A]', '[品種B]']} permissions={initialRoles.運用} onSelect={() => {}} onShip={onShip} onFix={onFix} {...overrides} />,
+    <StationPage
+      stations={[st1]}
+      selected={null}
+      varieties={['[品種A]', '[品種B]']}
+      permissions={initialRoles.運用}
+      offline={false}
+      onSelect={() => {}}
+      onShip={onShip}
+      onFix={onFix}
+      {...overrides}
+    />,
   );
   return { ...view, onShip, onFix };
 }
 
 const byText = (root: Element, text: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text)!;
+const flush = () =>
+  act(async () => {
+    await Promise.resolve();
+  });
 const ids = (c: HTMLElement) => [...c.querySelectorAll('[aria-labelledby="items-title"] tbody tr')].map((r) => r.querySelector('td')?.textContent);
 const rowOf = (c: HTMLElement, id: string) => [...c.querySelectorAll('[aria-labelledby="items-title"] tbody tr')].find((r) => r.querySelector('td')?.textContent === id)!;
 
@@ -48,25 +63,54 @@ describe('StationPage（ステーションの在庫）', () => {
     expect(ids(container)).toEqual(['X-9001']);
   });
 
-  it('出庫は、確かめる画面で選んだときだけ頼む', () => {
+  it('出庫は、確かめる画面で選んだときだけ頼む', async () => {
     const { container, onShip } = setup();
 
     click(byText(rowOf(container, 'T-0110'), '出庫する'));
     const dialog = container.querySelector('[role="alertdialog"]')!;
     expect(dialog.textContent).toContain('T-0110');
     click(byText(dialog, '出庫する'));
+    await flush();
 
     expect(onShip).toHaveBeenCalledWith('ST-1', 'T-0110');
   });
 
-  it('届ける搬送に AGV を割り当て済みのものは、出庫できず理由を出す', () => {
-    const { container } = setup();
+  it('届ける予約が付いているものは、届け先を出し、出庫は送ってサーバーが断ったら理由を出す', async () => {
+    const onShip = vi.fn<StationPageProps['onShip']>().mockResolvedValue('届ける搬送に AGV を割り当て済みなので、出庫できませんでした。');
+    const { container } = setup({ onShip });
+    expect(rowOf(container, 'T-0111').textContent).toContain('届ける予約あり（DEV-1 へ）');
 
-    expect(byText(rowOf(container, 'T-0111'), '出庫する').disabled).toBe(true);
-    expect(rowOf(container, 'T-0111').textContent).toContain('AGV を割り当て済みなので、出庫できません。');
+    click(byText(rowOf(container, 'T-0111'), '出庫する'));
+    click(byText(container.querySelector('[role="alertdialog"]')!, '出庫する'));
+    await flush();
+
+    expect(onShip).toHaveBeenCalledWith('ST-1', 'T-0111');
+    expect(container.querySelector('[aria-labelledby="items-title"] [role="alert"]')?.textContent).toBe('届ける搬送に AGV を割り当て済みなので、出庫できませんでした。');
   });
 
-  it('要確認の消耗品を直す。品種と新品・中古品を選ぶまで保存できない', () => {
+  it('直すのをサーバーが断ったら、理由を出す', async () => {
+    const onFix = vi.fn<StationPageProps['onFix']>().mockResolvedValue('もう要確認ではないので、直しませんでした。');
+    const { container } = setup({ onFix });
+
+    click(byText(rowOf(container, 'X-9001'), '確かめて直す'));
+    const dialog = container.querySelector('[role="dialog"]')!;
+    change(dialog.querySelector<HTMLSelectElement>('select')!, '[品種B]');
+    click(dialog.querySelector<HTMLInputElement>('input[value="新品"]')!);
+    click(byText(dialog, '直して、要確認を外す'));
+    await flush();
+
+    expect(container.querySelector('[aria-labelledby="items-title"] [role="alert"]')?.textContent).toBe('もう要確認ではないので、直しませんでした。');
+  });
+
+  it('サーバーとつながっていないときは、出庫も直すのもできず、理由を出す', () => {
+    const { container } = setup({ offline: true });
+
+    expect(byText(rowOf(container, 'T-0110'), '出庫する').disabled).toBe(true);
+    expect(byText(rowOf(container, 'X-9001'), '確かめて直す').disabled).toBe(true);
+    expect(container.textContent).toContain('サーバーとつながっていないので、出庫も、要確認を直すこともできません。');
+  });
+
+  it('要確認の消耗品を直す。品種と新品・中古品を選ぶまで保存できない', async () => {
     const { container, onFix } = setup();
 
     click(byText(rowOf(container, 'X-9001'), '確かめて直す'));
@@ -79,6 +123,7 @@ describe('StationPage（ステーションの在庫）', () => {
     expect(save.disabled).toBe(true);
     click(dialog.querySelector<HTMLInputElement>('input[value="中古品"]')!);
     click(save);
+    await flush();
 
     expect(onFix).toHaveBeenCalledWith('ST-1', 'X-9001', { variety: '[品種B]', condition: '中古品' });
     expect(container.querySelector('[role="dialog"]')).toBeNull();

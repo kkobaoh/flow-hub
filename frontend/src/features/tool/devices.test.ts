@@ -10,7 +10,7 @@ const slots = (name: string, count: number): Stocker => ({
 });
 
 function device(id: string, stockers: readonly Stocker[] = [slots('ストッカー1', 3)]): DeviceInside {
-  return { id: equipmentId(id), panel: panelId('D1'), processing: null, stockers, handover: null, setting: [] };
+  return { id: equipmentId(id), panel: panelId('D1'), processing: [], stockers, handover: [], setting: [] };
 }
 
 describe('chooseDevice（出す装置）', () => {

@@ -115,7 +115,7 @@ describe('useServer', () => {
   it('装置とステーションの様子も、番号の古いものは捨て、切れたら古いものにする', () => {
     const link = createFakeLink();
     const { latest } = watch(link);
-    const equipment = { version: 2, devices: [], stations: [{ id: 'ST-1', needsCheck: 1, replenishWaiting: 0, stock: [] }] };
+    const equipment = { version: 2, devices: [], stations: [{ id: 'ST-1', panel: 'ST', needsCheck: 1, replenishWaiting: 0, stock: [], items: [] }], varieties: [] };
 
     act(() => {
       link.emitEquipment(equipment);
