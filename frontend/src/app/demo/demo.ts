@@ -335,9 +335,9 @@ export const demoConfigVarieties: readonly Variety[] = [
 
 /** 見本の装置の構成（中身は demoDevices とそろえている）。 */
 export const demoDeviceConfigs: readonly DeviceConfig[] = [
-  { id: 'DEV-1', panel: 'D1', layout: { kind: 'slots', slots: [3, 3] }, occupied: [[1, 2, 3], [1, 2, 3]], busy: true },
-  { id: 'DEV-2', panel: 'D2', layout: { kind: 'slots', slots: [4] }, occupied: [[1, 2, 3, 4]], busy: true },
-  { id: 'DEV-3', panel: 'SP', layout: { kind: 'plate', stockers: 1 }, occupied: [[1]], busy: true },
+  { id: 'DEV-1', panel: 'D1', slots: [3, 3], occupied: [[1, 2, 3], [1, 2, 3]], busy: true },
+  { id: 'DEV-2', panel: 'D2', slots: [4], occupied: [[1, 2, 3, 4]], busy: true },
+  { id: 'DEV-3', panel: 'SP', slots: [2], occupied: [[1]], busy: true },
 ];
 
 /** 見本のステーションの構成。 */

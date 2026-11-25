@@ -8,14 +8,13 @@ import {
   processKindDeleteBlockedReason,
   processKindProblem,
   removeIdBlockedReason,
+  stationAddBlockedReason,
   stationDeleteBlockedReason,
   stationProblem,
-  toDeviceLayout,
   varietyDeleteBlockedReason,
   varietyProblem,
   type DeviceConfig,
   type DeviceDraft,
-  type DeviceLayout,
   type ProcessKind,
   type ProcessKindDraft,
   type StationConfig,
@@ -36,10 +35,10 @@ export interface ToolSettingsPageProps {
   /** 公開中のマップの受け渡しパネル（特殊消耗品受け渡しパネルを含む）。 */
   readonly transferPanels: readonly string[];
   readonly permissions: Permissions;
-  /** サーバーとつながっていない（加工の種類と品種は、変えられない）。 */
+  /** サーバーとつながっていない（変えられない）。 */
   readonly offline: boolean;
   /**
-   * 加工の種類、品種、ID の対応をサーバーへ送る。断られたら、その理由の文を返す（受け付けたら null）。
+   * 加工の種類、品種、ID の対応、装置、ステーションをサーバーへ送る。断られたら、その理由の文を返す（受け付けたら null）。
    * original は直す前の名前（加えるときは null）。
    */
   readonly onSaveProcessKind: (original: string | null, kind: ProcessKind) => Promise<string | null>;
@@ -48,11 +47,10 @@ export interface ToolSettingsPageProps {
   readonly onDeleteVariety: (name: string) => Promise<string | null>;
   readonly onAddId: (variety: string, id: string) => Promise<string | null>;
   readonly onRemoveId: (variety: string, id: string) => Promise<string | null>;
-  /** 装置とステーションを保存する（まだサーバーとつないでいない。CN-15）。original は直す前の ID（加えるときは null）。 */
-  readonly onSaveDevice: (original: string | null, device: { readonly id: string; readonly panel: string; readonly layout: DeviceLayout }) => void;
-  readonly onDeleteDevice: (id: string) => void;
-  readonly onSaveStation: (original: string | null, station: { readonly id: string; readonly panel: string }) => void;
-  readonly onDeleteStation: (id: string) => void;
+  readonly onSaveDevice: (original: string | null, device: { readonly id: string; readonly panel: string; readonly slots: readonly number[] }) => Promise<string | null>;
+  readonly onDeleteDevice: (id: string) => Promise<string | null>;
+  readonly onSaveStation: (original: string | null, station: { readonly id: string; readonly panel: string }) => Promise<string | null>;
+  readonly onDeleteStation: (id: string) => Promise<string | null>;
 }
 
 type Tab = 'process' | 'variety' | 'device' | 'station';
@@ -73,7 +71,7 @@ type Dialog =
   | { readonly kind: 'delete'; readonly what: string; readonly name: string; readonly run: () => void };
 
 const NO_PERMISSION = '消耗品の構成は、管理者のロールで使えます。';
-const OFFLINE = 'サーバーとつながっていないので、加工の種類と品種を加えたり変えたりできません。';
+const OFFLINE = 'サーバーとつながっていないので、消耗品の構成を加えたり変えたりできません。';
 const num = 'font-number text-[17px] font-semibold';
 
 /** 消耗品の構成（docs/screens.md の「8 消耗品の構成」）。加工の種類、品種、装置、ステーションを登録する。 */
@@ -85,7 +83,7 @@ export function ToolSettingsPage(props: ToolSettingsPageProps) {
   const close = () => setDialog(null);
   const usedPanels = [...props.devices.map((d) => d.panel), ...props.stations.map((s) => s.panel)];
   const askDelete = (what: string, name: string, run: () => void) => setDialog({ kind: 'delete', what, name, run });
-  // 加工の種類と品種は、サーバーへ送る。送って結果を待つあいだは押せなくし、断られたら理由を出す（次に送ったら消す）
+  // サーバーへ送る。送って結果を待つあいだは押せなくし、断られたら理由を出す（次に送ったら消す）
   const serverAllowed = allowed && !props.offline;
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -121,7 +119,7 @@ export function ToolSettingsPage(props: ToolSettingsPageProps) {
   return (
     <>
       {blocked !== null && <p className="m-0 text-sm font-bold">{blocked}</p>}
-      {blocked === null && props.offline && (tab === 'process' || tab === 'variety') && <p className="m-0 text-sm font-bold">{OFFLINE}</p>}
+      {blocked === null && props.offline && <p className="m-0 text-sm font-bold">{OFFLINE}</p>}
       <div role="tablist" aria-label="登録するもの" className="flex flex-wrap gap-1 border-b-2 border-line">
         {TABS.map(([key, label]) => (
           <button
@@ -198,11 +196,12 @@ export function ToolSettingsPage(props: ToolSettingsPageProps) {
 
       {tab === 'device' && (
         <Table
-          note="装置ごとに、受け渡しパネルと、ストッカーごとのスロットの数を決めます。プレートに載せたまま置く装置には、スロットがありません。"
+          note="装置ごとに、受け渡しパネルと、ストッカーごとのスロットの数を決めます。"
           addLabel="装置を加える"
-          allowed={allowed}
+          allowed={serverEnabled}
           onAdd={() => setDialog({ kind: 'device', target: null })}
           columns={['装置', '受け渡しパネル', 'ストッカー']}
+          notice={noticeLine}
         >
           {[...props.devices]
             .sort((a, b) => byIdNumber(a.id, b.id))
@@ -210,17 +209,13 @@ export function ToolSettingsPage(props: ToolSettingsPageProps) {
               <tr key={d.id} className="border-b border-disabled-border">
                 <td className={`${td} font-number text-[17px] font-bold`}>{d.id}</td>
                 <td className={td}>{d.panel}</td>
-                <td className={td}>
-                  {d.layout.kind === 'plate'
-                    ? `プレートに載せたまま置く（ストッカー ${d.layout.stockers} つ）`
-                    : d.layout.slots.map((n, i) => `ストッカー${i + 1}：スロット ${n}`).join('、')}
-                </td>
+                <td className={td}>{d.slots.map((n, i) => `ストッカー${i + 1}：スロット ${n}`).join('、')}</td>
                 <td className="px-3 py-1.5">
                   {rowActions(
-                    allowed,
+                    serverEnabled,
                     deviceDeleteBlockedReason(d),
                     () => setDialog({ kind: 'device', target: d }),
-                    () => askDelete('装置', d.id, () => props.onDeleteDevice(d.id)),
+                    () => askDelete('装置', d.id, () => void send(() => props.onDeleteDevice(d.id))),
                   )}
                 </td>
               </tr>
@@ -230,11 +225,12 @@ export function ToolSettingsPage(props: ToolSettingsPageProps) {
 
       {tab === 'station' && (
         <Table
-          note="ステーションの仕様が決まるまでは、スペースの数は扱いません。"
+          note="ステーションの仕様が決まるまでは、スペースの数は扱いません。ステーションの選び方のルールが決まるまでは、1台だけ登録できます。"
           addLabel="ステーションを加える"
-          allowed={allowed}
+          allowed={serverEnabled && stationAddBlockedReason(props.stations) === null}
           onAdd={() => setDialog({ kind: 'station', target: null })}
           columns={['ステーション', '受け渡しパネル']}
+          notice={noticeLine}
         >
           {[...props.stations]
             .sort((a, b) => byIdNumber(a.id, b.id))
@@ -244,10 +240,10 @@ export function ToolSettingsPage(props: ToolSettingsPageProps) {
                 <td className={td}>{s.panel}</td>
                 <td className="px-3 py-1.5">
                   {rowActions(
-                    allowed,
+                    serverEnabled,
                     stationDeleteBlockedReason(s),
                     () => setDialog({ kind: 'station', target: s }),
-                    () => askDelete('ステーション', s.id, () => props.onDeleteStation(s.id)),
+                    () => askDelete('ステーション', s.id, () => void send(() => props.onDeleteStation(s.id))),
                   )}
                 </td>
               </tr>
@@ -311,8 +307,9 @@ export function ToolSettingsPage(props: ToolSettingsPageProps) {
           existing={props.devices.map((d) => d.id)}
           panels={panelChoices(props.transferPanels, usedPanels, dialog.target?.panel ?? null)}
           onSave={(d) => {
-            props.onSaveDevice(dialog.target?.id ?? null, d);
+            const original = dialog.target?.id ?? null;
             close();
+            void send(() => props.onSaveDevice(original, d));
           }}
           onCancel={close}
         />
@@ -323,8 +320,9 @@ export function ToolSettingsPage(props: ToolSettingsPageProps) {
           existing={props.stations.map((s) => s.id)}
           panels={panelChoices(props.transferPanels, usedPanels, dialog.target?.panel ?? null)}
           onSave={(s) => {
-            props.onSaveStation(dialog.target?.id ?? null, s);
+            const original = dialog.target?.id ?? null;
             close();
+            void send(() => props.onSaveStation(original, s));
           }}
           onCancel={close}
         />
@@ -522,10 +520,10 @@ function DeviceDialog({
   readonly target: DeviceConfig | null;
   readonly existing: readonly string[];
   readonly panels: readonly string[];
-  readonly onSave: (device: { readonly id: string; readonly panel: string; readonly layout: DeviceLayout }) => void;
+  readonly onSave: (device: { readonly id: string; readonly panel: string; readonly slots: readonly number[] }) => void;
   readonly onCancel: () => void;
 }) {
-  const [draft, setDraft] = useState<DeviceDraft>(() => (target === null ? { id: '', panel: '', plate: false, slots: [''], plateStockers: '' } : deviceDraftOf(target)));
+  const [draft, setDraft] = useState<DeviceDraft>(() => (target === null ? { id: '', panel: '', slots: [''] } : deviceDraftOf(target)));
   const problem = deviceProblem(draft, existing, target);
   const setSlot = (i: number, v: string) => setDraft((d) => ({ ...d, slots: d.slots.map((s, j) => (j === i ? v : s)) }));
 
@@ -533,38 +531,30 @@ function DeviceDialog({
     <FormDialog title={target === null ? '装置を加える' : `${target.id} を変える`} onCancel={onCancel}>
       {target === null && <TextField label="装置の ID" value={draft.id} onChange={(id) => setDraft((d) => ({ ...d, id }))} />}
       <Choice label="受け渡しパネル" value={draft.panel} options={panels} onChange={(panel) => setDraft((d) => ({ ...d, panel }))} />
-      <label className="flex min-h-11 items-center gap-2 text-[15px]">
-        <input type="checkbox" checked={draft.plate} onChange={(e) => setDraft((d) => ({ ...d, plate: e.target.checked }))} className="size-5 accent-graphite" />
-        プレートに載せたまま置く（スロットがない）
-      </label>
-      {draft.plate ? (
-        <TextField label="ストッカーの数" numeric value={draft.plateStockers} onChange={(plateStockers) => setDraft((d) => ({ ...d, plateStockers }))} />
-      ) : (
-        <div className="flex flex-col gap-2">
-          {draft.slots.map((s, i) => (
-            <div key={i} className="flex items-end gap-2">
-              <div className="flex-1">
-                <TextField label={`ストッカー${i + 1} のスロットの数`} numeric value={s} onChange={(v) => setSlot(i, v)} />
-              </div>
-              <button
-                type="button"
-                aria-label={`ストッカー${i + 1} を外す`}
-                disabled={draft.slots.length === 1}
-                onClick={() => setDraft((d) => ({ ...d, slots: d.slots.filter((_, j) => j !== i) }))}
-                className={plainButton}
-              >
-                外す
-              </button>
+      <div className="flex flex-col gap-2">
+        {draft.slots.map((s, i) => (
+          <div key={i} className="flex items-end gap-2">
+            <div className="flex-1">
+              <TextField label={`ストッカー${i + 1} のスロットの数`} numeric value={s} onChange={(v) => setSlot(i, v)} />
             </div>
-          ))}
-          <div>
-            <button type="button" onClick={() => setDraft((d) => ({ ...d, slots: [...d.slots, ''] }))} className={plainButton}>
-              ストッカーを加える
+            <button
+              type="button"
+              aria-label={`ストッカー${i + 1} を外す`}
+              disabled={draft.slots.length === 1}
+              onClick={() => setDraft((d) => ({ ...d, slots: d.slots.filter((_, j) => j !== i) }))}
+              className={plainButton}
+            >
+              外す
             </button>
           </div>
+        ))}
+        <div>
+          <button type="button" onClick={() => setDraft((d) => ({ ...d, slots: [...d.slots, ''] }))} className={plainButton}>
+            ストッカーを加える
+          </button>
         </div>
-      )}
-      <FormFooter problem={problem} saveLabel="装置を保存する" onCancel={onCancel} onSave={() => onSave({ id: draft.id.trim(), panel: draft.panel, layout: toDeviceLayout(draft) })} />
+      </div>
+      <FormFooter problem={problem} saveLabel="装置を保存する" onCancel={onCancel} onSave={() => onSave({ id: draft.id.trim(), panel: draft.panel, slots: draft.slots.map(Number) })} />
     </FormDialog>
   );
 }

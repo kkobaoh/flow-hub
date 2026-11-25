@@ -119,9 +119,12 @@ test('消耗品の検索：在庫を手入力で登録して開き、消す', as
   await dialog.getByRole('combobox', { name: '所在' }).selectOption({ label: 'ST-1' });
   await dialog.getByRole('button', { name: '記録を保存する' }).click();
 
-  await page.getByRole('searchbox').fill('E2E-1');
-  await page.getByRole('button', { name: '探す' }).click();
-  await expect(page.locator('[aria-labelledby="item-title"]')).toContainText('DR-5・中古品');
+  // 保存の応答のあとに、記録の様子が SignalR で届く。届くまで探し直す
+  await expect(async () => {
+    await page.getByRole('searchbox').fill('E2E-1');
+    await page.getByRole('button', { name: '探す' }).click();
+    await expect(page.locator('[aria-labelledby="item-title"]')).toContainText('DR-5・中古品', { timeout: 1000 });
+  }).toPass();
 
   await page.getByRole('button', { name: '記録を消す' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: '記録を消す' }).click();
@@ -193,10 +196,10 @@ test('消耗品の構成：加工の種類と品種を加え、入庫の予定�
   await page.getByRole('tab', { name: '品種' }).click();
   await page.getByRole('button', { name: '品種を加える' }).click();
   dialog = page.getByRole('dialog');
-  await dialog.getByRole('textbox', { name: '品種の名前' }).fill('E2E-1');
+  await dialog.getByRole('textbox', { name: '品種の名前' }).fill('E2E-V1');
   await dialog.getByRole('combobox', { name: '加工の種類' }).selectOption('e2e-kind');
   await dialog.getByRole('button', { name: '品種を保存する' }).click();
-  const variety = page.getByRole('row', { name: /E2E-1/ });
+  const variety = page.getByRole('row', { name: /E2E-V1/ });
   await expect(variety).toContainText('e2e-kind');
 
   await variety.getByRole('button', { name: 'ID の対応' }).click();
@@ -210,10 +213,36 @@ test('消耗品の構成：加工の種類と品種を加え、入庫の予定�
 
   await variety.getByRole('button', { name: '消す' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: '品種を消す' }).click();
-  await expect(page.getByRole('row', { name: /E2E-1/ })).toHaveCount(0);
+  await expect(page.getByRole('row', { name: /E2E-V1/ })).toHaveCount(0);
   await page.getByRole('tab', { name: '加工の種類' }).click();
   await page.getByRole('row', { name: /e2e-kind/ }).getByRole('button', { name: '消す' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: '加工の種類を消す' }).click();
   await expect(page.getByRole('row', { name: /e2e-kind/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('消耗品の構成：装置のストッカーを加えて外し、ステーションは1台だけ', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/#/consumableConfig');
+
+  await page.getByRole('tab', { name: '装置' }).click();
+  const device = page.getByRole('row', { name: /DEV-2/ });
+  await expect(device).toContainText('ストッカー1：スロット 10'); // 初期データの装置
+  await device.getByRole('button', { name: '変える' }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'ストッカーを加える' }).click();
+  await dialog.getByRole('spinbutton', { name: 'ストッカー2 のスロットの数' }).fill('2');
+  await dialog.getByRole('button', { name: '装置を保存する' }).click();
+  await expect(device).toContainText('ストッカー2：スロット 2');
+
+  await device.getByRole('button', { name: '変える' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'ストッカー2 を外す' }).click();
+  await dialog.getByRole('button', { name: '装置を保存する' }).click();
+  await expect(device).not.toContainText('ストッカー2');
+
+  await page.getByRole('tab', { name: 'ステーション' }).click();
+  await expect(page.getByRole('row', { name: /ST-1/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ステーションを加える' })).toBeDisabled();
   expect(errors).toEqual([]);
 });

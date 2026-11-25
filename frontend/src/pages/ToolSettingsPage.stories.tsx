@@ -21,10 +21,10 @@ const meta = {
     onDeleteVariety: () => Promise.resolve(null),
     onAddId: () => Promise.resolve(null),
     onRemoveId: () => Promise.resolve(null),
-    onSaveDevice: () => {},
-    onDeleteDevice: () => {},
-    onSaveStation: () => {},
-    onDeleteStation: () => {},
+    onSaveDevice: () => Promise.resolve(null),
+    onDeleteDevice: () => Promise.resolve(null),
+    onSaveStation: () => Promise.resolve(null),
+    onDeleteStation: () => Promise.resolve(null),
   },
   decorators: [
     (Story) => (

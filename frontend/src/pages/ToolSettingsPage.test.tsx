@@ -10,7 +10,7 @@ const processKinds: ProcessKind[] = [
   { name: '[加工B]', carrier: '[キャリアB]', capacity: 4 },
 ];
 const varieties: Variety[] = [{ name: '[品種A]', processKind: '[加工A]', ids: ['T-0101', 'T-0102'], stockedIds: ['T-0101'], inUse: true }];
-const devices: DeviceConfig[] = [{ id: 'DEV-1', panel: 'D1', layout: { kind: 'slots', slots: [3, 3] }, occupied: [[1], [3]], busy: true }];
+const devices: DeviceConfig[] = [{ id: 'DEV-1', panel: 'D1', slots: [3, 3], occupied: [[1], [3]], busy: true }];
 const stations: StationConfig[] = [{ id: 'ST-1', panel: 'ST', busy: true }];
 
 function setup(overrides: Partial<ToolSettingsPageProps> = {}) {
@@ -21,10 +21,10 @@ function setup(overrides: Partial<ToolSettingsPageProps> = {}) {
     onDeleteVariety: vi.fn(() => Promise.resolve<string | null>(null)),
     onAddId: vi.fn(() => Promise.resolve<string | null>(null)),
     onRemoveId: vi.fn(() => Promise.resolve<string | null>(null)),
-    onSaveDevice: vi.fn(),
-    onDeleteDevice: vi.fn(),
-    onSaveStation: vi.fn(),
-    onDeleteStation: vi.fn(),
+    onSaveDevice: vi.fn(() => Promise.resolve<string | null>(null)),
+    onDeleteDevice: vi.fn(() => Promise.resolve<string | null>(null)),
+    onSaveStation: vi.fn(() => Promise.resolve<string | null>(null)),
+    onDeleteStation: vi.fn(() => Promise.resolve<string | null>(null)),
   };
   const view = render(
     <ToolSettingsPage
@@ -104,10 +104,12 @@ describe('ToolSettingsPage（消耗品の構成）', () => {
     const { container } = setup({ offline: true });
 
     expect(byText(container, '加工の種類を加える').disabled).toBe(true);
-    expect(container.textContent).toContain('サーバーとつながっていないので、加工の種類と品種を加えたり変えたりできません。');
+    expect(container.textContent).toContain('サーバーとつながっていないので、消耗品の構成を加えたり変えたりできません。');
     click(tab(container, '品種'));
     expect(byText(container, '品種を加える').disabled).toBe(true);
     expect(byText(row(container, '[品種A]'), 'ID の対応').disabled).toBe(true);
+    click(tab(container, '装置'));
+    expect(byText(container, '装置を加える').disabled).toBe(true);
   });
 
   it('品種を加える', async () => {
@@ -152,7 +154,7 @@ describe('ToolSettingsPage（消耗品の構成）', () => {
     expect(onAddId).toHaveBeenCalledWith('[品種A]', 'T-0103');
   });
 
-  it('装置を加える：ストッカーごとにスロットの数を入れ、ストッカーを加えたり外したりできる', () => {
+  it('装置を加える：ストッカーごとにスロットの数を入れ、ストッカーを加えたり外したりできる', async () => {
     const { container, onSaveDevice } = setup();
 
     click(tab(container, '装置'));
@@ -166,25 +168,22 @@ describe('ToolSettingsPage（消耗品の構成）', () => {
     change(input(d, 'ストッカー2 のスロットの数'), '4');
     click(byText(d, 'ストッカーを加える'));
     click(d.querySelector('button[aria-label="ストッカー3 を外す"]')!);
-    click(byText(d, '装置を保存する'));
+    expect(d.textContent).not.toContain('プレート');
+    await clickAndWait(byText(d, '装置を保存する'));
 
-    expect(onSaveDevice).toHaveBeenCalledWith(null, { id: 'DEV-2', panel: 'D2', layout: { kind: 'slots', slots: [3, 4] } });
+    expect(onSaveDevice).toHaveBeenCalledWith(null, { id: 'DEV-2', panel: 'D2', slots: [3, 4] });
   });
 
-  it('プレートに載せたまま置く装置は、ストッカーの数だけ入れる', () => {
-    const { container, onSaveDevice } = setup();
+  it('装置を消すのを断られたら、表の上に理由を出す', async () => {
+    const onDeleteDevice = vi.fn(() => Promise.resolve<string | null>('その装置は、中に消耗品があるか、かかわる搬送があるので、消せませんでした。'));
+    const { container } = setup({ devices: [{ ...devices[0]!, occupied: [[], []], busy: false }], onDeleteDevice });
 
     click(tab(container, '装置'));
-    click(byText(container, '装置を加える'));
-    const d = dialog(container);
-    change(input(d, '装置の ID'), 'DEV-3');
-    change(select(d, '受け渡しパネル'), 'SP');
-    click(d.querySelector('input[type="checkbox"]')!);
-    expect(input(d, 'ストッカー1 のスロットの数')).toBeNull();
-    change(input(d, 'ストッカーの数'), '2');
-    click(byText(d, '装置を保存する'));
+    click(byText(row(container, 'DEV-1'), '消す'));
+    await clickAndWait(byText(container.querySelector('[role="alertdialog"]')!, '装置を消す'));
 
-    expect(onSaveDevice).toHaveBeenCalledWith(null, { id: 'DEV-3', panel: 'SP', layout: { kind: 'plate', stockers: 2 } });
+    expect(onDeleteDevice).toHaveBeenCalledWith('DEV-1');
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('その装置は、中に消耗品があるか、かかわる搬送があるので、消せませんでした。');
   });
 
   it('装置を変える：ID は変えられず、消耗品があるスロットは減らせない', () => {
@@ -200,16 +199,25 @@ describe('ToolSettingsPage（消耗品の構成）', () => {
     expect(d.textContent).toContain('ストッカー2 のスロット3 に消耗品があるので、減らせません。');
   });
 
-  it('ステーションを加える', () => {
-    const { container, onSaveStation } = setup();
+  it('ステーションを加える', async () => {
+    const { container, onSaveStation } = setup({ stations: [] });
 
     click(tab(container, 'ステーション'));
     click(byText(container, 'ステーションを加える'));
     change(input(dialog(container), 'ステーションの ID'), 'ST-2');
     change(select(dialog(container), '受け渡しパネル'), 'D2');
-    click(byText(dialog(container), 'ステーションを保存する'));
+    await clickAndWait(byText(dialog(container), 'ステーションを保存する'));
 
     expect(onSaveStation).toHaveBeenCalledWith(null, { id: 'ST-2', panel: 'D2' });
+  });
+
+  it('ステーションは1台だけで、あれば加えるのを押せない', () => {
+    const { container } = setup();
+
+    click(tab(container, 'ステーション'));
+
+    expect(byText(container, 'ステーションを加える').disabled).toBe(true);
+    expect(container.textContent).toContain('1台だけ登録できます');
   });
 
   it('管理者でなければ、どの操作も使えず、理由を出す', () => {

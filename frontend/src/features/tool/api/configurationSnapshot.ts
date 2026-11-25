@@ -1,13 +1,17 @@
 import { postOperation } from '../../../shared/api/postCommand';
 import { parseVersion, type Versioned } from '../../../shared/realtime/versioned';
-import type { ProcessKind, Variety } from '../config';
+import type { DeviceConfig, ProcessKind, StationConfig, Variety } from '../config';
 
-/** サーバーから届く、消耗品の構成（加工の種類と品種）。変わるたびに番号が進む。 */
+/** サーバーから届く、消耗品の構成（加工の種類、品種、装置、ステーション）。変わるたびに番号が進む。 */
 export interface ConfigurationSnapshot extends Versioned {
   /** 加工の種類（ID の順）。 */
   readonly processKinds: readonly ProcessKind[];
   /** 品種（ID の順）。 */
   readonly varieties: readonly Variety[];
+  /** 装置（ID の順）。 */
+  readonly devices: readonly DeviceConfig[];
+  /** ステーション（ID の順）。 */
+  readonly stations: readonly StationConfig[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
@@ -22,6 +26,20 @@ function text(value: unknown, what: string): string {
 function records(value: unknown, what: string): readonly Record<string, unknown>[] {
   if (!Array.isArray(value) || !value.every(isRecord)) {
     throw new TypeError(`${what}の並びが正しくありません。`);
+  }
+  return value;
+}
+
+function positiveInteger(value: unknown, what: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new TypeError(`${what}が正しくありません（${String(value)}）。`);
+  }
+  return value;
+}
+
+function flag(value: unknown, what: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new TypeError(`${what}が正しくありません。`);
   }
   return value;
 }
@@ -58,6 +76,28 @@ export function parseConfiguration(value: unknown): ConfigurationSnapshot {
       // 画面では、入庫の予定と在庫にある ID をまとめて「対応させた ID」として出す（在庫にある ID は外せない）
       return { name, processKind: text(v.processType, `品種 ${name} の加工の種類`), ids: [...expected, ...stocked], stockedIds: stocked, inUse: v.inUse };
     }),
+    devices: records(value.devices, '装置').map((d) => {
+      const id = text(d.id, '装置の ID');
+      if (!Array.isArray(d.slots) || d.slots.length === 0) {
+        throw new TypeError(`装置 ${id} のストッカーが正しくありません。`);
+      }
+      const slots = d.slots.map((n: unknown) => positiveInteger(n, `装置 ${id} のスロットの数`));
+      // ふさがっているスロットを、ストッカーごとの番号の並びにする
+      const occupied: number[][] = slots.map(() => []);
+      for (const slot of records(d.occupied, `装置 ${id} のふさがっているスロット`)) {
+        const stocker = positiveInteger(slot.stocker, `装置 ${id} のストッカーの番号`);
+        const number = positiveInteger(slot.slot, `装置 ${id} のスロットの番号`);
+        if (stocker > slots.length) {
+          throw new TypeError(`装置 ${id} に、ストッカー${stocker} はありません。`);
+        }
+        occupied[stocker - 1]!.push(number);
+      }
+      return { id, panel: text(d.panel, `装置 ${id} の受け渡しパネル`), slots, occupied, busy: flag(d.inUse, `装置 ${id} の、使われているか`) };
+    }),
+    stations: records(value.stations, 'ステーション').map((s) => {
+      const id = text(s.id, 'ステーションの ID');
+      return { id, panel: text(s.panel, `ステーション ${id} の受け渡しパネル`), busy: flag(s.inUse, `ステーション ${id} の、使われているか`) };
+    }),
   };
 }
 
@@ -68,16 +108,38 @@ export type ConfigurationCommand =
   | { readonly kind: 'addVariety' | 'editVariety'; readonly name: string; readonly processKind: string }
   | { readonly kind: 'deleteVariety'; readonly name: string }
   | { readonly kind: 'addId'; readonly variety: string; readonly id: string }
-  | { readonly kind: 'removeId'; readonly id: string };
+  | { readonly kind: 'removeId'; readonly id: string }
+  | { readonly kind: 'addDevice' | 'editDevice'; readonly device: { readonly id: string; readonly panel: string; readonly slots: readonly number[] } }
+  | { readonly kind: 'deleteDevice'; readonly id: string }
+  | { readonly kind: 'addStation' | 'editStation'; readonly station: { readonly id: string; readonly panel: string } }
+  | { readonly kind: 'deleteStation'; readonly id: string };
 
 /**
  * 操作の結果（サーバーの ConfigurationEndpoints と同じ言葉）。
- * - saved：受け付けた。alreadyRegistered・notFound・inUse：断った（何も変えていない）。
+ * - saved：受け付けた。alreadyRegistered・notFound・inUse・panelUnavailable・slotsOccupied・exceedsStockerSetting・stationLimit：断った（何も変えていない）。
  * - failed：応答がない、または思わない応答（やり直さない）。
  */
-export type ConfigurationResult = 'saved' | 'alreadyRegistered' | 'notFound' | 'inUse' | 'failed';
+export type ConfigurationResult =
+  | 'saved'
+  | 'alreadyRegistered'
+  | 'notFound'
+  | 'inUse'
+  | 'panelUnavailable'
+  | 'slotsOccupied'
+  | 'exceedsStockerSetting'
+  | 'stationLimit'
+  | 'failed';
 
-const SERVER_RESULTS: ReadonlySet<ConfigurationResult> = new Set(['saved', 'alreadyRegistered', 'notFound', 'inUse'] as const);
+const SERVER_RESULTS: ReadonlySet<ConfigurationResult> = new Set([
+  'saved',
+  'alreadyRegistered',
+  'notFound',
+  'inUse',
+  'panelUnavailable',
+  'slotsOccupied',
+  'exceedsStockerSetting',
+  'stationLimit',
+] as const);
 
 const segment = encodeURIComponent;
 
@@ -102,6 +164,18 @@ export function configurationRequest(command: ConfigurationCommand): { readonly 
       return { path: `/configuration/varieties/${segment(command.variety)}/expected-arrivals`, body: { consumable: command.id } };
     case 'removeId':
       return { path: `/configuration/expected-arrivals/${segment(command.id)}/delete`, body: {} };
+    case 'addDevice':
+      return { path: '/configuration/devices', body: { id: command.device.id, panel: command.device.panel, slots: command.device.slots } };
+    case 'editDevice':
+      return { path: `/configuration/devices/${segment(command.device.id)}/edit`, body: { panel: command.device.panel, slots: command.device.slots } };
+    case 'deleteDevice':
+      return { path: `/configuration/devices/${segment(command.id)}/delete`, body: {} };
+    case 'addStation':
+      return { path: '/configuration/stations', body: { id: command.station.id, panel: command.station.panel } };
+    case 'editStation':
+      return { path: `/configuration/stations/${segment(command.station.id)}/edit`, body: { panel: command.station.panel } };
+    case 'deleteStation':
+      return { path: `/configuration/stations/${segment(command.id)}/delete`, body: {} };
     default:
       throw new Error(`知らない操作です: ${JSON.stringify(command satisfies never)}`);
   }
@@ -127,9 +201,25 @@ export function configurationNotice(command: ConfigurationCommand, result: Confi
     case 'notFound':
       return `${what}が見つかりませんでした。ほかの画面で変えられたかもしれません。表示を確かめてください。`;
     case 'inUse':
-      return command.kind === 'deleteProcessKind'
-        ? 'その加工の種類の品種があるので、消せませんでした。'
-        : 'その品種は、消耗品の記録かストッカーの設定で使っているので、変えられませんでした。';
+      switch (command.kind) {
+        case 'deleteProcessKind':
+          return 'その加工の種類の品種があるので、消せませんでした。';
+        case 'editDevice':
+        case 'deleteDevice':
+        case 'editStation':
+        case 'deleteStation':
+          return `その${what}は、中に消耗品があるか、かかわる搬送があるので、${command.kind.startsWith('delete') ? '消せません' : '受け渡しパネルを変えられません'}でした。`;
+        default:
+          return 'その品種は、消耗品の記録かストッカーの設定で使っているので、変えられませんでした。';
+      }
+    case 'panelUnavailable':
+      return 'その受け渡しパネルは、公開中のマップにないか、ほかの装置かステーションが使っています。表示を確かめてください。';
+    case 'slotsOccupied':
+      return '減らすストッカーかスロットに、消耗品があるか、届ける予定があるので、減らせませんでした。';
+    case 'exceedsStockerSetting':
+      return 'ストッカーの設定の個数の合計より、スロットが少なくなるので、減らせませんでした。先にストッカーの設定を減らしてください。';
+    case 'stationLimit':
+      return 'ステーションは、1台だけ登録できます（ステーションの選び方のルールが決まるまで）。';
     case 'failed':
       return '保存できませんでした。サーバーから応答がありません。表示を確かめてください。';
     default:
@@ -150,6 +240,14 @@ function subjectOf(command: ConfigurationCommand): string {
     case 'addId':
     case 'removeId':
       return '入庫の予定';
+    case 'addDevice':
+    case 'editDevice':
+    case 'deleteDevice':
+      return '装置';
+    case 'addStation':
+    case 'editStation':
+    case 'deleteStation':
+      return 'ステーション';
     default:
       throw new Error(`知らない操作です: ${JSON.stringify(command satisfies never)}`);
   }

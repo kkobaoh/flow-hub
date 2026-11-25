@@ -9,8 +9,8 @@ import {
   processKindProblem,
   removeIdBlockedReason,
   stationDeleteBlockedReason,
+  stationAddBlockedReason,
   stationProblem,
-  toDeviceLayout,
   varietyDeleteBlockedReason,
   varietyProblem,
   type DeviceConfig,
@@ -20,10 +20,10 @@ import {
 
 const variety = (name: string, overrides: Partial<Variety> = {}): Variety => ({ name, processKind: '[加工A]', ids: [], stockedIds: [], inUse: false, ...overrides });
 
-const dev1: DeviceConfig = { id: 'DEV-1', panel: 'D1', layout: { kind: 'slots', slots: [3, 3] }, occupied: [[1], [2, 3]], busy: true };
-const empty: DeviceConfig = { id: 'DEV-9', panel: 'D9', layout: { kind: 'slots', slots: [2] }, occupied: [[]], busy: false };
+const dev1: DeviceConfig = { id: 'DEV-1', panel: 'D1', slots: [3, 3], occupied: [[1], [2, 3]], busy: true };
+const empty: DeviceConfig = { id: 'DEV-9', panel: 'D9', slots: [2], occupied: [[]], busy: false };
 
-const deviceDraft = (overrides: Partial<DeviceDraft> = {}): DeviceDraft => ({ id: 'DEV-5', panel: 'D5', plate: false, slots: ['3'], plateStockers: '1', ...overrides });
+const deviceDraft = (overrides: Partial<DeviceDraft> = {}): DeviceDraft => ({ id: 'DEV-5', panel: 'D5', slots: ['3'], ...overrides });
 
 describe('processKindProblem（加工の種類を保存できない理由）', () => {
   const ok = { name: '[加工B]', carrier: '[キャリアA]', capacity: '3' } as const;
@@ -89,7 +89,6 @@ describe('deviceProblem（装置を保存できない理由）', () => {
     expect(deviceProblem(deviceDraft({ panel: '' }), [], null)).toBe('受け渡しパネルを選んでください。');
     expect(deviceProblem(deviceDraft({ slots: [] }), [], null)).toBe('ストッカーを 1 つ以上加えてください。');
     expect(deviceProblem(deviceDraft({ slots: ['3', '0'] }), [], null)).toBe('ストッカー2 のスロットの数を、1 以上の整数で入れてください。');
-    expect(deviceProblem(deviceDraft({ plate: true, plateStockers: '0' }), [], null)).toBe('ストッカーの数を、1 以上の整数で入れてください。');
     expect(deviceProblem(deviceDraft({ id: 'DEV-1' }), ['DEV-1'], null)).toBe('DEV-1 は、もう登録してあります。');
     expect(deviceProblem(deviceDraft(), ['DEV-1'], null)).toBeNull();
   });
@@ -101,16 +100,9 @@ describe('deviceProblem（装置を保存できない理由）', () => {
     expect(deviceProblem({ ...draft, slots: ['1', '3', '4'] }, ['DEV-1'], dev1)).toBeNull();
   });
 
-  it('受け渡しパネルと置き方（スロットかプレートか）は、使われていないときだけ変えられる', () => {
-    const draft = deviceDraftOf(dev1);
-    expect(deviceProblem({ ...draft, panel: 'D7' }, ['DEV-1'], dev1)).toBe('DEV-1 は使われているので、受け渡しパネルを変えられません。');
-    expect(deviceProblem({ ...draft, plate: true }, ['DEV-1'], dev1)).toBe('DEV-1 は使われているので、置き方を変えられません。');
-    expect(deviceProblem({ ...deviceDraftOf(empty), panel: 'D7', plate: true }, ['DEV-9'], empty)).toBeNull();
-  });
-
-  it('保存する置き方', () => {
-    expect(toDeviceLayout(deviceDraft({ slots: ['3', '4'] }))).toEqual({ kind: 'slots', slots: [3, 4] });
-    expect(toDeviceLayout(deviceDraft({ plate: true, plateStockers: '2' }))).toEqual({ kind: 'plate', stockers: 2 });
+  it('受け渡しパネルは、使われていないときだけ変えられる', () => {
+    expect(deviceProblem({ ...deviceDraftOf(dev1), panel: 'D7' }, ['DEV-1'], dev1)).toBe('DEV-1 は使われているので、受け渡しパネルを変えられません。');
+    expect(deviceProblem({ ...deviceDraftOf(empty), panel: 'D7' }, ['DEV-9'], empty)).toBeNull();
   });
 });
 
@@ -118,6 +110,13 @@ describe('panelChoices（選べる受け渡しパネル）', () => {
   it('まだどこにも使われていないもの。直すときは、いまのパネルも', () => {
     expect(panelChoices(['D1', 'D2', 'ST', 'SP'], ['D1', 'ST'], null)).toEqual(['D2', 'SP']);
     expect(panelChoices(['D1', 'D2', 'ST', 'SP'], ['D1', 'ST'], 'D1')).toEqual(['D1', 'D2', 'SP']);
+  });
+});
+
+describe('stationAddBlockedReason（ステーションを加えるのを押せない理由）', () => {
+  it('ステーションは1台だけ', () => {
+    expect(stationAddBlockedReason([])).toBeNull();
+    expect(stationAddBlockedReason([{ id: 'ST-1', panel: 'ST', busy: false }])).toBe('ステーションは、1台だけ登録できます（ステーションの選び方のルールが決まるまで）。');
   });
 });
 

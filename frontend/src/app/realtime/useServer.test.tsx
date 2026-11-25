@@ -160,11 +160,11 @@ describe('useServer', () => {
   it('消耗品の構成も、番号の古いものは捨て、切れたら古いものにする', () => {
     const link = createFakeLink();
     const { latest } = watch(link);
-    const configuration = { version: 2, processKinds: [], varieties: [] };
+    const configuration = { version: 2, processKinds: [], varieties: [], devices: [], stations: [] };
 
     act(() => {
       link.emitConfiguration(configuration);
-      link.emitConfiguration({ version: 1, processKinds: [], varieties: [] });
+      link.emitConfiguration({ version: 1, processKinds: [], varieties: [], devices: [], stations: [] });
     });
     expect(latest().configuration).toEqual({ kind: 'live', snapshot: configuration });
 

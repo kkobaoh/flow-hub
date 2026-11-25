@@ -84,10 +84,10 @@ const commandFailed = {
 } as const;
 
 /** サーバーとつないだデータで出す画面（ほかの画面には、見本のデータだと帯で知らせる）。 */
-const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables', 'agvs']);
+const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables', 'agvs', 'consumableConfig']);
 
-/** 一部だけサーバーとつないだ画面の、見本のデータの部分の知らせ（装置とステーションは CN-15 でつなぐ）。 */
-const PARTLY_DEMO: ReadonlyMap<ScreenKey, string> = new Map([['consumableConfig', 'この画面の装置とステーションは、見本のデータです']]);
+/** マップの編集の画面の装置とステーション（マップの編集は、まだ見本の下書きで動かす。backlog #5）。 */
+const DEMO_EQUIPMENT = [...demoDeviceConfigs, ...demoStationConfigs];
 
 /** キャリアの種類の候補（いまある加工の種類のもの。重ねず、名前の順）。 */
 const carrierSuggestions = (kinds: readonly ProcessKind[]) => [...new Set(kinds.map((k) => k.carrier))].sort();
@@ -128,8 +128,6 @@ export function App({ link }: AppProps) {
   const [sendingAgvs, setSendingAgvs] = useState<ReadonlyMap<AgvId, number>>(new Map());
   const [agvNotices, setAgvNotices] = useState<ReadonlyMap<AgvId, string>>(new Map());
   const offline = server.connection !== 'connected';
-  const [deviceConfigs, setDeviceConfigs] = useState(demoDeviceConfigs);
-  const [stationConfigs, setStationConfigs] = useState(demoStationConfigs);
   const [users, setUsers] = useState(demoUsers);
   const [roles, setRoles] = useState(demoRoles);
   const [mapDraft, setMapDraft] = useState(demoMapDraft);
@@ -340,8 +338,8 @@ export function App({ link }: AppProps) {
           <ToolSettingsPage
             processKinds={server.configuration.snapshot.processKinds}
             varieties={server.configuration.snapshot.varieties}
-            devices={deviceConfigs}
-            stations={stationConfigs}
+            devices={server.configuration.snapshot.devices}
+            stations={server.configuration.snapshot.stations}
             carriers={carrierSuggestions(server.configuration.snapshot.processKinds)}
             transferPanels={transferPanels}
             permissions={permissions}
@@ -352,16 +350,10 @@ export function App({ link }: AppProps) {
             onDeleteVariety={(name) => operateConfiguration({ kind: 'deleteVariety', name })}
             onAddId={(variety, id) => operateConfiguration({ kind: 'addId', variety, id })}
             onRemoveId={(_, id) => operateConfiguration({ kind: 'removeId', id })}
-            onSaveDevice={(original, d) =>
-              setDeviceConfigs((ds) =>
-                original === null ? [...ds, { ...d, occupied: [], busy: false }] : ds.map((x) => (x.id === original ? { ...x, ...d } : x)),
-              )
-            }
-            onDeleteDevice={(id) => setDeviceConfigs((ds) => ds.filter((d) => d.id !== id))}
-            onSaveStation={(original, s) =>
-              setStationConfigs((ss) => (original === null ? [...ss, { ...s, busy: false }] : ss.map((x) => (x.id === original ? { ...x, ...s } : x))))
-            }
-            onDeleteStation={(id) => setStationConfigs((ss) => ss.filter((s) => s.id !== id))}
+            onSaveDevice={(original, device) => operateConfiguration({ kind: original === null ? 'addDevice' : 'editDevice', device })}
+            onDeleteDevice={(id) => operateConfiguration({ kind: 'deleteDevice', id })}
+            onSaveStation={(original, station) => operateConfiguration({ kind: original === null ? 'addStation' : 'editStation', station })}
+            onDeleteStation={(id) => operateConfiguration({ kind: 'deleteStation', id })}
           />
         );
       case 'users':
@@ -399,7 +391,7 @@ export function App({ link }: AppProps) {
             draftVersion={demoPublished.version + 1}
             savedAt={draftSavedAt}
             publishedVersion={demoPublished.version}
-            equipment={[...deviceConfigs, ...stationConfigs]}
+            equipment={DEMO_EQUIPMENT}
             heights={heights}
             running={run !== 'stopped'} // わからないときは、運転中として扱う（公開の決まりが厳しい側）
             travelingAgvs={agvs.filter((a) => a.operation === 'traveling').map((a) => a.id)}
@@ -426,11 +418,7 @@ export function App({ link }: AppProps) {
   return (
     <>
       <ConnectionBanner connection={server.connection} />
-      {!SERVER_SCREENS.has(route.screen) && (
-        <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">
-          {PARTLY_DEMO.get(route.screen) ?? 'この画面は、見本のデータです'}
-        </p>
-      )}
+      {!SERVER_SCREENS.has(route.screen) && <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">この画面は、見本のデータです</p>}
       {route.screen === 'map' && layout.panels.length === 0 ? (
         <MainLayout {...frame} current="map" title="全体の様子（マップ）">
           <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">

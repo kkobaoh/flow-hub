@@ -19,16 +19,15 @@ export interface Variety {
   readonly inUse: boolean;
 }
 
-/** 装置のストッカーの置き方。スロットがあるもの（ストッカーごとのスロットの数）と、プレートに載せたまま置くもの。 */
-export type DeviceLayout = { readonly kind: 'slots'; readonly slots: readonly number[] } | { readonly kind: 'plate'; readonly stockers: number };
-
+/** 装置の構成。今回はプレート搬送を使わないので、プレートに載せたまま置く装置は扱わない（使うときに足す）。 */
 export interface DeviceConfig {
   readonly id: string;
   readonly panel: string;
-  readonly layout: DeviceLayout;
-  /** ストッカーごとの、消耗品があるスロットの番号（プレートのときは、消耗品があるストッカーだけ要素を持つ）。 */
+  /** ストッカーごとのスロットの数。 */
+  readonly slots: readonly number[];
+  /** ストッカーごとの、ふさがっているスロットの番号（消耗品がある、届ける入れ先に決めた、加工中の消耗品の元のスロット）。 */
   readonly occupied: readonly (readonly number[])[];
-  /** 中に消耗品があるか、かかわる搬送がある。 */
+  /** 中に消耗品があるか、かかわる搬送（届ける予約、指名、受け渡しの途中）がある。 */
   readonly busy: boolean;
 }
 
@@ -53,11 +52,8 @@ export interface VarietyDraft {
 export interface DeviceDraft {
   readonly id: string;
   readonly panel: string;
-  readonly plate: boolean;
-  /** スロットがあるときの、ストッカーごとのスロットの数。 */
+  /** ストッカーごとのスロットの数。 */
   readonly slots: readonly string[];
-  /** プレートのときの、ストッカーの数。 */
-  readonly plateStockers: string;
 }
 
 const POSITIVE = /^\d+$/;
@@ -121,13 +117,7 @@ export function removeIdBlockedReason(variety: Variety, id: string): string | nu
 }
 
 export function deviceDraftOf(device: DeviceConfig): DeviceDraft {
-  return device.layout.kind === 'slots'
-    ? { id: device.id, panel: device.panel, plate: false, slots: device.layout.slots.map(String), plateStockers: '1' }
-    : { id: device.id, panel: device.panel, plate: true, slots: ['1'], plateStockers: String(device.layout.stockers) };
-}
-
-export function toDeviceLayout(draft: DeviceDraft): DeviceLayout {
-  return draft.plate ? { kind: 'plate', stockers: Number(draft.plateStockers) } : { kind: 'slots', slots: draft.slots.map(Number) };
+  return { id: device.id, panel: device.panel, slots: device.slots.map(String) };
 }
 
 /** 装置を保存できない理由。original は直す前の装置（加えるときは null）。減らすのは、減るぶんが空のときだけ。 */
@@ -135,16 +125,13 @@ export function deviceProblem(draft: DeviceDraft, existing: readonly string[], o
   const basic =
     nameProblem(draft.id, '装置の ID ', existing, original?.id ?? null) ??
     (draft.panel === '' ? '受け渡しパネルを選んでください。' : null) ??
-    (draft.plate ? (positive(draft.plateStockers) ? null : 'ストッカーの数を、1 以上の整数で入れてください。') : null) ??
-    (!draft.plate && draft.slots.length === 0 ? 'ストッカーを 1 つ以上加えてください。' : null);
+    (draft.slots.length === 0 ? 'ストッカーを 1 つ以上加えてください。' : null);
   if (basic !== null) {
     return basic;
   }
-  if (!draft.plate) {
-    const bad = draft.slots.findIndex((s) => !positive(s));
-    if (bad >= 0) {
-      return `ストッカー${bad + 1} のスロットの数を、1 以上の整数で入れてください。`;
-    }
+  const bad = draft.slots.findIndex((s) => !positive(s));
+  if (bad >= 0) {
+    return `ストッカー${bad + 1} のスロットの数を、1 以上の整数で入れてください。`;
   }
   if (original === null) {
     return null;
@@ -152,19 +139,15 @@ export function deviceProblem(draft: DeviceDraft, existing: readonly string[], o
   if (original.busy && draft.panel !== original.panel) {
     return `${original.id} は使われているので、受け渡しパネルを変えられません。`;
   }
-  if (original.busy && draft.plate !== (original.layout.kind === 'plate')) {
-    return `${original.id} は使われているので、置き方を変えられません。`;
-  }
-  const layout = toDeviceLayout(draft);
-  const kept = layout.kind === 'slots' ? layout.slots.length : layout.stockers;
+  const slots = draft.slots.map(Number);
   for (const [i, used] of original.occupied.entries()) {
     if (used.length === 0) {
       continue;
     }
-    if (i >= kept) {
+    if (i >= slots.length) {
       return `ストッカー${i + 1} に消耗品があるので、減らせません。`;
     }
-    const count = layout.kind === 'slots' ? (layout.slots[i] ?? 0) : Infinity;
+    const count = slots[i] ?? 0;
     const over = used.filter((n) => n > count).sort((a, b) => a - b)[0];
     if (over !== undefined) {
       return `ストッカー${i + 1} のスロット${over} に消耗品があるので、減らせません。`;
@@ -175,6 +158,11 @@ export function deviceProblem(draft: DeviceDraft, existing: readonly string[], o
 
 export function deviceDeleteBlockedReason(device: DeviceConfig): string | null {
   return device.busy ? `${device.id} は、中に消耗品があるか、かかわる搬送があるので、消せません。` : null;
+}
+
+/** ステーションを加えるのを押せない理由。ステーションの選び方のルールが決まるまでは、1台だけ。 */
+export function stationAddBlockedReason(stations: readonly StationConfig[]): string | null {
+  return stations.length === 0 ? null : 'ステーションは、1台だけ登録できます（ステーションの選び方のルールが決まるまで）。';
 }
 
 export function stationDeleteBlockedReason(station: StationConfig): string | null {

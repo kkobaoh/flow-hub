@@ -366,6 +366,7 @@ describe('App', () => {
     ['#/agvs', false],
     ['#/users', true],
     ['#/consumables', false],
+    ['#/consumableConfig', false],
   ])('見本のデータで動かしている画面だけ、そのことを帯で知らせる（%s）', (hash, demo) => {
     window.location.hash = hash;
     const { container } = render(<App link={connected()} />);
@@ -374,14 +375,6 @@ describe('App', () => {
     window.location.hash = '';
   });
 
-  it('消耗品の構成は、装置とステーションだけが見本のデータであることを帯で知らせる', () => {
-    window.location.hash = '#/consumableConfig';
-    const { container } = render(<App link={connected()} />);
-
-    expect(container.textContent).toContain('装置とステーションは、見本のデータです');
-    expect(container.textContent).not.toContain('この画面は、見本のデータです');
-    window.location.hash = '';
-  });
 
   it('消耗品の構成は、届くまで読み込み中を出し、届いた加工の種類と品種を出して、操作をサーバーへ送る', async () => {
     window.location.hash = '#/consumableConfig';
@@ -394,6 +387,8 @@ describe('App', () => {
         version: 1,
         processKinds: [{ name: 'drill', carrier: 'X', capacity: 2 }, { name: 'mill', carrier: 'Y', capacity: 1 }],
         varieties: [{ name: 'DR-5', processKind: 'drill', ids: [], stockedIds: [], inUse: false }],
+        devices: [],
+        stations: [],
       }),
     );
     expect(container.querySelector('tbody')?.textContent).toContain('drill');
