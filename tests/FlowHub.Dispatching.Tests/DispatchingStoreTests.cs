@@ -71,6 +71,21 @@ public sealed class DispatchingStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task AGVの種類とキャリアの種類を変えたり登録を消したりできる()
+    {
+        var store = await OpenAsync();
+        await store.AddAgvTypeAsync("small", null, null, Token);
+        await store.AddAgvTypeAsync("large", 30, 90, Token);
+        await store.AddAgvAsync(Agv, "small", Carrier, Token);
+
+        await store.UpdateAgvAsync(Agv, "large", new CarrierTypeId("Y"), Token);
+        Assert.Equal([new DispatchingAgvRegistration(Agv, "large", new CarrierTypeId("Y"))], await store.LoadAgvRegistrationsAsync(Token));
+
+        await store.RemoveAgvAsync(Agv, Token);
+        Assert.Empty(await store.LoadAgvRegistrationsAsync(Token));
+    }
+
+    [Fact]
     public async Task 充電の既定値を読む設定していなければ20と80()
     {
         var store = await OpenAsync();

@@ -193,6 +193,33 @@ public sealed class DispatchingStore
         return [.. rows.OrderBy(r => r.Id, StringComparer.Ordinal).Select(r => new DispatchingAgvRegistration(new AgvId(r.Id), r.TypeId, new CarrierTypeId(r.CarrierType)))];
     }
 
+    /// <summary>AGV の種類とキャリアの種類を変える。</summary>
+    /// <exception cref="InvalidOperationException">AGV か種類が登録されていないとき。</exception>
+    public async Task UpdateAgvAsync(AgvId id, string typeId, CarrierTypeId carrier, CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        if (await context.AgvTypes.FindAsync([typeId], cancellationToken).ConfigureAwait(false) is null)
+        {
+            throw new InvalidOperationException($"AGV の種類 {typeId} は登録されていません。");
+        }
+
+        var row = await context.Agvs.FindAsync([id.Value], cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException($"{id} は配車の DB に登録されていません。");
+        row.TypeId = typeId;
+        row.CarrierType = carrier.Value;
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>AGV の登録を消す。登録されていなければ、何もしない。</summary>
+    public async Task RemoveAgvAsync(AgvId id, CancellationToken cancellationToken)
+    {
+        await using var context = _createContext();
+        if (await context.Agvs.FindAsync([id.Value], cancellationToken).ConfigureAwait(false) is { } row)
+        {
+            context.Agvs.Remove(row);
+            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     /// <summary>その種類を使う AGV（ID の順）。</summary>
     public async Task<IReadOnlyList<AgvId>> AgvsOfTypeAsync(string typeId, CancellationToken cancellationToken)
     {

@@ -78,6 +78,21 @@ public sealed record TransportListing(
     public override int GetHashCode() => HashCode.Combine(Transport, NeededBy, Progress);
 }
 
+/// <summary>AGV を、配車が動かす AGV から外した結果。</summary>
+public enum AgvRemovalResult
+{
+    Unregistered,
+
+    /// <summary>搬送を割り当てている（外していない）。</summary>
+    HasTransport,
+
+    /// <summary>取りやめで、ものを積んだまま止まっている（外していない）。</summary>
+    Loaded,
+
+    /// <summary>登録されていない。</summary>
+    NotFound,
+}
+
 /// <summary>搬送の進み具合。</summary>
 public abstract record TransportProgress;
 

@@ -168,6 +168,35 @@ public class DispatchingServiceTests
         await service.OnCarrierRaisedAsync(new CarrierRaised(Meta(), Agv), None);
     }
 
+    // ---- AGV の登録を変える・消す（AGV と AGV の種類の登録の画面） ----
+
+    [Fact]
+    public async Task 積んだまま止まっているAGVと搬送を割り当てたAGVは外さずほかは外せる()
+    {
+        var (service, traffic, _) = Setup(A);
+        var id = await LoadedTransport(service, traffic);
+        Assert.Equal(AgvRemovalResult.HasTransport, service.UnregisterAgv(Agv)); // 搬送を割り当てている
+
+        await service.CancelAsync(id, None); // 積んだまま止まる
+        Assert.Equal(AgvRemovalResult.Loaded, service.UnregisterAgv(Agv));
+        Assert.True(service.IsLoaded(Agv));
+
+        service.RegisterAgv(new AgvId("AGV-2"), CarrierX, 20, 80);
+        Assert.Equal(AgvRemovalResult.Unregistered, service.UnregisterAgv(new AgvId("AGV-2")));
+        Assert.Equal(AgvRemovalResult.NotFound, service.UnregisterAgv(new AgvId("AGV-2")));
+    }
+
+    [Fact]
+    public async Task キャリアの種類を変えたら次の割り当てから新しいキャリアの種類で選ぶ()
+    {
+        var (service, _, _) = Setup(A);
+        service.UpdateCarrier(Agv, new CarrierTypeId("Y"));
+
+        await service.RequestTransportAsync(Order(), None); // キャリアの種類 X の搬送
+
+        Assert.Single(service.ListTransports(), t => t.Progress is WaitingForAgv); // Y の AGV には割り当てない
+    }
+
     // ---- 搬送の一覧（画面に出す） ----
 
     [Fact]

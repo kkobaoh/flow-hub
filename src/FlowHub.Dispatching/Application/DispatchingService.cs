@@ -58,6 +58,66 @@ public sealed class DispatchingService(
     }
 
     /// <summary>
+    /// AGV を、配車が動かす AGV から外す（AGV の登録を消すとき）。搬送を割り当てているか、取りやめでものを積んだまま止まっていれば、外さない。
+    /// </summary>
+    public AgvRemovalResult UnregisterAgv(AgvId id)
+    {
+        _gate.Wait();
+        try
+        {
+            if (!_agvs.TryGetValue(id, out var agv))
+            {
+                return AgvRemovalResult.NotFound;
+            }
+
+            if (agv.Active is not null)
+            {
+                return AgvRemovalResult.HasTransport;
+            }
+
+            if (agv.Loaded)
+            {
+                return AgvRemovalResult.Loaded;
+            }
+
+            _agvs.Remove(id);
+            return AgvRemovalResult.Unregistered;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>取りやめで、ものを積んだまま止まっているか（登録されていなければ false）。</summary>
+    public bool IsLoaded(AgvId id)
+    {
+        _gate.Wait();
+        try
+        {
+            return _agvs.TryGetValue(id, out var agv) && agv.Loaded;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>AGV のキャリアの種類を置き換える（AGV の登録を変えたとき）。次の割り当てから効く。</summary>
+    public void UpdateCarrier(AgvId id, CarrierTypeId carrier)
+    {
+        _gate.Wait();
+        try
+        {
+            (_agvs.TryGetValue(id, out var agv) ? agv : throw new InvalidOperationException($"{id} は登録されていません。")).Carrier = carrier;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
     /// AGV の種類の充電の値が変わったので、その AGV の充電の値を置き換える。次の充電残量の知らせから効く。
     /// </summary>
     public void UpdateChargingPolicy(AgvId id, int goChargeBelowPercent, int resumeAtPercent)
@@ -818,7 +878,8 @@ public sealed class DispatchingService(
     /// </summary>
     private sealed class AgvDispatch(CarrierTypeId carrier, ChargingPolicy policy, AgvCharging charging)
     {
-        public CarrierTypeId Carrier { get; } = carrier;
+        /// <summary>キャリアの種類（AGV の登録を変えたら、置き換える）。</summary>
+        public CarrierTypeId Carrier { get; set; } = carrier;
 
         /// <summary>充電の値（AGV の種類の値を変えたら、置き換える）。</summary>
         public ChargingPolicy Policy { get; set; } = policy;
