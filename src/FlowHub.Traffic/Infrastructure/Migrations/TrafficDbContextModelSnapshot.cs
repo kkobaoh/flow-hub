@@ -60,10 +60,18 @@ namespace FlowHub.Traffic.Infrastructure.Migrations
                     b.Property<double>("ForwardSpeedMmPerSecond")
                         .HasColumnType("double precision");
 
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<double>("RotationSpeedDegreesPerSecond")
                         .HasColumnType("double precision");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
 
                     b.ToTable("agv_types", "traffic");
                 });

@@ -55,6 +55,40 @@ public sealed class TrafficService(
     // ---- AGV の登録と参照 ----
 
     /// <summary>
+    /// AGV の種類の値が変わったので、その AGV の速さと、特殊消耗品受け渡しパネルを走れるかを置き換える。
+    /// 次の経路の計算と移動コストの見積もりから効く（もう渡した指示や、立てた計画はそのまま）。
+    /// </summary>
+    public void UpdateAgvMotion(AgvId id, MotionProfile motion, bool canTravelSpecialTransfer)
+    {
+        ArgumentNullException.ThrowIfNull(motion);
+        _gate.Wait();
+        try
+        {
+            var entry = _agvs.TryGetValue(id, out var found) ? found : throw new InvalidOperationException($"{id} は登録されていません。");
+            entry.Motion = motion;
+            entry.CanTravelSpecialTransfer = canTravelSpecialTransfer;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>その AGV の動きの速さ（テストで確かめるため）。</summary>
+    internal MotionProfile MotionOf(AgvId id)
+    {
+        _gate.Wait();
+        try
+        {
+            return _agvs[id].Motion;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
     /// AGV を登録する。速さは移動コストの計算に使う（AGV の種類ごとの設定から渡す）。
     /// コントロールステータスは、保存場所から読む（再起動しても残す）。
     /// </summary>
@@ -1148,13 +1182,14 @@ public sealed class TrafficService(
     {
         public AgvTravel Travel { get; } = travel;
 
-        public MotionProfile Motion { get; } = motion;
+        /// <summary>動きの速さ（AGV の種類の値を変えたら、置き換える）。</summary>
+        public MotionProfile Motion { get; set; } = motion;
 
         /// <summary>コントロールステータス。</summary>
         public ControlStatus Control { get; set; }
 
         /// <summary>特殊消耗品受け渡しパネルを走れるか。</summary>
-        public bool CanTravelSpecialTransfer { get; init; }
+        public bool CanTravelSpecialTransfer { get; set; }
 
         /// <summary>最後に届いた充電残量（%）。起動してから一度も届いていなければ null（メモリにだけ持ち、再起動したら次に届くまでわからない）。</summary>
         public int? BatteryPercent { get; set; }

@@ -57,6 +57,63 @@ public sealed class TrafficStoreTests : IDisposable
         return service;
     }
 
+    // ---- AGV の種類 ----
+
+    private static AgvTypeSettings TypeOf(string id, string name, double forward = 500, bool special = false) => new(id, name, new MotionProfile(forward, 250, 90), special);
+
+    [Fact]
+    public async Task 種類をIDと名前で加えて読み同じIDや同じ名前は断る()
+    {
+        var store = await OpenAsync();
+
+        Assert.Equal(AgvTypeSaveResult.Saved, await store.AddAgvTypeAsync(TypeOf("small", "小さい AGV"), Token));
+        Assert.Equal(AgvTypeSaveResult.IdTaken, await store.AddAgvTypeAsync(TypeOf("small", "別の名前"), Token));
+        Assert.Equal(AgvTypeSaveResult.NameTaken, await store.AddAgvTypeAsync(TypeOf("large", "小さい AGV"), Token));
+        await store.AddAgvTypeAsync("old", Motion, Token); // 名前を省いたら、ID を名前にする
+
+        Assert.Equal([TypeOf("old", "old"), TypeOf("small", "小さい AGV")], await (await OpenAsync()).LoadAgvTypesAsync(Token));
+    }
+
+    [Fact]
+    public async Task 種類の名前と値を変えられ同じ名前やない種類は断る()
+    {
+        var store = await OpenAsync();
+        await store.AddAgvTypeAsync(TypeOf("small", "小さい"), Token);
+        await store.AddAgvTypeAsync(TypeOf("large", "大きい"), Token);
+
+        Assert.Equal(AgvTypeSaveResult.Saved, await store.UpdateAgvTypeAsync(TypeOf("small", "小型", forward: 800, special: true), Token));
+        Assert.Equal(AgvTypeSaveResult.NameTaken, await store.UpdateAgvTypeAsync(TypeOf("small", "大きい"), Token));
+        Assert.Equal(AgvTypeSaveResult.NotFound, await store.UpdateAgvTypeAsync(TypeOf("none", "なし"), Token));
+
+        Assert.Equal(TypeOf("small", "小型", forward: 800, special: true), (await store.LoadAgvTypesAsync(Token)).Single(t => t.Id == "small"));
+    }
+
+    [Fact]
+    public async Task 使うAGVがない種類だけを消せる()
+    {
+        var store = await OpenAsync();
+        await store.AddAgvTypeAsync(TypeOf("small", "小さい"), Token);
+        await store.AddAgvTypeAsync(TypeOf("large", "大きい"), Token);
+        await store.AddAgvAsync(Agv, "small", Token);
+
+        Assert.Equal(AgvTypeDeleteResult.InUse, await store.DeleteAgvTypeAsync("small", Token));
+        Assert.Equal(AgvTypeDeleteResult.Deleted, await store.DeleteAgvTypeAsync("large", Token));
+        Assert.Equal(AgvTypeDeleteResult.NotFound, await store.DeleteAgvTypeAsync("large", Token));
+        Assert.Equal([Agv], await store.AgvsOfTypeAsync("small", Token));
+    }
+
+    [Fact]
+    public async Task 種類の値を変えたら動いているAGVの速さと走れるかを変える()
+    {
+        var service = Service(await OpenAsync());
+        var before = service.GetAgv(Agv);
+
+        service.UpdateAgvMotion(Agv, new MotionProfile(1000, 500, 180), canTravelSpecialTransfer: true);
+
+        Assert.Equal(before with { CanTravelSpecialTransfer = true }, service.GetAgv(Agv)); // 位置や状態は変えない
+        Assert.Equal(new MotionProfile(1000, 500, 180), service.MotionOf(Agv));
+    }
+
     // ---- コマンドの番号 ----
 
     [Fact]

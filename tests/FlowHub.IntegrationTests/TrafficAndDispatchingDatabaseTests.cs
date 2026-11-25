@@ -35,6 +35,25 @@ public class TrafficAndDispatchingDatabaseTests
     }
 
     [Fact]
+    public async Task 交通整理のAGVの種類の名前を保存し変えて読み直せる()
+    {
+        var options = LocalPostgres.Options();
+        await LocalPostgres.DropSchemaAsync(options, TrafficDatabase.Schema, Token);
+        var motion = new MotionProfile(500, 250, 90);
+
+        var store = await OpenTrafficAsync(options);
+        await store.AddAgvTypeAsync(new AgvTypeSettings("small", "小さい", motion, false), Token);
+        await store.AddAgvTypeAsync(new AgvTypeSettings("large", "大きい", motion, false), Token);
+        var taken = await store.UpdateAgvTypeAsync(new AgvTypeSettings("small", "大きい", motion, false), Token);
+        await store.UpdateAgvTypeAsync(new AgvTypeSettings("small", "小型", motion, true), Token);
+
+        var reopened = await OpenTrafficAsync(options);
+
+        Assert.Equal(AgvTypeSaveResult.NameTaken, taken);
+        Assert.Equal([new AgvTypeSettings("large", "大きい", motion, false), new AgvTypeSettings("small", "小型", motion, true)], await reopened.LoadAgvTypesAsync(Token));
+    }
+
+    [Fact]
     public async Task 交通整理のコントロールステータスを保存し読み直せる()
     {
         var options = LocalPostgres.Options();

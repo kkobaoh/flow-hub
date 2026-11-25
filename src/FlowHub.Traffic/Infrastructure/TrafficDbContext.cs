@@ -8,6 +8,9 @@ internal sealed class AgvTypeRow
 {
     public string Id { get; set; } = string.Empty;
 
+    /// <summary>画面に出す名前（いつでも変えられる。ほかの種類と同じ名前は付けられない）。</summary>
+    public string Name { get; set; } = string.Empty;
+
     public double ForwardSpeedMmPerSecond { get; set; }
 
     public double BackwardSpeedMmPerSecond { get; set; }
@@ -57,6 +60,8 @@ internal sealed class TrafficDbContext(DbContextOptions<TrafficDbContext> option
             entity.ToTable("agv_types");
             entity.HasKey(t => t.Id);
             entity.Property(t => t.Id).HasMaxLength(100);
+            entity.Property(t => t.Name).HasMaxLength(100);
+            entity.HasIndex(t => t.Name).IsUnique();
         });
 
         modelBuilder.Entity<AgvRow>(entity =>
