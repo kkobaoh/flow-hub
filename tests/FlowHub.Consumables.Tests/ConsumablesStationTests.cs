@@ -230,6 +230,7 @@ public class ConsumablesStationTests
         var report = await f.Service.ReportShippedFromStationAsync(Station, C1, None);
 
         Assert.Throws<InvalidOperationException>(() => f.Service.GetConsumable(C1));
+        Assert.False(f.Service.TryGetConsumable(C1, out _));
         Assert.Equal(new Dictionary<VarietyId, int> { [VarietyA] = 1 }, f.Service.EvaluateDevice(Device).Shortages);
         Assert.Empty(report.Mismatched);
     }

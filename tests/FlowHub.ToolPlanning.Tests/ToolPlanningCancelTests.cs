@@ -64,6 +64,35 @@ public class ToolPlanningCancelTests
 
     private static string[] CargoOf(AgvTransportOrder order) => order.CargoRefs.ToArray();
 
+    // ---- 頼んだ搬送の中身（画面の搬送の一覧に出す） ----
+
+    [Fact]
+    public async Task AGVから装置へ届ける搬送の中身を出す()
+    {
+        var f = Setup();
+        await SetAsync(f, (VarietyA, 1));
+        Carried(f, "A-1", VarietyA);
+
+        await CanceledAsync(f, Held, loaded: true);
+        var deliver = Assert.Single(f.Dispatching.FromAgvOrders).Id;
+
+        Assert.Equal(new TransportDescription(TransportPurpose.DeliveryFromAgv, [new CargoCount(VarietyA, 1)]), f.Planning.DescribeTransports()[deliver]);
+    }
+
+    [Fact]
+    public async Task AGVからステーションへ返す搬送の中身を出す()
+    {
+        var f = Setup();
+        Carried(f, "A-1", VarietyA);
+        Carried(f, "B-1", VarietyB);
+        Carried(f, "A-2", VarietyA);
+
+        await CanceledAsync(f, Held, loaded: true); // どの装置でも要らないので返す
+        var back = Assert.Single(f.Dispatching.FromAgvOrders).Id;
+
+        Assert.Equal(new TransportDescription(TransportPurpose.ReturnFromAgv, [new CargoCount(VarietyA, 2), new CargoCount(VarietyB, 1)]), f.Planning.DescribeTransports()[back]);
+    }
+
     // ---- 取りやめの知らせ ----
 
     [Fact]

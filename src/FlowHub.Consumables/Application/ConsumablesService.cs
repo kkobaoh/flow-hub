@@ -200,6 +200,14 @@ public sealed partial class ConsumablesService(
 
     public ConsumableView GetConsumable(ConsumableId id) => Locked(() => Consumable(id));
 
+    /// <summary>消耗品の今の様子。登録されていなければ（出庫して記録から消えたものなど）false。</summary>
+    public bool TryGetConsumable(ConsumableId id, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ConsumableView? view)
+    {
+        var found = Locked(() => _consumables.GetValueOrDefault(id));
+        view = found;
+        return found is not null;
+    }
+
     // ---- 不足と回収の判断 ----
 
     /// <summary>

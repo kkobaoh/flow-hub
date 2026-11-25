@@ -61,6 +61,43 @@ public class ToolPlanningServiceTests
     private static string[] ActiveCargo(Fixture f) =>
         f.Dispatching.ActiveOrders.Select(o => string.Join(",", o.CargoRefs)).ToArray();
 
+    // ---- 頼んだ搬送の中身（画面の搬送の一覧に出す） ----
+
+    [Fact]
+    public async Task 頼んだ搬送ごとに届けるか回収するかと品種ごとの数を出す()
+    {
+        var f = Setup();
+        AtStation(f, "A-1", VarietyA);
+        AtStation(f, "A-2", VarietyA);
+        InStocker(f, "Z-1", VarietyZ, 1); // 設定にない品種
+        await SetAsync(f, (VarietyA, 2));
+        await f.Planning.ReplanAsync(None);
+        var delivery = f.Dispatching.Orders.Single(o => o.Order.CargoRefs.Contains("A-1")).Id;
+        var recovery = f.Dispatching.Orders.Single(o => o.Order.CargoRefs.Contains("Z-1")).Id;
+
+        var descriptions = f.Planning.DescribeTransports();
+
+        Assert.Equal(2, descriptions.Count);
+        Assert.Equal(new TransportDescription(TransportPurpose.Delivery, [new CargoCount(VarietyA, 2)]), descriptions[delivery]);
+        Assert.Equal(new TransportDescription(TransportPurpose.Recovery, [new CargoCount(VarietyZ, 1)]), descriptions[recovery]);
+    }
+
+    [Fact]
+    public async Task 品種のわからない消耗品は品種なしで数え終わった搬送は出さない()
+    {
+        var f = Setup();
+        InStocker(f, "A-1", VarietyA, 1);
+        await SetAsync(f, (VarietyA, 1));
+        await f.Consumables.ReportIdMismatchAsync(Device, new SlotRef(1, 1), new ConsumableId("X-9"), None); // 未登録の ID は品種がわからない
+        await f.Planning.ReplanAsync(None);
+        var recovery = f.Dispatching.Orders.Single(o => o.Order.CargoRefs.Contains("X-9")).Id;
+
+        Assert.Equal(new TransportDescription(TransportPurpose.Recovery, [new CargoCount(null, 1)]), f.Planning.DescribeTransports()[recovery]);
+
+        await f.Planning.OnTransportCompletedAsync(new TransportCompleted(EventMetadata.Start("test", f.Time), recovery, ConsumablesService.Requester), None);
+        Assert.False(f.Planning.DescribeTransports().ContainsKey(recovery));
+    }
+
     // ---- 運転状態 ----
 
     [Fact]

@@ -33,6 +33,39 @@ public sealed class ToolPlanningService(
     public void Dispose() => _gate.Dispose();
 
     /// <summary>
+    /// 出した搬送の要求のうち、まだ完了も取りやめもしていないものの中身（搬送の番号ごと。画面の搬送の一覧に出す）。
+    /// </summary>
+    /// <remarks>要求を写してからロックを外し、そのあとで消耗品の管理に品種を聞く（ロックの中からほかの集約を呼ばないため）。</remarks>
+    public IReadOnlyDictionary<TransportId, TransportDescription> DescribeTransports()
+    {
+        _gate.Wait();
+        (TransportId Id, TransportPurpose Purpose, IReadOnlyList<ConsumableId> Cargo)[] trips;
+        try
+        {
+            trips =
+            [
+                .. _requests.Select(pair => (pair.Key, pair.Value.Kind == TripKind.Delivery ? TransportPurpose.Delivery : TransportPurpose.Recovery, pair.Value.Cargo)),
+                .. _carriedTrips.Select(pair => (pair.Key, pair.Value.Device is null ? TransportPurpose.ReturnFromAgv : TransportPurpose.DeliveryFromAgv, pair.Value.Cargo)),
+            ];
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        return trips.ToDictionary(t => t.Id, t => new TransportDescription(t.Purpose, CountByVariety(t.Cargo)));
+    }
+
+    /// <summary>品種ごとの数（品種の ID の順。わからないものは最後）。もう記録にない消耗品も、わからないものとして数える。</summary>
+    private CargoCount[] CountByVariety(IReadOnlyList<ConsumableId> cargo) =>
+        [.. cargo
+            .Select(id => consumables.TryGetConsumable(id, out var view) ? view.Variety : null)
+            .GroupBy(variety => variety)
+            .OrderBy(g => g.Key is null)
+            .ThenBy(g => g.Key?.Value, StringComparer.Ordinal)
+            .Select(g => new CargoCount(g.Key, g.Count()))];
+
+    /// <summary>
     /// 不足と回収の判断をやり直し、搬送の要求を出し直す。システムの運転状態が停止の間は、何もしない（スタートしたら判断する）。
     /// </summary>
     public async Task ReplanAsync(CancellationToken cancellationToken)
