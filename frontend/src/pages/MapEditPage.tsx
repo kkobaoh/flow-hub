@@ -47,11 +47,16 @@ export interface MapEditPageProps {
   /** 走っている AGV。 */
   readonly travelingAgvs: readonly string[];
   readonly permissions: Permissions;
-  readonly onSaveDraft: (draft: MapDraft) => void;
+  /** サーバーとつながっていない（保存も公開もできない）。 */
+  readonly offline: boolean;
+  /** 下書きを保存する。断られたら、その理由の文を返す（保存できたら null）。 */
+  readonly onSaveDraft: (draft: MapDraft) => Promise<string | null>;
+  /** サーバーから下書きを読み直す（今の変更は捨てる）。 */
+  readonly onReload: () => void;
   /** 検証する（サーバーが確かめる）。見つかった問題を返す。 */
   readonly onValidate: (draft: MapDraft) => Promise<readonly string[]>;
-  /** 公開する（確かめる画面で選んだあと）。 */
-  readonly onPublish: (draft: MapDraft) => void;
+  /** 公開する（確かめる画面で選んだあと）。断られたら、その理由の文を返す（公開できたら null）。 */
+  readonly onPublish: (draft: MapDraft) => Promise<string | null>;
   /** キャリアの高さを保存する（null で設定なしにする）。すぐ使われる。 */
   readonly onSaveHeight: (panel: string, heightMm: number | null) => void;
   /** 保存していない変更があるかを知らせる（ほかの画面へ移るときに確かめるため）。 */
@@ -81,6 +86,7 @@ const TOOL_HINT: Record<Tool, string> = {
 };
 
 const CELL_PX = 72;
+const OFFLINE = 'サーバーとつながっていないので、下書きを保存したり公開したりできません。';
 const INTEGER = /^-?\d+$/;
 
 /** マップの編集（docs/screens.md の「6 マップの編集」）。パネルとつながりを置いて直し、下書きを保存し、検証してから公開する。 */
@@ -95,7 +101,26 @@ export function MapEditPage(props: MapEditPageProps) {
   const [message, setMessage] = useState<string | null>(null);
   const [validation, setValidation] = useState<{ readonly draft: MapDraft; readonly problems: readonly string[] } | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [confirmingReload, setConfirmingReload] = useState(false);
+  // 保存と公開は、送って結果を待つあいだは押せなくし、断られたら理由を出す（次に送ったら消す）
+  const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const canSend = allowed && !props.offline && !sending;
   const dirty = isDraftChanged(baseline, draft);
+  /** 送って、受け付けられたら、送った下書きを保存済みにする。 */
+  const send = async (sent: MapDraft, operation: () => Promise<string | null>) => {
+    setSending(true);
+    setNotice(null);
+    try {
+      const text = await operation();
+      setNotice(text);
+      if (text === null) {
+        setBaseline(sent);
+      }
+    } finally {
+      setSending(false);
+    }
+  };
   const { onDirtyChange } = props;
 
   useEffect(() => {
@@ -118,8 +143,8 @@ export function MapEditPage(props: MapEditPageProps) {
   const rows = b.maxRow - b.minRow + 1;
   const viewBox = { x: b.minColumn * size, y: b.minRow * size, width: cols * size, height: rows * size };
   const equipmentOnMap = props.equipment
-    .filter((e) => draft.outlines[e.id] !== undefined && layout.panels.some((p) => p.id === e.panel))
-    .map((e) => ({ id: equipmentId(e.id), kind: 'device' as const, panel: e.panel as PanelId, outlineMm: draft.outlines[e.id]!, attentions: [] }));
+    .filter((e) => draft.outlines[e.panel] !== undefined && layout.panels.some((p) => p.id === e.panel))
+    .map((e) => ({ id: equipmentId(e.id), kind: 'device' as const, panel: e.panel as PanelId, outlineMm: draft.outlines[e.panel]!, attentions: [] }));
   const publishBlocked = publishBlockedReason({
     validated: validation?.draft ?? null,
     problems: validation?.problems ?? [],
@@ -128,6 +153,7 @@ export function MapEditPage(props: MapEditPageProps) {
     travelingAgvs: props.travelingAgvs,
     allowed,
   });
+  const publishReason = props.offline && allowed ? OFFLINE : publishBlocked;
 
   const pickTool = (t: Tool) => {
     setTool(t);
@@ -182,12 +208,15 @@ export function MapEditPage(props: MapEditPageProps) {
           {dirty ? '。保存していない変更があります' : ''}）　公開中：版{props.publishedVersion}
         </p>
         <div className="ml-auto flex flex-wrap gap-2">
+          <button type="button" disabled={sending} onClick={() => (dirty ? setConfirmingReload(true) : props.onReload())} className={plainButton}>
+            サーバーから読み直す
+          </button>
           <button
             type="button"
-            disabled={!allowed || !dirty}
+            disabled={!canSend || !dirty}
             onClick={() => {
-              props.onSaveDraft(draft);
-              setBaseline(draft);
+              const sent = draft;
+              void send(sent, () => props.onSaveDraft(sent));
             }}
             className={plainButton}
           >
@@ -204,12 +233,18 @@ export function MapEditPage(props: MapEditPageProps) {
           >
             確かめる（検証）
           </button>
-          <button type="button" disabled={publishBlocked !== null} onClick={() => setConfirming(true)} className={darkButton}>
+          <button type="button" disabled={publishReason !== null || sending} onClick={() => setConfirming(true)} className={darkButton}>
             版{props.draftVersion}を公開する
           </button>
         </div>
       </div>
-      {publishBlocked !== null && validation !== null && <p className={`${note} -mt-2 text-right`}>{publishBlocked}</p>}
+      {notice !== null && (
+        <p role="alert" className="m-0 text-sm font-bold text-attention">
+          {notice}
+        </p>
+      )}
+      {allowed && props.offline && <p className="m-0 text-sm font-bold">{OFFLINE}</p>}
+      {!props.offline && publishBlocked !== null && validation !== null && <p className={`${note} -mt-2 text-right`}>{publishBlocked}</p>}
       {!allowed && <p className="m-0 text-sm font-bold">{publishBlocked}</p>}
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[180px_minmax(0,1fr)_320px]">
@@ -356,11 +391,24 @@ export function MapEditPage(props: MapEditPageProps) {
           confirmLabel={`版${props.draftVersion}を公開する`}
           tone="primary"
           onConfirm={() => {
-            props.onPublish(draft);
-            setBaseline(draft);
+            const sent = draft;
             setConfirming(false);
+            void send(sent, () => props.onPublish(sent));
           }}
           onCancel={() => setConfirming(false)}
+        />
+      )}
+      {confirmingReload && (
+        <ConfirmDialog
+          title="保存していない変更を捨てて読み直しますか？"
+          body="サーバーに保存してある下書き（なければ公開中の版）を読み直します。保存していない変更は、元に戻せません。"
+          confirmLabel="変更を捨てて読み直す"
+          tone="danger"
+          onConfirm={() => {
+            setConfirmingReload(false);
+            props.onReload();
+          }}
+          onCancel={() => setConfirmingReload(false)}
         />
       )}
     </>
@@ -585,7 +633,7 @@ function PanelEditor({
         })}
       </div>
 
-      {partner !== undefined && <OutlineEditor key={partner.id} draft={draft} equipment={partner.id} allowed={allowed} onChange={onChange} />}
+      {partner !== undefined && <OutlineEditor key={partner.id} draft={draft} panel={id} equipment={partner.id} allowed={allowed} onChange={onChange} />}
 
       {height !== undefined && (
         <div className="flex flex-col gap-2 border-t border-line pt-3">
@@ -615,8 +663,21 @@ function PanelEditor({
   );
 }
 
-function OutlineEditor({ draft, equipment, allowed, onChange }: { readonly draft: MapDraft; readonly equipment: string; readonly allowed: boolean; readonly onChange: (d: MapDraft) => void }) {
-  const current = draft.outlines[equipment];
+function OutlineEditor({
+  draft,
+  panel,
+  equipment,
+  allowed,
+  onChange,
+}: {
+  readonly draft: MapDraft;
+  /** 外形を当てる受け渡しパネル（外形は、受け渡しパネルごとに持つ）。 */
+  readonly panel: string;
+  readonly equipment: string;
+  readonly allowed: boolean;
+  readonly onChange: (d: MapDraft) => void;
+}) {
+  const current = draft.outlines[panel];
   const [text, setText] = useState(() => ({
     x: current ? String(current.x) : '',
     y: current ? String(current.y) : '',
@@ -645,7 +706,7 @@ function OutlineEditor({ draft, equipment, allowed, onChange }: { readonly draft
           disabled={!allowed || !ok}
           onClick={() => {
             const outline: Rect = { x: Number(text.x), y: Number(text.y), width: Number(text.width), height: Number(text.height) };
-            onChange({ ...draft, outlines: { ...draft.outlines, [equipment]: outline } });
+            onChange({ ...draft, outlines: { ...draft.outlines, [panel]: outline } });
           }}
           className={plainButton}
         >

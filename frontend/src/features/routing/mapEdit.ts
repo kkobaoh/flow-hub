@@ -4,6 +4,7 @@ import { heading, panelId, type Connection, type Heading, type MapLayout, type P
 /** 編集しているマップ（下書き）。外形は、装置とステーションの ID ごとに持つ（mm）。 */
 export interface MapDraft {
   readonly layout: MapLayout;
+  /** 受け渡しパネルごとの、その下にある装置やステーションの外形（キーは受け渡しパネルの ID）。 */
   readonly outlines: Readonly<Record<string, Rect>>;
 }
 

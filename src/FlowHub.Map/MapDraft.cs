@@ -61,7 +61,7 @@ public sealed record DraftPanel(
 /// <param name="Heading">From から To へ進むときの向き（度）。</param>
 public sealed record DraftConnection(string From, string To, int DistanceMm, int Heading, bool OneWay);
 
-/// <summary>下書きの外形（mm。受け渡しパネルの左上を原点にする）。</summary>
+/// <summary>下書きの外形（mm。マップの左上を原点にし、東と南を正にする）。</summary>
 public sealed record DraftOutline(int XMm, int YMm, int WidthMm, int HeightMm);
 
 /// <summary>保存してある下書きと、保存した日時。</summary>

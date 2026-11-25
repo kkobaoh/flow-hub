@@ -46,7 +46,8 @@ test('URL で指定した装置を、読み込み直しても出す', async ({ p
   expect(errors).toEqual([]);
 });
 
-test('マップの編集：パネルを置いて保存しないまま移ろうとすると、確かめる画面を出す', async ({ page }) => {
+// サーバーの下書きは1つなので、下書きを保存するテストは、これ1つにまとめる（並べて流すと、古い番号の保存として断られるため）
+test('マップの編集：パネルを置いて保存しないまま移ろうとすると確かめ、保存した下書きは読み直しても残る', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/#/mapEdit');
 
@@ -60,6 +61,9 @@ test('マップの編集：パネルを置いて保存しないまま移ろう�
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('マップの編集');
 
   await page.getByRole('button', { name: '下書きを保存する' }).click();
+  await expect(page.getByText('保存していない変更があります')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText(/に保存/)).toBeVisible();
   await openMenu(page, 'transports');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('搬送の一覧');
   expect(errors).toEqual([]);
@@ -246,3 +250,4 @@ test('消耗品の構成：装置のストッカーを加えて外し、ステ�
   await expect(page.getByRole('button', { name: 'ステーションを加える' })).toBeDisabled();
   expect(errors).toEqual([]);
 });
+

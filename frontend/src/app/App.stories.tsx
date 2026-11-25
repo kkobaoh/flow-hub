@@ -27,7 +27,7 @@ function storyLink(): ServerLink {
     setTimeout(() => fake.emitSystemStatus({ version, state }), 300);
     return Promise.resolve('ok' as const);
   };
-  return { connect: fake.connect, startSystem: () => answer('started'), stopSystem: () => answer('stopped'), operateAgv: fake.operateAgv, operateConsumables: fake.operateConsumables, cancelTransport: fake.cancelTransport, operateAgvTypes: fake.operateAgvTypes, operateAgvRegistrations: fake.operateAgvRegistrations, operateConfiguration: fake.operateConfiguration };
+  return { connect: fake.connect, startSystem: () => answer('started'), stopSystem: () => answer('stopped'), operateAgv: fake.operateAgv, operateConsumables: fake.operateConsumables, cancelTransport: fake.cancelTransport, operateAgvTypes: fake.operateAgvTypes, operateAgvRegistrations: fake.operateAgvRegistrations, operateConfiguration: fake.operateConfiguration, loadMapDraft: fake.loadMapDraft, saveMapDraft: fake.saveMapDraft };
 }
 
 const meta = {

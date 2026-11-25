@@ -8,6 +8,9 @@ import type { EquipmentStatusSnapshot } from '../features/tool/api/equipmentStat
 import type { TransportsSnapshot } from '../features/dispatch/api/transportsSnapshot';
 import type { ConsumablesSnapshot } from '../features/tool/api/consumablesSnapshot';
 import type { ConfigurationCommand, ConfigurationResult, ConfigurationSnapshot } from '../features/tool/api/configurationSnapshot';
+import type { MapDraftLoad, MapDraftSaveOutcome } from '../features/routing/api/mapDraft';
+import type { MapDraft } from '../features/routing/mapEdit';
+import { demoMapDraft } from '../app/demo/demo';
 import type { AgvRegistrationCommand, AgvRegistrationResult, AgvTypeCommand, AgvTypeCommandResult, FleetSnapshot } from '../features/fleet/api/fleetSnapshot';
 import type { TransportCancelResult } from '../features/dispatch/api/transportCommands';
 import type { ConsumableCommand, ConsumableCommandResult } from '../features/tool/api/consumableCommands';
@@ -50,6 +53,12 @@ export interface FakeLink extends ServerLink {
   readonly configurationCommands: readonly ConfigurationCommand[];
   /** 消耗品の構成の操作の結果を決める（既定は saved）。 */
   respondToConfiguration(result: ConfigurationResult): void;
+  /** 保存を頼まれたマップの下書き（読んだときの番号と、中身）。 */
+  readonly savedMapDrafts: readonly { readonly revision: number; readonly draft: MapDraft }[];
+  /** マップの下書きを読んだときの答えを決める（既定は、番号 0 の見本の下書き）。 */
+  respondToMapDraftLoad(result: MapDraftLoad | 'failed'): void;
+  /** マップの下書きを保存したときの答えを決める（既定は、番号を1つ進めて saved）。 */
+  respondToMapDraftSave(result: MapDraftSaveOutcome): void;
   /** AGV の種類へ送られた操作。 */
   readonly agvTypeCommands: readonly AgvTypeCommand[];
   /** AGV の種類の操作の結果を決める（既定は、受け付けたときの結果）。 */
@@ -116,6 +125,9 @@ export function createFakeLink(initial?: {
   };
 
   const configurationCommands: ConfigurationCommand[] = [];
+  const savedMapDrafts: { revision: number; draft: MapDraft }[] = [];
+  let mapDraftLoad: MapDraftLoad | 'failed' = { revision: 0, savedAt: null, publishedVersion: 1, draft: demoMapDraft };
+  let mapDraftSave: MapDraftSaveOutcome | null = null;
   let configurationResult: ConfigurationResult = 'saved';
 
   const operateConsumables = (command: ConsumableCommand): Promise<ConsumableCommandResult> => {
@@ -171,6 +183,18 @@ export function createFakeLink(initial?: {
       consumableResult = next;
     },
     configurationCommands,
+    savedMapDrafts,
+    respondToMapDraftLoad(next) {
+      mapDraftLoad = next;
+    },
+    respondToMapDraftSave(next) {
+      mapDraftSave = next;
+    },
+    loadMapDraft: () => Promise.resolve(mapDraftLoad),
+    saveMapDraft(revision, draft) {
+      savedMapDrafts.push({ revision, draft });
+      return Promise.resolve(mapDraftSave ?? { result: 'saved', revision: revision + 1 });
+    },
     respondToConfiguration(next) {
       configurationResult = next;
     },

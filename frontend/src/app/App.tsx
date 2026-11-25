@@ -1,10 +1,7 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  demoDeviceConfigs,
   demoHeights,
-  demoMapDraft,
   demoRoles,
-  demoStationConfigs,
   demoUsers,
   demoValidate,
 } from './demo/demo';
@@ -35,7 +32,6 @@ import { mapOverlays, toAgvDetails } from '../features/fleet/api/agvSnapshots';
 import { runIndicator } from '../features/system/systemStatus';
 import { useServer } from './realtime/useServer';
 import type { MapLayout } from '../features/routing/model';
-import { sampleLayout } from './demo/sampleLayout';
 import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
 import { equipmentDetails } from '../features/tool/equipmentDetails';
 import { deviceInsideOf, stationInventoryOf } from '../features/tool/inside';
@@ -44,6 +40,7 @@ import { toHit, toRecord } from '../features/tool/api/consumablesSnapshot';
 import { agvRegistrationNotice, agvTypeNotice, type AgvRegistrationCommand } from '../features/fleet/api/fleetSnapshot';
 import { configurationNotice, type ConfigurationCommand } from '../features/tool/api/configurationSnapshot';
 import type { ProcessKind } from '../features/tool/config';
+import { mapDraftNotice, type MapDraftLoad } from '../features/routing/api/mapDraft';
 import { cancelNotice } from '../features/dispatch/api/transportCommands';
 import { consumableNotice, type ConsumableCommand } from '../features/tool/api/consumableCommands';
 
@@ -75,7 +72,6 @@ function browserStorage(): Storage | null {
   }
 }
 
-const transferPanels = sampleLayout.panels.filter((p) => p.type === 'Transfer' || p.type === 'SpecialTransfer').map((p): string => p.id);
 
 /** 運転の切り替えを送れなかったときに出すメッセージ。 */
 const commandFailed = {
@@ -86,8 +82,6 @@ const commandFailed = {
 /** サーバーとつないだデータで出す画面（ほかの画面には、見本のデータだと帯で知らせる）。 */
 const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables', 'agvs', 'consumableConfig']);
 
-/** マップの編集の画面の装置とステーション（マップの編集は、まだ見本の下書きで動かす。backlog #5）。 */
-const DEMO_EQUIPMENT = [...demoDeviceConfigs, ...demoStationConfigs];
 
 /** キャリアの種類の候補（いまある加工の種類のもの。重ねず、名前の順）。 */
 const carrierSuggestions = (kinds: readonly ProcessKind[]) => [...new Set(kinds.map((k) => k.carrier))].sort();
@@ -130,13 +124,33 @@ export function App({ link }: AppProps) {
   const offline = server.connection !== 'connected';
   const [users, setUsers] = useState(demoUsers);
   const [roles, setRoles] = useState(demoRoles);
-  const [mapDraft, setMapDraft] = useState(demoMapDraft);
-  const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
-  // マップの編集の画面は、まだ見本の下書きで動かす（画面からの公開は backlog #5）
-  const [demoPublished, setDemoPublished] = useState({ version: 3, layout: sampleLayout });
+  // マップの編集の画面は、開くたびにサーバーから下書きを読む。読めるまでは、つながっていれば読み直す。
+  // 読んだあとは、「サーバーから読み直す」を押したときだけ読み直す（つながり直しても、画面の変更は捨てない）
+  const [draftView, setDraftView] = useState<{ readonly kind: 'loading' } | { readonly kind: 'failed' } | { readonly kind: 'loaded'; readonly load: MapDraftLoad; readonly key: number }>({
+    kind: 'loading',
+  });
+  const reloadDraft = useCallback(async () => {
+    const result = await link.loadMapDraft();
+    setDraftView((view) => (result === 'failed' ? { kind: 'failed' } : { kind: 'loaded', load: result, key: (view.kind === 'loaded' ? view.key : 0) + 1 }));
+  }, [link]);
+  const onMapEdit = route.screen === 'mapEdit';
+  useEffect(() => {
+    if (!onMapEdit) {
+      setDraftView({ kind: 'loading' }); // 次に開いたときに読み直す
+    } else if (!offline && draftView.kind === 'loading') {
+      void reloadDraft();
+    }
+  }, [onMapEdit, offline, draftView.kind, reloadDraft]);
   // マップの画面は、サーバーから届いた公開中のマップを描く（届くまでは、まだない）
   const serverMap = server.map.kind === 'waiting' ? null : server.map.snapshot;
   const layout = serverMap?.layout ?? EMPTY_LAYOUT;
+  // 消耗品の構成で選べる受け渡しパネル（公開中のマップの受け渡しパネルと特殊消耗品受け渡しパネル）
+  const transferPanels = useMemo(() => layout.panels.filter((p) => p.type === 'Transfer' || p.type === 'SpecialTransfer').map((p): string => p.id), [layout]);
+  // マップの編集の画面の装置とステーション（消耗品の構成から。届くまでは、ないものとする）
+  const editEquipment = useMemo(
+    () => (server.configuration.kind === 'waiting' ? [] : [...server.configuration.snapshot.devices, ...server.configuration.snapshot.stations]),
+    [server.configuration],
+  );
   const destinations = useMemo(() => panelOptions(layout), [layout]);
   const equipmentStatus = server.equipment.kind === 'waiting' ? null : server.equipment.snapshot;
   const equipment = useMemo(() => equipmentDetails(serverMap?.equipment ?? [], equipmentStatus), [serverMap, equipmentStatus]);
@@ -385,27 +399,48 @@ export function App({ link }: AppProps) {
           />
         );
       case 'mapEdit':
+        if (draftView.kind === 'failed') {
+          return (
+            <div className="flex flex-col items-start gap-3 rounded-[10px] border border-line bg-paper p-5 text-[15px]">
+              <p className="m-0">マップの下書きを読めませんでした。サーバーから応答がありません。</p>
+              <button type="button" onClick={() => void reloadDraft()} className="min-h-11 rounded-md border-2 border-graphite px-4 font-bold">
+                読み直す
+              </button>
+            </div>
+          );
+        }
+        if (draftView.kind === 'loading') {
+          return <Loading what="マップの下書き" />;
+        }
+        if (draftView.load.draft === null) {
+          return <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">公開中のマップも下書きもありません。</p>;
+        }
         return (
           <MapEditPage
-            saved={mapDraft}
-            draftVersion={demoPublished.version + 1}
-            savedAt={draftSavedAt}
-            publishedVersion={demoPublished.version}
-            equipment={DEMO_EQUIPMENT}
+            key={draftView.key}
+            saved={draftView.load.draft}
+            draftVersion={draftView.load.publishedVersion + 1}
+            savedAt={draftView.load.savedAt}
+            publishedVersion={draftView.load.publishedVersion}
+            equipment={editEquipment}
             heights={heights}
             running={run !== 'stopped'} // わからないときは、運転中として扱う（公開の決まりが厳しい側）
             travelingAgvs={agvs.filter((a) => a.operation === 'traveling').map((a) => a.id)}
             permissions={permissions}
-            onSaveDraft={(d) => {
-              setMapDraft(d);
-              setDraftSavedAt(new Date());
+            offline={offline}
+            onSaveDraft={async (d) => {
+              const load = draftView.load;
+              const outcome = await link.saveMapDraft(load.revision, d);
+              if (outcome.result === 'saved') {
+                // 画面はそのまま（選んでいるパネルなどを残す）。番号と保存した日時だけ進める
+                setDraftView((view) => (view.kind === 'loaded' ? { ...view, load: { ...view.load, revision: outcome.revision, savedAt: new Date(), draft: d } } : view));
+              }
+              return mapDraftNotice(outcome);
             }}
+            onReload={() => void reloadDraft()}
             onValidate={(d) => Promise.resolve(demoValidate(d))}
-            onPublish={(d) => {
-              setDemoPublished((p) => ({ version: p.version + 1, layout: d.layout }));
-              setMapDraft(d);
-              setDraftSavedAt(null);
-            }}
+            // 公開は、まだサーバーとつないでいない（CN-16c）
+            onPublish={() => Promise.resolve('公開は、まだサーバーとつないでいません。')}
             onSaveHeight={(panel, mm) => setHeights((hs) => ({ ...hs, [panel]: mm === null ? null : { heightMm: mm, source: 'manual', at: new Date() } }))}
             onDirtyChange={setMapDirty}
           />

@@ -363,7 +363,7 @@ export const demoUsers: readonly UserAccount[] = [
 /** 見本の下書き（公開中の版の写し。外形は map/sampleLayout.ts の装置とステーション）。 */
 export const demoMapDraft: MapDraft = {
   layout: sampleLayout,
-  outlines: Object.fromEntries(sampleEquipment.map((e) => [e.id, e.outlineMm])),
+  outlines: Object.fromEntries(sampleEquipment.map((e) => [e.panel, e.outlineMm])),
 };
 
 /** 見本のキャリアの高さ（公開中の版の受け渡しパネル）。 */

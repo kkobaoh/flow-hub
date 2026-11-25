@@ -27,9 +27,10 @@ const saved: MapDraft = {
 
 function setup(overrides: Partial<MapEditPageProps> = {}) {
   const handlers = {
-    onSaveDraft: vi.fn(),
+    onSaveDraft: vi.fn(() => Promise.resolve<string | null>(null)),
+    onReload: vi.fn(),
     onValidate: vi.fn(() => Promise.resolve<readonly string[]>([])),
-    onPublish: vi.fn(),
+    onPublish: vi.fn(() => Promise.resolve<string | null>(null)),
     onSaveHeight: vi.fn(),
     onDirtyChange: vi.fn(),
   };
@@ -44,6 +45,7 @@ function setup(overrides: Partial<MapEditPageProps> = {}) {
       running={false}
       travelingAgvs={[]}
       permissions={initialRoles.管理者}
+      offline={false}
       {...handlers}
       {...overrides}
     />,
@@ -120,15 +122,67 @@ describe('MapEditPage（マップの編集）', () => {
     expect(side(container).textContent).toContain('D1 は装置かステーションの受け渡しパネルなので、ID を直せません。');
   });
 
-  it('下書きを保存する', () => {
+  it('下書きを保存する。保存できたら、保存していない変更はなくなる', async () => {
     const { container, onSaveDraft } = setup();
 
     click(tool(container, 'Normal'));
     click(cell(container, 2, 0));
     click(byText(container, '下書きを保存する'));
+    await flush();
 
     expect(onSaveDraft).toHaveBeenCalledTimes(1);
     expect((onSaveDraft.mock.calls[0] as unknown as [MapDraft])[0].layout.panels.map((p) => p.id)).toContain('P3');
+    expect(container.textContent).not.toContain('保存していない変更があります');
+  });
+
+  it('下書きの保存を断られたら、理由を出し、変更は残す', async () => {
+    const { container } = setup({ onSaveDraft: () => Promise.resolve('ほかの人が下書きを保存しました。') });
+
+    click(tool(container, 'Normal'));
+    click(cell(container, 2, 0));
+    click(byText(container, '下書きを保存する'));
+    await flush();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('ほかの人が下書きを保存しました。');
+    expect(container.textContent).toContain('保存していない変更があります');
+  });
+
+  it('読み直す：変更があれば、捨ててよいか確かめてから読み直す', () => {
+    const { container, onReload } = setup();
+
+    click(byText(container, 'サーバーから読み直す'));
+    expect(onReload).toHaveBeenCalledTimes(1);
+
+    click(tool(container, 'Normal'));
+    click(cell(container, 2, 0));
+    click(byText(container, 'サーバーから読み直す'));
+    expect(onReload).toHaveBeenCalledTimes(1);
+    click(byText(container.querySelector('[role="alertdialog"]')!, '変更を捨てて読み直す'));
+    expect(onReload).toHaveBeenCalledTimes(2);
+  });
+
+  it('サーバーとつながっていなければ、保存も公開もできない', () => {
+    const { container } = setup({ offline: true });
+
+    click(tool(container, 'Normal'));
+    click(cell(container, 2, 0));
+
+    expect(byText(container, '下書きを保存する').disabled).toBe(true);
+    expect(container.textContent).toContain('サーバーとつながっていないので、下書きを保存したり公開したりできません。');
+  });
+
+  it('外形は、受け渡しパネルごとに当てる', async () => {
+    const { container, onSaveDraft } = setup();
+
+    click(target(container, 'D1'));
+    for (const [label, value] of [['外形の左（東へ）', '1000'], ['外形の上（南へ）', '1500'], ['外形の幅', '800'], ['外形の奥行き', '600']] as const) {
+      change(side(container).querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!, value);
+    }
+    click(byText(side(container), '外形を当てる'));
+    click(byText(container, '下書きを保存する'));
+    await flush();
+
+    expect((onSaveDraft.mock.calls[0] as unknown as [MapDraft])[0].outlines).toEqual({ D1: { x: 1000, y: 1500, width: 800, height: 600 } });
   });
 
   it('検証で問題がなければ、確かめる画面を出してから公開する', async () => {

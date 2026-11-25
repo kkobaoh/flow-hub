@@ -17,6 +17,8 @@ export default defineConfig(({ mode }) => {
         '/agv-types': { target: api },
         '/agv-registrations': { target: api },
         '/configuration': { target: api },
+        // 画面の道（# より前）は / だけなので、/map/ で始まる道は Api へ渡してよい
+        '/map/': { target: api },
         '/devices': { target: api },
         '/consumables': { target: api },
       },

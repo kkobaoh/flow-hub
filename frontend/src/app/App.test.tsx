@@ -342,9 +342,10 @@ describe('App', () => {
     window.location.hash = '';
   });
 
-  it('マップの編集で保存していない変更があれば、ほかの画面へ移る前に確かめる', () => {
+  it('マップの編集で保存していない変更があれば、ほかの画面へ移る前に確かめる', async () => {
     window.location.hash = '#/mapEdit';
     const { container } = render(<App link={connected()} />);
+    await act(() => Promise.resolve()); // 下書きが届くのを待つ
 
     click(container.querySelector('[aria-label="置くもの"] button[data-tool="Normal"]')!);
     click(container.querySelector('[data-cell]')!);
@@ -355,6 +356,35 @@ describe('App', () => {
     expect(dialog.textContent).toContain('保存していない変更を捨てて移りますか？');
     click([...dialog.querySelectorAll('button')].find((b) => b.textContent === '変更を捨てて移る')!);
     expect(container.querySelector('h1')?.textContent).toBe('搬送の一覧');
+    window.location.hash = '';
+  });
+
+  it('マップの編集は、サーバーの下書きを読み、読んだときの番号で保存する。古い番号なら理由を出す', async () => {
+    window.location.hash = '#/mapEdit';
+    const link = connected();
+    link.respondToMapDraftLoad({ revision: 7, savedAt: null, publishedVersion: 2, draft: { layout: serverMap.layout, outlines: {} } });
+    const { container } = render(<App link={link} />);
+    expect(container.textContent).toContain('マップの下書きを読み込んでいます');
+    await act(() => Promise.resolve());
+    expect(container.textContent).toContain('公開中：版2');
+
+    click(container.querySelector('[aria-label="置くもの"] button[data-tool="Normal"]')!);
+    click(container.querySelector('[data-cell]')!);
+    await act(async () => {
+      click(buttonByText(container, '下書きを保存する'));
+      await Promise.resolve();
+    });
+    expect(link.savedMapDrafts.map((d) => d.revision)).toEqual([7]);
+
+    link.respondToMapDraftSave({ result: 'stale', revision: 9 });
+    click(container.querySelector('[aria-label="置くもの"] button[data-tool="Normal"]')!);
+    click(container.querySelectorAll('[data-cell]')[1]!);
+    await act(async () => {
+      click(buttonByText(container, '下書きを保存する'));
+      await Promise.resolve();
+    });
+    expect(link.savedMapDrafts.map((d) => d.revision)).toEqual([7, 8]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('ほかの人が下書きを保存したか公開したので、保存しませんでした');
     window.location.hash = '';
   });
 
