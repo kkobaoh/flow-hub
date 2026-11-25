@@ -633,6 +633,29 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(1, (int)(await GetJsonAsync(client, "/map/draft"))["publishedVersion"]!);
     }
 
+    [Fact]
+    public async Task キャリアの高さを手入力で入れて空にでき下書きと一緒に読める()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []); // 受け渡しパネルは S と D
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        var saved = await PostJsonAsync(client, "/map/carrier-heights/S", """{ "heightMm": 320 }""");
+        var heights = (await GetJsonAsync(client, "/map/draft"))["heights"]!.AsArray();
+        var notTransfer = await PostJsonAsync(client, "/map/carrier-heights/A", """{ "heightMm": 320 }""");
+        var zero = await OperateAsync(client, "/map/carrier-heights/S", """{ "heightMm": 0 }""");
+        var cleared = await PostJsonAsync(client, "/map/carrier-heights/S", """{ "heightMm": null }""");
+
+        Assert.Equal("saved", (string)saved["result"]!);
+        Assert.Equal("manual", (string)saved["height"]!["source"]!);
+        Assert.Equal(("S", 320), ((string)heights.Single()!["panel"]!, (int)heights.Single()!["heightMm"]!));
+        Assert.Equal("notTransferPanel", (string)notTransfer["result"]!);
+        Assert.Equal(HttpStatusCode.BadRequest, zero.Status);
+        Assert.Equal("saved", (string)cleared["result"]!);
+        Assert.Null(cleared["height"]);
+        Assert.Empty((await GetJsonAsync(client, "/map/draft"))["heights"]!.AsArray());
+    }
+
     private static async Task<JsonNode> PostJsonAsync(HttpClient client, string path, string body)
     {
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), new StringContent(body, Encoding.UTF8, "application/json"), Token);

@@ -35,6 +35,13 @@ namespace FlowHub.Map.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("SetAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Measured");
+
                     b.HasKey("PanelId");
 
                     b.ToTable("carrier_heights", "map");

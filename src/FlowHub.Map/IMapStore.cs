@@ -24,6 +24,15 @@ public interface IMapStore
     /// 受け渡しパネルのキャリアを下げる高さを設定する（現場での手入力、または AGV の自動測定）。新しく設定されたほうを使う。
     /// </summary>
     void SetCarrierHeight(PanelId panel, int heightMm, DateTimeOffset setAt);
+
+    /// <summary>受け渡しパネルのキャリアの高さの設定（高さ、出どころ、日時）。設定されていなければ null。</summary>
+    CarrierHeightSetting? CarrierHeightSettingOf(PanelId panel);
+
+    /// <summary>
+    /// 人が画面から入れたキャリアの高さを設定する。すぐ使う。null なら設定なしにする（AGV が測る）。
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">高さが 1 未満のとき（頼みの誤り）。</exception>
+    CarrierHeightSaveResult SetManualCarrierHeight(PanelId panel, int? heightMm, DateTimeOffset setAt);
 }
 
 /// <summary>
@@ -32,7 +41,7 @@ public interface IMapStore
 public sealed class InMemoryMapStore : IMapStore
 {
     private readonly Lock _lock = new();
-    private readonly Dictionary<PanelId, (int HeightMm, DateTimeOffset SetAt)> _heights = [];
+    private readonly Dictionary<PanelId, CarrierHeightSetting> _heights = [];
     private MapSnapshot? _current;
     private int _version;
 
@@ -81,8 +90,48 @@ public sealed class InMemoryMapStore : IMapStore
 
     public void SetCarrierHeight(PanelId panel, int heightMm, DateTimeOffset setAt) => TrySetCarrierHeight(panel, heightMm, setAt);
 
+    public CarrierHeightSetting? CarrierHeightSettingOf(PanelId panel)
+    {
+        lock (_lock)
+        {
+            return _heights.GetValueOrDefault(panel);
+        }
+    }
+
+    public CarrierHeightSaveResult SetManualCarrierHeight(PanelId panel, int? heightMm, DateTimeOffset setAt)
+    {
+        if (heightMm is { } mm)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(mm, nameof(heightMm));
+        }
+
+        lock (_lock)
+        {
+            if (_current is not { } map)
+            {
+                return CarrierHeightSaveResult.NoMap;
+            }
+
+            if (!map.Panels.Any(p => p.Id == panel && p.Type == PanelType.Transfer))
+            {
+                return CarrierHeightSaveResult.NotTransferPanel;
+            }
+
+            if (heightMm is { } height)
+            {
+                _heights[panel] = new CarrierHeightSetting(height, CarrierHeightSource.Manual, setAt);
+            }
+            else
+            {
+                _heights.Remove(panel);
+            }
+
+            return CarrierHeightSaveResult.Saved;
+        }
+    }
+
     /// <summary>
-    /// キャリアの高さを設定する。すでに新しい設定があって、設定しなかったときは false。
+    /// AGV が測ったキャリアの高さを設定する。すでに新しい設定があって、設定しなかったときは false。
     /// </summary>
     internal bool TrySetCarrierHeight(PanelId panel, int heightMm, DateTimeOffset setAt)
     {
@@ -100,7 +149,7 @@ public sealed class InMemoryMapStore : IMapStore
                 return false; // すでに新しい設定がある
             }
 
-            _heights[panel] = (heightMm, setAt);
+            _heights[panel] = new CarrierHeightSetting(heightMm, CarrierHeightSource.Measured, setAt);
             return true;
         }
     }
@@ -108,11 +157,11 @@ public sealed class InMemoryMapStore : IMapStore
     /// <summary>
     /// 保存しておいたキャリアの高さを戻す（起動したとき）。保存したときに確かめているので、もう一度は確かめない。
     /// </summary>
-    internal void RestoreCarrierHeight(PanelId panel, int heightMm, DateTimeOffset setAt)
+    internal void RestoreCarrierHeight(PanelId panel, CarrierHeightSetting setting)
     {
         lock (_lock)
         {
-            _heights[panel] = (heightMm, setAt);
+            _heights[panel] = setting;
         }
     }
 }

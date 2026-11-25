@@ -76,6 +76,9 @@ internal sealed class CarrierHeightRow
 
     public int HeightMm { get; set; }
 
+    /// <summary>出どころ（<see cref="CarrierHeightSource"/> の名前）。前からある行は、AGV が測ったものとする。</summary>
+    public string Source { get; set; } = nameof(CarrierHeightSource.Measured);
+
     /// <summary>設定した時刻（UTC）。</summary>
     public DateTimeOffset SetAt { get; set; }
 }
@@ -144,6 +147,7 @@ internal sealed class MapDbContext(DbContextOptions<MapDbContext> options) : DbC
             entity.ToTable("carrier_heights");
             entity.HasKey(h => h.PanelId);
             entity.Property(h => h.PanelId).HasMaxLength(100);
+            entity.Property(h => h.Source).HasMaxLength(20).HasDefaultValue(nameof(CarrierHeightSource.Measured));
         });
 
         modelBuilder.Entity<MapDraftRow>(entity =>

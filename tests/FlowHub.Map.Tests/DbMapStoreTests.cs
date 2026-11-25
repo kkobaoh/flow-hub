@@ -165,6 +165,48 @@ public sealed class DbMapStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task AGVが測った高さと手入力した高さは出どころと日時も次に開いたときに読める()
+    {
+        var store = await OpenAsync();
+        store.Publish(ThreePanels());
+        store.SetCarrierHeight(T, 120, T0);
+        Assert.Equal(new CarrierHeightSetting(120, CarrierHeightSource.Measured, T0), store.CarrierHeightSettingOf(T));
+
+        var saved = store.SetManualCarrierHeight(T, 150, T0.AddMinutes(1));
+
+        Assert.Equal(CarrierHeightSaveResult.Saved, saved);
+        var reopened = await OpenAsync();
+        Assert.Equal(new CarrierHeightSetting(150, CarrierHeightSource.Manual, T0.AddMinutes(1)), reopened.CarrierHeightSettingOf(T));
+        Assert.Equal(150, reopened.CarrierHeightOf(T));
+    }
+
+    [Fact]
+    public async Task 手入力で空にすると設定なしになりAGVが測る()
+    {
+        var store = await OpenAsync();
+        store.Publish(ThreePanels());
+        store.SetManualCarrierHeight(T, 150, T0);
+
+        Assert.Equal(CarrierHeightSaveResult.Saved, store.SetManualCarrierHeight(T, null, T0.AddMinutes(1)));
+
+        var reopened = await OpenAsync();
+        Assert.Null(reopened.CarrierHeightSettingOf(T));
+        reopened.SetCarrierHeight(T, 130, T0.AddMinutes(2));
+        Assert.Equal(130, reopened.CarrierHeightOf(T));
+    }
+
+    [Fact]
+    public async Task 受け渡しパネルでないパネルとマップを公開する前は手入力の高さを断る()
+    {
+        var store = await OpenAsync();
+
+        Assert.Equal(CarrierHeightSaveResult.NoMap, store.SetManualCarrierHeight(T, 150, T0));
+        store.Publish(ThreePanels());
+        Assert.Equal(CarrierHeightSaveResult.NotTransferPanel, store.SetManualCarrierHeight(A, 150, T0));
+        Assert.Null(store.CarrierHeightSettingOf(A));
+    }
+
+    [Fact]
     public async Task キャリアの高さは新しく設定されたほうを残す()
     {
         var store = await OpenAsync();

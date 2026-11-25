@@ -65,6 +65,51 @@ public sealed class DbMapStore : IMapStore
 
     public int? CarrierHeightOf(PanelId panel) => _memory.CarrierHeightOf(panel);
 
+    public CarrierHeightSetting? CarrierHeightSettingOf(PanelId panel) => _memory.CarrierHeightSettingOf(panel);
+
+    /// <summary>人が画面から入れたキャリアの高さを設定し、DB に書く（null なら DB からも消す）。</summary>
+    public CarrierHeightSaveResult SetManualCarrierHeight(PanelId panel, int? heightMm, DateTimeOffset setAt)
+    {
+        lock (_lock)
+        {
+            var result = _memory.SetManualCarrierHeight(panel, heightMm, setAt);
+            if (result == CarrierHeightSaveResult.Saved)
+            {
+                WriteHeight(panel, heightMm is { } mm ? new CarrierHeightSetting(mm, CarrierHeightSource.Manual, setAt) : null);
+            }
+
+            return result;
+        }
+    }
+
+    /// <summary>キャリアの高さを DB に書く（null なら消す。ロックの中で呼ぶ）。</summary>
+    private void WriteHeight(PanelId panel, CarrierHeightSetting? setting)
+    {
+        using var context = _createContext();
+        var row = context.CarrierHeights.Find(panel.Value);
+        if (setting is null)
+        {
+            if (row is not null)
+            {
+                context.CarrierHeights.Remove(row);
+            }
+        }
+        else
+        {
+            if (row is null)
+            {
+                row = new CarrierHeightRow { PanelId = panel.Value };
+                context.CarrierHeights.Add(row);
+            }
+
+            row.HeightMm = setting.HeightMm;
+            row.Source = setting.Source.ToString();
+            row.SetAt = setting.SetAt.ToUniversalTime();
+        }
+
+        context.SaveChanges();
+    }
+
     /// <summary>
     /// マップを公開する。次の番号の版として DB に保存してから、今の版にする。DB に残す版は、描く情報を必ず持つ。
     /// </summary>
@@ -121,7 +166,7 @@ public sealed class DbMapStore : IMapStore
         row is { OutlineXMm: { } x, OutlineYMm: { } y, OutlineWidthMm: { } width, OutlineHeightMm: { } height } ? new Outline(x, y, width, height) : null);
 
     /// <summary>
-    /// キャリアの高さを設定する。新しく設定されたほうを使い、使うことにしたら DB に書く。
+    /// AGV が測ったキャリアの高さを設定する。新しく設定されたほうを使い、使うことにしたら DB に書く。
     /// </summary>
     public void SetCarrierHeight(PanelId panel, int heightMm, DateTimeOffset setAt)
     {
@@ -132,19 +177,7 @@ public sealed class DbMapStore : IMapStore
                 return; // すでに新しい設定がある
             }
 
-            using var context = _createContext();
-            var row = context.CarrierHeights.Find(panel.Value);
-            if (row is null)
-            {
-                context.CarrierHeights.Add(new CarrierHeightRow { PanelId = panel.Value, HeightMm = heightMm, SetAt = setAt.ToUniversalTime() });
-            }
-            else
-            {
-                row.HeightMm = heightMm;
-                row.SetAt = setAt.ToUniversalTime();
-            }
-
-            context.SaveChanges();
+            WriteHeight(panel, new CarrierHeightSetting(heightMm, CarrierHeightSource.Measured, setAt));
         }
     }
 
@@ -254,7 +287,7 @@ public sealed class DbMapStore : IMapStore
 
         foreach (var height in await context.CarrierHeights.ToListAsync(cancellationToken).ConfigureAwait(false))
         {
-            _memory.RestoreCarrierHeight(new PanelId(height.PanelId), height.HeightMm, height.SetAt);
+            _memory.RestoreCarrierHeight(new PanelId(height.PanelId), new CarrierHeightSetting(height.HeightMm, Enum.Parse<CarrierHeightSource>(height.Source), height.SetAt));
         }
     }
 }
