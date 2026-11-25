@@ -44,7 +44,7 @@ import { equipmentDetails } from '../features/tool/equipmentDetails';
 import { deviceInsideOf, stationInventoryOf } from '../features/tool/inside';
 import { toTransports } from '../features/dispatch/api/transportsSnapshot';
 import { toHit, toRecord } from '../features/tool/api/consumablesSnapshot';
-import { agvTypeNotice } from '../features/fleet/api/fleetSnapshot';
+import { agvRegistrationNotice, agvTypeNotice, type AgvRegistrationCommand } from '../features/fleet/api/fleetSnapshot';
 import { cancelNotice } from '../features/dispatch/api/transportCommands';
 import { consumableNotice, type ConsumableCommand } from '../features/tool/api/consumableCommands';
 
@@ -86,9 +86,6 @@ const commandFailed = {
 
 /** サーバーとつないだデータで出す画面（ほかの画面には、見本のデータだと帯で知らせる）。 */
 const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables', 'agvs']);
-
-/** AGV の登録（加える・変える・そろえる・消す）を、まだサーバーとつないでいないことの知らせ（CN-13 でつなぐ）。 */
-const AGV_ENTRY_NOTE = 'AGV の登録（加える・変える・そろえる・消す）は、まだ使えません。';
 
 /** サーバーから様子が届くまで出す。 */
 function Loading({ what }: { readonly what: string }) {
@@ -152,6 +149,8 @@ export function App({ link }: AppProps) {
   const hits = useMemo(() => consumableData.map(toHit), [consumableData]);
   // 搬送の一覧も、届いた様子から出す
   const transportList = useMemo(() => (server.transports.kind === 'waiting' ? [] : toTransports(server.transports.snapshot.transports)), [server.transports]);
+  /** AGV の登録の操作を送り、断られたら理由の文を返す（やり直さない。表示は、届いた様子で変える）。 */
+  const operateAgvRegistrations = async (command: AgvRegistrationCommand) => agvRegistrationNotice(await link.operateAgvRegistrations(command));
   const operateConsumables = async (command: ConsumableCommand) => consumableNotice(command.kind, await link.operateConsumables(command));
   // AGV は、サーバーから届いた様子を、描いているマップに合わせて使う（まだ届いていなければ、いない）
   const agvs = useMemo(
@@ -319,12 +318,12 @@ export function App({ link }: AppProps) {
             defaults={server.fleet.snapshot.defaults}
             permissions={permissions}
             offline={offline}
-            agvEntryNote={AGV_ENTRY_NOTE}
-            // AGV の登録は、まだサーバーとつないでいない（CN-13）。押せないので、呼ばれない
-            onAddAgv={() => {}}
-            onChangeAgv={() => {}}
-            onAlignAgv={() => {}}
-            onDeleteAgv={() => {}}
+            onAddAgv={(draft) => operateAgvRegistrations({ kind: 'add', id: draft.id, type: draft.type, carrier: draft.carrier })}
+            onChangeAgv={(id, change) => operateAgvRegistrations({ kind: 'change', id, ...change })}
+            onAlignAgv={(id, change) =>
+              operateAgvRegistrations({ kind: 'align', id, type: change.type === '' ? null : change.type, carrier: change.carrier === '' ? null : change.carrier })
+            }
+            onDeleteAgv={(id) => operateAgvRegistrations({ kind: 'delete', id })}
             onSaveType={async (original, type) => agvTypeNotice(await link.operateAgvTypes({ kind: original === null ? 'add' : 'edit', type }))}
             onDeleteType={async (id) => agvTypeNotice(await link.operateAgvTypes({ kind: 'delete', id }))}
           />

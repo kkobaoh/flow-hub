@@ -6,7 +6,7 @@ import type { MapSnapshot } from '../../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../../features/tool/api/equipmentStatus';
 import type { TransportsSnapshot } from '../../features/dispatch/api/transportsSnapshot';
 import type { ConsumablesSnapshot } from '../../features/tool/api/consumablesSnapshot';
-import type { AgvTypeCommand, AgvTypeCommandResult, FleetSnapshot } from '../../features/fleet/api/fleetSnapshot';
+import type { AgvRegistrationCommand, AgvRegistrationResult, AgvTypeCommand, AgvTypeCommandResult, FleetSnapshot } from '../../features/fleet/api/fleetSnapshot';
 import type { TransportCancelResult } from '../../features/dispatch/api/transportCommands';
 import type { ConsumableCommand, ConsumableCommandResult } from '../../features/tool/api/consumableCommands';
 import type { MessagesSnapshot } from '../../features/alarm/api/messages';
@@ -53,6 +53,8 @@ export interface ServerLink {
   cancelTransport(number: number): Promise<TransportCancelResult>;
   /** AGV の種類を加える・変える・消す（応答がなければ、あきらめて failed。やり直さない）。 */
   operateAgvTypes(command: AgvTypeCommand): Promise<AgvTypeCommandResult>;
+  /** AGV の登録を加える・変える・そろえる・消す（応答がなければ、あきらめて failed。やり直さない）。 */
+  operateAgvRegistrations(command: AgvRegistrationCommand): Promise<AgvRegistrationResult>;
 }
 
 /** 操作を送って、応答を待つ長さ。 */

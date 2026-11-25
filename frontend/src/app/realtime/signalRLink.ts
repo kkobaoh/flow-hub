@@ -7,7 +7,7 @@ import { parseMap } from '../../features/routing/api/mapSnapshot';
 import { parseEquipmentStatus } from '../../features/tool/api/equipmentStatus';
 import { parseTransports } from '../../features/dispatch/api/transportsSnapshot';
 import { parseConsumables } from '../../features/tool/api/consumablesSnapshot';
-import { parseFleet, sendAgvTypeCommand } from '../../features/fleet/api/fleetSnapshot';
+import { parseFleet, sendAgvRegistrationCommand, sendAgvTypeCommand } from '../../features/fleet/api/fleetSnapshot';
 import { sendCancelTransport } from '../../features/dispatch/api/transportCommands';
 import { sendConsumableCommand } from '../../features/tool/api/consumableCommands';
 import { parseMessages } from '../../features/alarm/api/messages';
@@ -51,6 +51,7 @@ export function createSignalRLink(baseUrl = ''): ServerLink {
     operateConsumables: (command) => sendConsumableCommand(baseUrl, command, COMMAND_TIMEOUT_MS),
     cancelTransport: (number) => sendCancelTransport(baseUrl, number, COMMAND_TIMEOUT_MS),
     operateAgvTypes: (command) => sendAgvTypeCommand(baseUrl, command, COMMAND_TIMEOUT_MS),
+    operateAgvRegistrations: (command) => sendAgvRegistrationCommand(baseUrl, command, COMMAND_TIMEOUT_MS),
   };
 }
 

@@ -7,7 +7,7 @@ import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../features/tool/api/equipmentStatus';
 import type { TransportsSnapshot } from '../features/dispatch/api/transportsSnapshot';
 import type { ConsumablesSnapshot } from '../features/tool/api/consumablesSnapshot';
-import type { AgvTypeCommand, AgvTypeCommandResult, FleetSnapshot } from '../features/fleet/api/fleetSnapshot';
+import type { AgvRegistrationCommand, AgvRegistrationResult, AgvTypeCommand, AgvTypeCommandResult, FleetSnapshot } from '../features/fleet/api/fleetSnapshot';
 import type { TransportCancelResult } from '../features/dispatch/api/transportCommands';
 import type { ConsumableCommand, ConsumableCommandResult } from '../features/tool/api/consumableCommands';
 import type { MessagesSnapshot } from '../features/alarm/api/messages';
@@ -48,6 +48,10 @@ export interface FakeLink extends ServerLink {
   readonly agvTypeCommands: readonly AgvTypeCommand[];
   /** AGV の種類の操作の結果を決める（既定は、受け付けたときの結果）。 */
   respondToAgvTypes(result: AgvTypeCommandResult): void;
+  /** AGV の登録へ送られた操作。 */
+  readonly agvRegistrationCommands: readonly AgvRegistrationCommand[];
+  /** AGV の登録の操作の結果を決める（既定は、受け付けたときの結果）。 */
+  respondToAgvRegistrations(result: AgvRegistrationResult): void;
   /** 取りやめを頼まれた搬送（頼まれた順）。 */
   readonly canceledTransports: readonly number[];
   /** 取りやめの結果を決める（既定は canceled）。holdResponses で止めておける。 */
@@ -80,6 +84,8 @@ export function createFakeLink(initial?: {
   const canceledTransports: number[] = [];
   const agvTypeCommands: AgvTypeCommand[] = [];
   let agvTypeResult: AgvTypeCommandResult | null = null;
+  const agvRegistrationCommands: AgvRegistrationCommand[] = [];
+  let agvRegistrationResult: AgvRegistrationResult | null = null;
   let cancelResult: TransportCancelResult = 'canceled';
   let consumableResult: ConsumableCommandResult | null = null;
   const accepted = { stockerSetting: 'saved', ship: 'requested', correct: 'corrected', designate: 'designated', cancelDesignation: 'canceled', register: 'saved', edit: 'saved', delete: 'saved' } as const;
@@ -117,6 +123,18 @@ export function createFakeLink(initial?: {
     consumableCommands,
     canceledTransports,
     agvTypeCommands,
+    agvRegistrationCommands,
+    respondToAgvRegistrations(next) {
+      agvRegistrationResult = next;
+    },
+    operateAgvRegistrations(command) {
+      agvRegistrationCommands.push(command);
+      const answer = agvRegistrationResult ?? (command.kind === 'delete' ? 'deleted' : 'saved');
+      if (!holding) {
+        return Promise.resolve(answer);
+      }
+      return new Promise((resolve) => held.push(() => resolve(answer)));
+    },
     respondToAgvTypes(next) {
       agvTypeResult = next;
     },

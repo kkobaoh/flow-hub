@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { click, render } from '../testing/render';
+import { change, click, render } from '../testing/render';
 import { App } from './App';
 import { createFakeLink, type FakeLink } from '../testing/fakeLink';
 import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
@@ -222,7 +222,7 @@ describe('App', () => {
         carriers: ['X'],
       }),
     );
-    expect(container.textContent).toContain('AGV の登録（加える・変える・そろえる・消す）は、まだ使えません。');
+    expect(buttonByText(container, 'AGV を加える').disabled).toBe(false);
 
     link.respondToAgvTypes('inUse');
     const row = [...container.querySelectorAll('[aria-labelledby="type-title"] tbody tr')].find((r) => r.textContent?.includes('小さい AGV'))!;
@@ -234,6 +234,34 @@ describe('App', () => {
 
     expect(link.agvTypeCommands).toEqual([{ kind: 'delete', id: 'small' }]);
     expect(container.querySelector('[aria-labelledby="type-title"] [role="alert"]')?.textContent).toBe('その種類を使う AGV があるので、消せませんでした。');
+    window.location.hash = '';
+  });
+
+  it('AGV を加えるのをサーバーへ送る', async () => {
+    window.location.hash = '#/agvs';
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    act(() =>
+      link.emitFleet({
+        version: 1,
+        types: [{ id: 'small', name: '小さい AGV', forward: 500, backward: 250, rotation: 90, chargeAt: 20, resumeAt: 80, special: false }],
+        entries: [],
+        defaults: { chargeAt: 20, resumeAt: 80 },
+        carriers: ['X'],
+      }),
+    );
+
+    click(buttonByText(container, 'AGV を加える'));
+    const d = container.querySelector('[role="dialog"]')!;
+    change(d.querySelector<HTMLInputElement>('input[aria-label="AGV の番号"]')!, 'AGV-5');
+    change(d.querySelector<HTMLSelectElement>('select[aria-label="AGV の種類"]')!, 'small');
+    change(d.querySelector<HTMLSelectElement>('select[aria-label="キャリアの種類"]')!, 'X');
+    await act(async () => {
+      click(buttonByText(d, 'AGV を保存する'));
+      await Promise.resolve();
+    });
+
+    expect(link.agvRegistrationCommands).toEqual([{ kind: 'add', id: 'AGV-5', type: 'small', carrier: 'X' }]);
     window.location.hash = '';
   });
 

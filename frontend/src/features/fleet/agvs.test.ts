@@ -64,6 +64,12 @@ describe('agvProblem（AGV を保存できない理由）', () => {
   });
 });
 
+describe('sortAgvEntries（種類が未定の AGV）', () => {
+  it('種類が未定の AGV も、食い違いと同じく上に並べる', () => {
+    expect(sortAgvEntries([entry('AGV-1'), entry('AGV-9', { type: null, carrier: null, control: null, registration: 'unconfigured' })]).map((e) => e.id)).toEqual(['AGV-9', 'AGV-1']);
+  });
+});
+
 describe('typeProblem（AGV の種類を保存できない理由）', () => {
   it('速さは 1 以上の整数で、必ず入れる', () => {
     expect(typeProblem(draft({ forward: '' }), { mode: 'add', existingIds: [], existingNames: [], defaults })).toBe('前進の速さを、1 以上の整数で入れてください。');

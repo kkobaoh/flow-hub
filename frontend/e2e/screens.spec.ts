@@ -155,3 +155,24 @@ test('AGV と AGV の種類の登録：サーバーの種類を出し、種類�
   await expect(types.getByRole('row', { name: /E2E の種類/ })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('AGV と AGV の種類の登録：AGV を加えて切り離しから始め、消す', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/#/agvs');
+
+  const agvs = page.locator('[aria-labelledby="agv-title"]');
+  await agvs.getByRole('button', { name: 'AGV を加える' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'AGV の番号' }).fill('AGV-E2E');
+  await dialog.getByRole('combobox', { name: 'AGV の種類' }).selectOption({ label: '標準の AGV' });
+  await dialog.getByRole('combobox', { name: 'キャリアの種類' }).selectOption({ index: 1 });
+  await dialog.getByRole('button', { name: 'AGV を保存する' }).click();
+
+  const row = agvs.getByRole('row', { name: /AGV-E2E/ });
+  await expect(row).toContainText('切り離し');
+  await expect(row).toContainText('標準の AGV');
+  await row.getByRole('button', { name: '消す' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'AGV を消す' }).click();
+  await expect(agvs.getByRole('row', { name: /AGV-E2E/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

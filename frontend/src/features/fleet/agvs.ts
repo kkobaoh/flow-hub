@@ -23,8 +23,8 @@ export interface AgvType {
   readonly special: boolean;
 }
 
-/** 交通整理と配車の両方に登録してあるか（片方だけなら、起動したときの食い違い）。 */
-export type Registration = 'both' | 'trafficOnly' | 'dispatchOnly';
+/** 交通整理と配車の両方に登録してあるか（片方だけなら、起動したときの食い違い）。unconfigured は、自動で登録して種類とキャリアの種類がまだないもの。 */
+export type Registration = 'both' | 'trafficOnly' | 'dispatchOnly' | 'unconfigured';
 
 /** 登録してある AGV。交通整理だけなら carrier と control がなく、配車だけなら type がない。type は種類の ID。 */
 export interface AgvEntry {
@@ -74,6 +74,7 @@ export const registrationLabel: Record<Registration, string> = {
   both: '登録済み',
   trafficOnly: '走行の登録だけ（配車に未登録）',
   dispatchOnly: '配車の登録だけ（走行に未登録）',
+  unconfigured: '種類が未定（自動で登録）',
 };
 
 /** 並べ方：登録が食い違っているものを上にし、それぞれの中と残りは番号の順（一覧の決まり、docs/screens.md）。 */

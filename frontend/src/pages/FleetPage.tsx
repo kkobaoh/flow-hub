@@ -31,13 +31,13 @@ export interface FleetPageProps {
   readonly permissions: Permissions;
   /** サーバーとつながっていない（種類の操作を送れない）。 */
   readonly offline: boolean;
-  /** AGV の登録（加える・変える・そろえる・消す）を使えない理由。使えるなら null。 */
-  readonly agvEntryNote: string | null;
-  readonly onAddAgv: (agv: AgvDraft) => void;
-  readonly onChangeAgv: (id: string, change: { readonly type: string; readonly carrier: string }) => void;
+  /** AGV を加える。受け付けたら null、断られたら理由の文を返す（AGV の操作は、どれも同じ）。 */
+  readonly onAddAgv: (agv: AgvDraft) => Promise<string | null>;
+  /** 種類とキャリアの種類を変える（種類が未定の AGV に入れるときも）。 */
+  readonly onChangeAgv: (id: string, change: { readonly type: string; readonly carrier: string }) => Promise<string | null>;
   /** 登録の食い違いをそろえる（足りない側に登録する）。 */
-  readonly onAlignAgv: (id: string, change: { readonly type: string; readonly carrier: string }) => void;
-  readonly onDeleteAgv: (id: string) => void;
+  readonly onAlignAgv: (id: string, change: { readonly type: string; readonly carrier: string }) => Promise<string | null>;
+  readonly onDeleteAgv: (id: string) => Promise<string | null>;
   /** 種類を保存する。original は変える種類の ID（加えるときは null）。受け付けたら null、断られたら理由の文を返す。 */
   readonly onSaveType: (original: string | null, type: AgvType) => Promise<string | null>;
   /** 種類を消す。受け付けたら null、断られたら理由の文を返す。 */
@@ -56,21 +56,29 @@ export function FleetPage(props: FleetPageProps) {
   const { entries, types, permissions } = props;
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const blocked = configureBlockedReason(permissions);
-  const agvBlocked = blocked ?? props.agvEntryNote;
+  const agvBlocked = blocked ?? (props.offline ? 'サーバーとつながっていないので、AGV を加えたり変えたりできません。' : null);
   const typeBlocked = blocked ?? (props.offline ? 'サーバーとつながっていないので、種類を加えたり変えたりできません。' : null);
   // 種類の操作は、送って結果を待つあいだは押せなくする。断られたら、理由を出す（次に送ったら消す）
   const [sending, setSending] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ readonly about: 'agv' | 'type'; readonly text: string } | null>(null);
   const close = () => setDialog(null);
-  const send = async (operation: () => Promise<string | null>) => {
+  /** 送って、断られたら、その欄（AGV か種類）に理由を出す。 */
+  const send = async (about: 'agv' | 'type', operation: () => Promise<string | null>) => {
     setSending(true);
     setNotice(null);
     try {
-      setNotice(await operation());
+      const text = await operation();
+      setNotice(text === null ? null : { about, text });
     } finally {
       setSending(false);
     }
   };
+  const noticeOf = (about: 'agv' | 'type') =>
+    notice?.about === about && (
+      <p role="alert" className="m-0 text-sm font-bold text-attention">
+        {notice.text}
+      </p>
+    );
 
   return (
     <>
@@ -80,12 +88,13 @@ export function FleetPage(props: FleetPageProps) {
           <h2 id="agv-title" className="m-0 text-lg font-bold">
             AGV
           </h2>
-          <button type="button" disabled={agvBlocked !== null} onClick={() => setDialog({ kind: 'addAgv' })} className={plainButton}>
+          <button type="button" disabled={agvBlocked !== null || sending} onClick={() => setDialog({ kind: 'addAgv' })} className={plainButton}>
             AGV を加える
           </button>
         </div>
-        {blocked === null && props.agvEntryNote !== null && <p className="m-0 text-sm font-bold">{props.agvEntryNote}</p>}
-        <p className="m-0 text-sm text-ink-muted">新しく加えた AGV は、切り離しから始めます。マップの上に置いて位置リセットをしてから、コントロールステータスを切り替えてください。</p>
+        {blocked === null && agvBlocked !== null && <p className="m-0 text-sm font-bold">{agvBlocked}</p>}
+        {noticeOf('agv')}
+        <p className="m-0 text-sm text-ink-muted">新しく加えた AGV と、初めて通信してきて自動で登録した AGV は、切り離しから始めます（自動で登録した AGV は、種類とキャリアの種類を入れるまで動かしません）。マップの上に置いて位置リセットをしてから、コントロールステータスを切り替えてください。</p>
         <div className="relative overflow-x-auto">
           <table className="w-full min-w-[820px] border-collapse text-sm">
             <thead>
@@ -112,27 +121,32 @@ export function FleetPage(props: FleetPageProps) {
             </thead>
             <tbody>
               {sortAgvEntries(entries).map((e) => {
-                const odd = e.registration !== 'both';
+                const odd = e.registration === 'trafficOnly' || e.registration === 'dispatchOnly';
+                const unconfigured = e.registration === 'unconfigured';
                 const reason = agvBlocked ?? (odd ? null : agvChangeBlockedReason(e, permissions));
                 return (
-                  <tr key={e.id} className={`border-b border-disabled-border ${odd ? 'bg-white' : ''}`}>
+                  <tr key={e.id} className={`border-b border-disabled-border ${odd || unconfigured ? 'bg-white' : ''}`}>
                     <td className={`${td} font-number text-[17px] font-bold`}>{e.id}</td>
                     <td className={td}>{e.type === null ? '－' : typeNameOf(types, e.type)}</td>
                     <td className={td}>{e.carrier ?? '－'}</td>
                     <td className={td}>{e.control === null ? '－' : controlStatusLabel[e.control]}</td>
-                    <td className={`${td} font-bold ${odd ? 'text-attention' : 'text-running'}`}>{registrationLabel[e.registration]}</td>
+                    <td className={`${td} font-bold ${odd || unconfigured ? 'text-attention' : 'text-running'}`}>{registrationLabel[e.registration]}</td>
                     <td className="px-3 py-1.5">
                       <RowActions reason={agvBlocked === null ? reason : null}>
                         {odd ? (
-                          <button type="button" disabled={reason !== null} onClick={() => setDialog({ kind: 'alignAgv', entry: e })} className={darkButton}>
+                          <button type="button" disabled={reason !== null || sending} onClick={() => setDialog({ kind: 'alignAgv', entry: e })} className={darkButton}>
                             登録をそろえる
                           </button>
+                        ) : unconfigured ? (
+                          <button type="button" disabled={reason !== null || sending} onClick={() => setDialog({ kind: 'changeAgv', entry: e })} className={darkButton}>
+                            種類を入れる
+                          </button>
                         ) : (
-                          <button type="button" disabled={reason !== null} onClick={() => setDialog({ kind: 'changeAgv', entry: e })} className={plainButton}>
+                          <button type="button" disabled={reason !== null || sending} onClick={() => setDialog({ kind: 'changeAgv', entry: e })} className={plainButton}>
                             変える
                           </button>
                         )}
-                        <button type="button" disabled={reason !== null} onClick={() => setDialog({ kind: 'deleteAgv', entry: e })} className={plainButton}>
+                        <button type="button" disabled={reason !== null || sending} onClick={() => setDialog({ kind: 'deleteAgv', entry: e })} className={plainButton}>
                           消す
                         </button>
                       </RowActions>
@@ -156,11 +170,7 @@ export function FleetPage(props: FleetPageProps) {
         </div>
         <p className="m-0 text-sm text-ink-muted">変えた値は、次の割り当てと充電の判断から効きます。</p>
         {blocked === null && typeBlocked !== null && <p className="m-0 text-sm font-bold">{typeBlocked}</p>}
-        {notice !== null && (
-          <p role="alert" className="m-0 text-sm font-bold text-attention">
-            {notice}
-          </p>
-        )}
+        {noticeOf('type')}
         <div className="relative overflow-x-auto">
           <table className="w-full min-w-[960px] border-collapse text-sm">
             <thead>
@@ -213,12 +223,13 @@ export function FleetPage(props: FleetPageProps) {
           types={types.map((t) => [t.id, t.name] as const)}
           carriers={props.carriers}
           onSave={(draft) => {
-            if (dialog.kind === 'addAgv') {
-              props.onAddAgv(draft);
-            } else {
-              (dialog.kind === 'alignAgv' ? props.onAlignAgv : props.onChangeAgv)(dialog.entry.id, { type: draft.type, carrier: draft.carrier });
-            }
+            const current = dialog;
             close();
+            void send('agv', () =>
+              current.kind === 'addAgv'
+                ? props.onAddAgv(draft)
+                : (current.kind === 'alignAgv' ? props.onAlignAgv : props.onChangeAgv)(current.entry.id, { type: draft.type, carrier: draft.carrier }),
+            );
           }}
           onCancel={close}
         />
@@ -230,8 +241,9 @@ export function FleetPage(props: FleetPageProps) {
           confirmLabel="AGV を消す"
           tone="danger"
           onConfirm={() => {
-            props.onDeleteAgv(dialog.entry.id);
+            const id = dialog.entry.id;
             close();
+            void send('agv', () => props.onDeleteAgv(id));
           }}
           onCancel={close}
         />
@@ -246,7 +258,7 @@ export function FleetPage(props: FleetPageProps) {
           onSave={(type) => {
             const original = dialog.kind === 'changeType' ? dialog.type.id : null;
             close();
-            void send(() => props.onSaveType(original, type));
+            void send('type', () => props.onSaveType(original, type));
           }}
           onCancel={close}
         />
@@ -260,7 +272,7 @@ export function FleetPage(props: FleetPageProps) {
           onConfirm={() => {
             const id = dialog.type.id;
             close();
-            void send(() => props.onDeleteType(id));
+            void send('type', () => props.onDeleteType(id));
           }}
           onCancel={close}
         />
@@ -290,7 +302,14 @@ function AgvDialog({
   const problem = agvProblem(draft, entry === null ? existingIds : null);
   const showType = dialog.kind !== 'alignAgv' || entry?.type === null;
   const showCarrier = dialog.kind !== 'alignAgv' || entry?.carrier === null;
-  const title = entry === null ? 'AGV を加える' : dialog.kind === 'alignAgv' ? `${entry.id} の登録をそろえる` : `${entry.id} を変える`;
+  const title =
+    entry === null
+      ? 'AGV を加える'
+      : dialog.kind === 'alignAgv'
+        ? `${entry.id} の登録をそろえる`
+        : entry.registration === 'unconfigured'
+          ? `${entry.id} の種類とキャリアの種類を入れる`
+          : `${entry.id} を変える`;
 
   return (
     <FormDialog title={title} onCancel={onCancel}>

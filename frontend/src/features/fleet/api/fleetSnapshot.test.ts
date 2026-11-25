@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { agvTypeCommandRequest, agvTypeNotice, parseFleet, sendAgvTypeCommand } from './fleetSnapshot';
+import { agvRegistrationNotice, agvRegistrationRequest, agvTypeCommandRequest, agvTypeNotice, parseFleet, sendAgvTypeCommand } from './fleetSnapshot';
 
 const wire = {
   version: 2,
@@ -24,6 +24,12 @@ describe('parseFleet', () => {
       defaults: { chargeAt: 20, resumeAt: 80 },
       carriers: ['X', 'Y'],
     });
+  });
+
+  it('自動で登録して種類が未定の AGV も読む', () => {
+    const parsed = parseFleet({ ...wire, agvs: [{ id: 'AGV-9', type: null, carrier: null, control: null, registration: 'unconfigured' }] });
+
+    expect(parsed.entries).toEqual([{ id: 'AGV-9', type: null, carrier: null, control: null, registration: 'unconfigured' }]);
   });
 
   it.each([
@@ -60,6 +66,27 @@ describe('sendAgvTypeCommand', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 400 })));
     await expect(sendAgvTypeCommand('', { kind: 'add', type }, 10_000)).resolves.toBe('failed');
+  });
+});
+
+describe('agvRegistrationRequest', () => {
+  it('加える・変える・そろえる・消す', () => {
+    expect(agvRegistrationRequest({ kind: 'add', id: 'AGV-5', type: 'small', carrier: 'X' })).toEqual({ path: '/agv-registrations', body: { id: 'AGV-5', type: 'small', carrier: 'X' } });
+    expect(agvRegistrationRequest({ kind: 'change', id: 'AGV-5', type: 'small', carrier: 'X' })).toEqual({ path: '/agv-registrations/AGV-5/edit', body: { type: 'small', carrier: 'X' } });
+    expect(agvRegistrationRequest({ kind: 'align', id: 'AGV-5', type: null, carrier: 'X' })).toEqual({ path: '/agv-registrations/AGV-5/align', body: { type: null, carrier: 'X' } });
+    expect(agvRegistrationRequest({ kind: 'delete', id: 'AGV 5' })).toEqual({ path: '/agv-registrations/AGV%205/delete', body: {} });
+  });
+});
+
+describe('agvRegistrationNotice', () => {
+  it.each([
+    ['saved', null],
+    ['deleted', null],
+    ['idTaken', 'その番号の AGV は、もう登録してあります。'],
+    ['notDetached', '切り離しでないので、変えたり消したりできませんでした。'],
+    ['loaded', 'ものを積んだまま止まっているので、消せませんでした。積んでいるものを届けるか返してから消してください。'],
+  ] as const)('%s', (result, notice) => {
+    expect(agvRegistrationNotice(result)).toBe(notice);
   });
 });
 

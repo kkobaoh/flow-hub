@@ -15,7 +15,7 @@ export interface FleetSnapshot extends Versioned {
 }
 
 const CONTROLS: readonly ControlStatus[] = ['auto', 'assignmentPaused', 'manual', 'locked', 'detached'];
-const REGISTRATIONS: readonly Registration[] = ['both', 'trafficOnly', 'dispatchOnly'];
+const REGISTRATIONS: readonly Registration[] = ['both', 'trafficOnly', 'dispatchOnly', 'unconfigured'];
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
@@ -85,6 +85,68 @@ export function parseFleet(value: unknown): FleetSnapshot {
     defaults: { chargeAt: number(value.defaults.chargeAt, '充電に向かう残量の既定値'), resumeAt: number(value.defaults.resumeAt, '割り当てに戻す残量の既定値') },
     carriers: value.carriers.map((c: unknown) => text(c, 'キャリアの種類')),
   };
+}
+
+/** 画面から送る、AGV の登録の操作。 */
+export type AgvRegistrationCommand =
+  | { readonly kind: 'add'; readonly id: string; readonly type: string; readonly carrier: string }
+  /** 種類とキャリアの種類を変える（種類が未定の AGV に入れるときも）。 */
+  | { readonly kind: 'change'; readonly id: string; readonly type: string; readonly carrier: string }
+  /** 食い違いをそろえる（足りない側の項目だけ）。 */
+  | { readonly kind: 'align'; readonly id: string; readonly type: string | null; readonly carrier: string | null }
+  | { readonly kind: 'delete'; readonly id: string };
+
+/**
+ * AGV の登録の操作の結果（サーバーの AgvRegistrationEndpoints と同じ言葉）。
+ * - saved・deleted：受け付けた。idTaken・notFound・notDetached・loaded：断った（何も変えていない）。
+ * - failed：片方の DB に書けず元に戻した、応答がない、または思わない応答（やり直さない）。
+ */
+export type AgvRegistrationResult = 'saved' | 'deleted' | 'idTaken' | 'notFound' | 'notDetached' | 'loaded' | 'failed';
+
+const REGISTRATION_RESULTS: ReadonlySet<AgvRegistrationResult> = new Set(['saved', 'deleted', 'idTaken', 'notFound', 'notDetached', 'loaded', 'failed'] as const);
+
+export function agvRegistrationRequest(command: AgvRegistrationCommand): { readonly path: string; readonly body: Record<string, unknown> } {
+  const base = `/agv-registrations/${encodeURIComponent(command.id)}`;
+  switch (command.kind) {
+    case 'add':
+      return { path: '/agv-registrations', body: { id: command.id, type: command.type, carrier: command.carrier } };
+    case 'change':
+      return { path: `${base}/edit`, body: { type: command.type, carrier: command.carrier } };
+    case 'align':
+      return { path: `${base}/align`, body: { type: command.type, carrier: command.carrier } };
+    case 'delete':
+      return { path: `${base}/delete`, body: {} };
+    default:
+      throw new Error(`知らない操作です: ${JSON.stringify(command satisfies never)}`);
+  }
+}
+
+/** 操作を送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
+export async function sendAgvRegistrationCommand(baseUrl: string, command: AgvRegistrationCommand, timeoutMs: number): Promise<AgvRegistrationResult> {
+  const { path, body } = agvRegistrationRequest(command);
+  const result = await postOperation(baseUrl, path, body, timeoutMs, REGISTRATION_RESULTS);
+  return result === 'refused' ? 'failed' : result;
+}
+
+/** 画面に出す、AGV の登録の操作の結果の知らせ（受け付けたときは null）。 */
+export function agvRegistrationNotice(result: AgvRegistrationResult): string | null {
+  switch (result) {
+    case 'saved':
+    case 'deleted':
+      return null;
+    case 'idTaken':
+      return 'その番号の AGV は、もう登録してあります。';
+    case 'notFound':
+      return 'その AGV は、もう登録が変わっています。表示を確かめてください。';
+    case 'notDetached':
+      return '切り離しでないので、変えたり消したりできませんでした。';
+    case 'loaded':
+      return 'ものを積んだまま止まっているので、消せませんでした。積んでいるものを届けるか返してから消してください。';
+    case 'failed':
+      return '保存できませんでした。サーバーから応答がないか、走行と配車の片方に書けませんでした。表示を確かめてください。';
+    default:
+      throw new Error(`知らない結果です: ${JSON.stringify(result satisfies never)}`);
+  }
 }
 
 /** 画面から送る、AGV の種類の操作。 */

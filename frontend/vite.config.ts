@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => {
         '/transports': { target: api },
         '/agvs': { target: api },
         '/agv-types': { target: api },
+        '/agv-registrations': { target: api },
         '/devices': { target: api },
         '/consumables': { target: api },
       },
