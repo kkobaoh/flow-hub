@@ -1,7 +1,8 @@
 namespace FlowHub.Consumables;
 
 /// <summary>画面に出す、装置とステーションの様子（気をつけること、ストッカー、在庫）。装置とステーションは、それぞれ ID の順。</summary>
-public sealed record ConsumablesStatuses(IReadOnlyList<DeviceStatus> Devices, IReadOnlyList<StationStatus> Stations);
+/// <param name="Varieties">登録してある品種（ID の順。ストッカーの設定に加えたり、要確認を直したりするときに選ぶもの）。</param>
+public sealed record ConsumablesStatuses(IReadOnlyList<DeviceStatus> Devices, IReadOnlyList<StationStatus> Stations, IReadOnlyList<VarietyId> Varieties);
 
 /// <summary>
 /// 装置の様子。

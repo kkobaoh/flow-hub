@@ -6,12 +6,13 @@ namespace FlowHub.Api.Composition.Screens;
 /// 画面へ送る装置とステーションの様子（気をつけること、ストッカー、在庫、装置の中、ステーションにある消耗品）。変わるたびに番号を進める。
 /// </summary>
 /// <param name="Version">様子の番号。1から始まり、変わるたびに1つ進む。</param>
-internal sealed record EquipmentStatusSnapshot(long Version, IReadOnlyList<DeviceStatusView> Devices, IReadOnlyList<StationStatusView> Stations)
+/// <param name="Varieties">登録してある品種（ID の順）。</param>
+internal sealed record EquipmentStatusSnapshot(long Version, IReadOnlyList<DeviceStatusView> Devices, IReadOnlyList<StationStatusView> Stations, IReadOnlyList<string> Varieties)
 {
     public static EquipmentStatusSnapshot From(long version, ConsumablesStatuses statuses)
     {
         ArgumentNullException.ThrowIfNull(statuses);
-        return new EquipmentStatusSnapshot(version, [.. statuses.Devices.Select(DeviceStatusView.From)], [.. statuses.Stations.Select(StationStatusView.From)]);
+        return new EquipmentStatusSnapshot(version, [.. statuses.Devices.Select(DeviceStatusView.From)], [.. statuses.Stations.Select(StationStatusView.From)], [.. statuses.Varieties.Select(v => v.Value)]);
     }
 }
 

@@ -17,7 +17,8 @@ public sealed partial class ConsumablesService
         ForgetInvalidDesignations();
         var devices = _devices.Keys.OrderBy(d => d.Value, StringComparer.Ordinal).Select(DeviceStatusOf).ToArray();
         var stations = _stations.Keys.OrderBy(s => s.Value, StringComparer.Ordinal).Select(StationStatusOf).ToArray();
-        return new ConsumablesStatuses(devices, stations);
+        var varieties = _varieties.Keys.OrderBy(v => v.Value, StringComparer.Ordinal).ToArray();
+        return new ConsumablesStatuses(devices, stations, varieties);
     });
 
     private DeviceStatus DeviceStatusOf(DeviceId device)

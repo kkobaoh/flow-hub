@@ -235,7 +235,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         public static readonly StatusesComparer Instance = new();
 
         public bool Equals(ConsumablesStatuses? x, ConsumablesStatuses? y) =>
-            ReferenceEquals(x, y) || (x is not null && y is not null && x.Devices.SequenceEqual(y.Devices) && x.Stations.SequenceEqual(y.Stations));
+            ReferenceEquals(x, y) || (x is not null && y is not null && x.Devices.SequenceEqual(y.Devices) && x.Stations.SequenceEqual(y.Stations) && x.Varieties.SequenceEqual(y.Varieties));
 
         public int GetHashCode(ConsumablesStatuses obj) => obj.Devices.Count;
     }

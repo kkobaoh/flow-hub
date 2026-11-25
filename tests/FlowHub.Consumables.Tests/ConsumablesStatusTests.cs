@@ -276,6 +276,14 @@ public class ConsumablesStatusTests
         Assert.Equal([(a1, (StationItemState)new CheckNeeded(NeedsCheckReason.FoundAfterLost)), (x9, new CheckNeeded(NeedsCheckReason.IdMismatch))], states);
     }
 
+    [Fact]
+    public void 登録してある品種をIDの順に出す()
+    {
+        var service = Setup();
+
+        Assert.Equal([VarietyA, VarietyB, VarietyZ], service.ReadStatuses().Varieties);
+    }
+
     // ---- ストッカーの設定 ----
 
     [Fact]
