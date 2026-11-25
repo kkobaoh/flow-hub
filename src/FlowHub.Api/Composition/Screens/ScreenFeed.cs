@@ -13,13 +13,15 @@ namespace FlowHub.Api.Composition.Screens;
 /// <param name="Map">公開中のマップと、その上に描く装置とステーション。</param>
 /// <param name="Equipment">装置とステーションの様子（気をつけること、ストッカー、在庫）。</param>
 /// <param name="Transports">搬送の一覧（番号の順）。</param>
+/// <param name="Consumables">すべての消耗品の記録（ID の順）。</param>
 internal sealed record ScreenSources(
     Func<bool> IsRunning,
     Func<IReadOnlyList<AgvSnapshot>> Agvs,
     Func<IReadOnlyList<Notice>> Notices,
     Func<ScreenMapState> Map,
     Func<ConsumablesStatuses> Equipment,
-    Func<IReadOnlyList<TransportSnapshot>> Transports);
+    Func<IReadOnlyList<TransportSnapshot>> Transports,
+    Func<IReadOnlyList<ConsumableSnapshot>> Consumables);
 
 /// <summary>画面へ送るもの（受け取る名前と、中身）。</summary>
 internal sealed record ScreenMessage(string Method, object Payload);
@@ -55,6 +57,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     /// <summary>搬送の一覧を送るときの名前（画面の側も、この名前で受け取る）。</summary>
     public const string TransportsMethod = "transports";
 
+    /// <summary>消耗品ごとの記録を送るときの名前（画面の側も、この名前で受け取る）。</summary>
+    public const string ConsumablesMethod = "consumables";
+
     /// <summary>送るのを待つ長さ。</summary>
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
 
@@ -66,6 +71,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     private Topic<ScreenMapState>? _map;
     private Topic<ConsumablesStatuses>? _equipment;
     private Topic<IReadOnlyList<TransportSnapshot>>? _transports;
+    private Topic<IReadOnlyList<ConsumableSnapshot>>? _consumables;
     private long _issuedTickets;
     private long _appliedTicket;
 
@@ -83,6 +89,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         var map = sources.Map();
         var equipment = sources.Equipment();
         var transports = sources.Transports();
+        var consumables = sources.Consumables();
         lock (_lock)
         {
             if (_sources is not null)
@@ -97,6 +104,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             _map = new Topic<ScreenMapState>(MapMethod, map, (version, state) => state.ToSnapshot(version), MapComparer.Instance);
             _equipment = new Topic<ConsumablesStatuses>(EquipmentMethod, equipment, EquipmentStatusSnapshot.From, StatusesComparer.Instance);
             _transports = new Topic<IReadOnlyList<TransportSnapshot>>(TransportsMethod, transports, (version, list) => new TransportsSnapshot(version, list), TransportListComparer.Instance);
+            _consumables = new Topic<IReadOnlyList<ConsumableSnapshot>>(ConsumablesMethod, consumables, (version, list) => new ConsumablesSnapshot(version, list), ConsumableListComparer.Instance);
         }
     }
 
@@ -105,9 +113,9 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
     {
         lock (_lock)
         {
-            return _systemStatus is null || _agvs is null || _messages is null || _map is null || _equipment is null || _transports is null
+            return _systemStatus is null || _agvs is null || _messages is null || _map is null || _equipment is null || _transports is null || _consumables is null
                 ? []
-                : [_systemStatus.Current, _agvs.Current, _messages.Current, _map.Current, _equipment.Current, _transports.Current];
+                : [_systemStatus.Current, _agvs.Current, _messages.Current, _map.Current, _equipment.Current, _transports.Current, _consumables.Current];
         }
     }
 
@@ -136,6 +144,7 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
         var map = sources.Map();
         var equipment = sources.Equipment();
         var transports = sources.Transports();
+        var consumables = sources.Consumables();
 
         List<ScreenMessage> changed = [];
         lock (_lock)
@@ -174,6 +183,11 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             if (_transports!.TryAdvance(transports, out var transportsMessage))
             {
                 changed.Add(transportsMessage);
+            }
+
+            if (_consumables!.TryAdvance(consumables, out var consumablesMessage))
+            {
+                changed.Add(consumablesMessage);
             }
         }
 
@@ -241,6 +255,17 @@ internal sealed partial class ScreenFeed(IScreenBroadcast broadcast, TimeProvide
             ReferenceEquals(x, y) || (x is not null && y is not null && x.SequenceEqual(y));
 
         public int GetHashCode(IReadOnlyList<AgvSnapshot> obj) => obj.Count;
+    }
+
+    /// <summary>消耗品ごとの記録を、中身で比べる。</summary>
+    private sealed class ConsumableListComparer : IEqualityComparer<IReadOnlyList<ConsumableSnapshot>>
+    {
+        public static readonly ConsumableListComparer Instance = new();
+
+        public bool Equals(IReadOnlyList<ConsumableSnapshot>? x, IReadOnlyList<ConsumableSnapshot>? y) =>
+            ReferenceEquals(x, y) || (x is not null && y is not null && x.SequenceEqual(y));
+
+        public int GetHashCode(IReadOnlyList<ConsumableSnapshot> obj) => obj.Count;
     }
 
     /// <summary>搬送の一覧を、中身で比べる。</summary>

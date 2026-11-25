@@ -27,6 +27,7 @@ public sealed class ScreenFeedTests : IDisposable
     private Func<ScreenMapState> _map = () => ScreenMapState.Empty;
     private Func<ConsumablesStatuses> _equipment = () => new([], [], []);
     private Func<IReadOnlyList<TransportSnapshot>> _transports = () => [];
+    private Func<IReadOnlyList<ConsumableSnapshot>> _consumables = () => [];
 
     public ScreenFeedTests()
     {
@@ -42,7 +43,7 @@ public sealed class ScreenFeedTests : IDisposable
         _logs.Dispose();
     }
 
-    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices(), () => _map(), () => _equipment(), () => _transports()));
+    private void Attach() => _feed.Attach(new ScreenSources(() => _running, () => _agvs(), () => _notices(), () => _map(), () => _equipment(), () => _transports(), () => _consumables()));
 
     [Fact]
     public void つなぐ前は様子がない()
@@ -65,6 +66,7 @@ public sealed class ScreenFeedTests : IDisposable
                 new ScreenMessage(ScreenFeed.MapMethod, ScreenMapState.Empty.ToSnapshot(1)),
                 new ScreenMessage(ScreenFeed.EquipmentMethod, EquipmentStatusSnapshot.From(1, new([], [], []))),
                 new ScreenMessage(ScreenFeed.TransportsMethod, new TransportsSnapshot(1, [])),
+                new ScreenMessage(ScreenFeed.ConsumablesMethod, new ConsumablesSnapshot(1, [])),
             ],
             _feed.Current(),
             MessageComparer.Instance);
@@ -172,6 +174,60 @@ public sealed class ScreenFeedTests : IDisposable
             new DeviceStatusView("DEV-1", 2, 1, [new SlotView(1, 2)], ["DR-8"], [new StockerLineView("DR-5", 2, 1)], new SlotSummaryView(10, 7, 1), [], [], [], "D1"),
             Assert.Single(snapshot.Devices));
         Assert.Equal(new StationStatusView("ST-1", 1, 2, [new StationLineView("DR-5", 3, 0, 2)], [], "S"), Assert.Single(snapshot.Stations));
+    }
+
+    // ---- 消耗品ごとの記録 ----
+
+    [Fact]
+    public void 消耗品ごとの記録は入っている搬送の番号と割り当てとAGVを結び付けて画面へ送る形にする()
+    {
+        var agv = new AgvId("AGV-1");
+        var waiting = Listing(3, new WaitingForAgv());
+        var running = Listing(4, new AssignedTo(agv, AssignedTransportStage.MovingToDestination, Paused: false));
+        var transports = new ConsumableTransports(
+            [waiting, running],
+            new Dictionary<TransportId, TransportDescription>
+            {
+                [new TransportId(3)] = new(TransportPurpose.Delivery, [], [new ConsumableId("T-1")]),
+                [new TransportId(4)] = new(TransportPurpose.Delivery, [], [new ConsumableId("T-2")]),
+            },
+            n => n.Split(':')[1]);
+        ConsumableRecord Record(string id, ConsumableLocation location, ConsumableReservation reservation, DeviceId? designated = null) =>
+            new(new ConsumableId(id), new VarietyId("DR-5"), new ProcessTypeId("drill"), ConsumableCondition.New, location, NeedsCheckReason.NotNeeded, reservation, designated, ShippingRequested: false);
+        var device = new DeviceId("DEV-1");
+
+        var atStation = ConsumableSnapshot.From(Record("T-1", new AtStation(new StationId("ST-1")), new DeliveryReservation(device), designated: device), transports);
+        var onAgv = ConsumableSnapshot.From(Record("T-2", new OnAgv(new TransportId(4)), new DeliveryReservation(device)), transports);
+        var lost = ConsumableSnapshot.From(
+            new ConsumableRecord(new ConsumableId("X-9"), null, null, ConsumableCondition.New, new UnknownLocation(device, new SlotRef(1, 2)), NeedsCheckReason.IdMismatch, new RecoveryReservation(), null, ShippingRequested: true),
+            transports);
+
+        Assert.Equal(
+            new ConsumableSnapshot("T-1", "DR-5", "drill", "new", new LocationView("station", "ST-1", null, null, null, null), null, new ReservationView("delivery", "DEV-1", 3, false, "ST-1", "DEV-1"), new DesignationView("DEV-1", false), false),
+            atStation);
+        Assert.Equal(new LocationView("agv", null, null, null, null, "AGV-1"), onAgv.Location);
+        Assert.Equal(new ReservationView("delivery", "DEV-1", 4, true, "ST-1", "DEV-1"), onAgv.Reservation);
+        // 入っている搬送が見つからない予約は、番号なしで出す。品種がわからないものは、新品か中古品かも出さない
+        Assert.Equal(
+            new ConsumableSnapshot("X-9", null, null, null, new LocationView("unknown", null, null, null, null, null), "idMismatch", new ReservationView("recovery", null, null, false, null, null), null, true),
+            lost);
+    }
+
+    [Fact]
+    public async Task 消耗品ごとの記録が変わったら番号を進めて送る()
+    {
+        var record = new ConsumableSnapshot("T-1", "DR-5", "drill", "new", new LocationView("station", "ST-1", null, null, null, null), null, null, null, false);
+        _consumables = () => [record];
+        Attach();
+
+        _consumables = () => [record with { }];
+        await _feed.PublishIfChangedAsync(Token);
+        _consumables = () => [record with { Shipping = true }];
+        await _feed.PublishIfChangedAsync(Token);
+
+        var sent = Assert.Single(_broadcast.Sent);
+        Assert.Equal(ScreenFeed.ConsumablesMethod, sent.Method);
+        Assert.Equal(new ConsumablesSnapshot(2, [record with { Shipping = true }]), sent.Payload);
     }
 
     // ---- 搬送の一覧 ----

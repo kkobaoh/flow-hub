@@ -17,7 +17,9 @@ namespace FlowHub.Api.Composition;
 /// - ストッカーの設定（<c>POST /devices/{deviceId}/stocker-setting</c>）：<c>saved</c>、<c>exceedsSlots</c>（個数の合計がスロットの数を超えている。保存していない）。
 /// - 出庫（<c>POST /consumables/{id}/ship</c>）：<c>requested</c>、<c>notAtStation</c>（ステーションにない）、<c>inAssignedTransport</c>（AGV を割り当て済みの、届ける搬送に入っている）。
 /// - 要確認を直す（<c>POST /consumables/{id}/correct</c>）：<c>corrected</c>、<c>notNeedingCheck</c>（もうステーションにある要確認の消耗品ではない）。
-/// - 断ったときは、何も変えていない。頼みの形が正しくない（知らない品種、負の個数など）：400。知らない装置：404。
+/// - 指名（<c>POST /consumables/{id}/designate</c>、<c>{ "device": "…" }</c>）：<c>designated</c>、<c>notDesignatable</c>（ステーションにある、要確認でない新品で、予約も出庫の頼みも指名もないものではない）。
+/// - 指名の取り消し（<c>POST /consumables/{id}/cancel-designation</c>）：<c>canceled</c>、<c>inAssignedTransport</c>（AGV を割り当て済みの、届ける搬送に入っている）。
+/// - 断ったときは、何も変えていない。頼みの形が正しくない（知らない品種、負の個数、知らない届け先の装置など）：400。ストッカーの設定の知らない装置：404。
 /// 今はログインなしで開く（docs/backlog.md #23）。
 /// </remarks>
 internal static partial class ConsumableEndpoints
@@ -76,6 +78,36 @@ internal static partial class ConsumableEndpoints
                     _ => throw new InvalidOperationException($"知らない要確認の修正の結果です（{result}）。"),
                 };
             }));
+
+        MapDesignationEndpoints(endpoints, toolPlanning, logger);
+    }
+
+    private static void MapDesignationEndpoints(IEndpointRouteBuilder endpoints, ToolPlanningService toolPlanning, ILogger logger)
+    {
+        endpoints.MapPost("/consumables/{id}/designate", (string id, DesignationBody body, CancellationToken cancellationToken) =>
+            RunAsync(logger, "指名", id, async () =>
+            {
+                var device = string.IsNullOrWhiteSpace(body.Device) ? throw new ArgumentException("届け先の装置を指定してください。", nameof(body)) : new DeviceId(body.Device);
+                var result = await toolPlanning.DesignateAsync(device, ToConsumable(id), cancellationToken).ConfigureAwait(false);
+                return result switch
+                {
+                    DesignationResult.Designated => "designated",
+                    DesignationResult.NotDesignatable => "notDesignatable",
+                    _ => throw new InvalidOperationException($"知らない指名の結果です（{result}）。"),
+                };
+            }));
+
+        endpoints.MapPost("/consumables/{id}/cancel-designation", (string id, CancellationToken cancellationToken) =>
+            RunAsync(logger, "指名の取り消し", id, async () =>
+            {
+                var result = await toolPlanning.CancelDesignationAsync(ToConsumable(id), cancellationToken).ConfigureAwait(false);
+                return result switch
+                {
+                    DesignationCancelResult.Canceled => "canceled",
+                    DesignationCancelResult.InAssignedTransport => "inAssignedTransport",
+                    _ => throw new InvalidOperationException($"知らない指名の取り消しの結果です（{result}）。"),
+                };
+            }));
     }
 
     private static VarietyId ToVariety(string? value) =>
@@ -113,4 +145,6 @@ internal static partial class ConsumableEndpoints
     private sealed record CountBody(string? Variety, int? Count);
 
     private sealed record CorrectionBody(string? Variety, string? Condition);
+
+    private sealed record DesignationBody(string? Device);
 }

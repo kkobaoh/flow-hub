@@ -170,6 +170,15 @@ internal sealed partial class FlowHubSystem : IDisposable
     }
 
     /// <summary>
+    /// 画面へ送る、すべての消耗品の記録を読む。予約の付いた消耗品には、入っている搬送の番号と、AGV を割り当て済みかを結び付ける（それぞれ別々に読む）。
+    /// </summary>
+    private IReadOnlyList<ConsumableSnapshot> ReadConsumables()
+    {
+        var transports = new ConsumableTransports(Dispatching.ListTransports(), ToolPlanning.DescribeTransports(), TransferEndpointNames.DisplayName);
+        return [.. Consumables.ReadConsumables().Select(record => ConsumableSnapshot.From(record, transports))];
+    }
+
+    /// <summary>
     /// 画面へ送るマップの様子を読む。公開中の版と、消耗品の管理の装置とステーションを、受け渡しパネルで結び付ける（それぞれ別々に読む）。
     /// 外形のない受け渡しパネルの装置とステーションは、マップに描けないので入れない。
     /// </summary>
@@ -214,7 +223,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ArgumentNullException.ThrowIfNull(app);
 
         var screen = app.Services.GetRequiredService<ScreenFeed>();
-        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent, ReadMap, Consumables.ReadStatuses, ReadTransports));
+        screen.Attach(new ScreenSources(() => Dispatching.IsRunning, ReadAgvs, () => Notices.Recent, ReadMap, Consumables.ReadStatuses, ReadTransports, ReadConsumables));
         _screen = screen;
 
         app.Use(async (context, next) =>

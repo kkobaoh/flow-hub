@@ -180,18 +180,10 @@ internal sealed record StationItemStateView(string Kind, string? Device, string?
         Deliverable => new StationItemStateView("deliverable", null, null),
         ReservedForDelivery reserved => new StationItemStateView("reserved", reserved.Device.Value, null),
         DesignatedFor designated => new StationItemStateView("designated", designated.Device.Value, null),
-        CheckNeeded check => new StationItemStateView("needsCheck", null, ReasonText(check.Reason)),
+        CheckNeeded check => new StationItemStateView("needsCheck", null, CheckReasonText.Of(check.Reason)),
         ShippingRequested => new StationItemStateView("shipping", null, null),
         NotDeliverable => new StationItemStateView("notDeliverable", null, null),
         _ => throw new InvalidOperationException($"知らない消耗品の状態です（{state}）。"),
-    };
-
-    private static string ReasonText(NeedsCheckReason reason) => reason switch
-    {
-        NeedsCheckReason.UnregisteredId => "unregisteredId",
-        NeedsCheckReason.FoundAfterLost => "foundAfterLost",
-        NeedsCheckReason.IdMismatch => "idMismatch",
-        _ => throw new InvalidOperationException($"要確認のわけではありません（{reason}）。"),
     };
 }
 

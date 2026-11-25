@@ -399,6 +399,29 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(ConsumableCondition.Used, system.Consumables.GetConsumable(new ConsumableId("X-1")).Condition);
     }
 
+    [Fact]
+    public async Task 届ける消耗品を指名して取り消し指名できないものは断る()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        await SeedConsumablesAsync();
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        system.Consumables.RegisterConsumable(new ConsumableId("T-1"), new VarietyId("DR-5"), new ProcessTypeId("P"), ConsumableCondition.New, new AtStation(new StationId("ST-1")));
+        system.Consumables.RegisterConsumable(new ConsumableId("U-1"), new VarietyId("DR-5"), new ProcessTypeId("P"), ConsumableCondition.Used, new AtStation(new StationId("ST-1")));
+
+        var designated = await OperateAsync(client, "/consumables/T-1/designate", """{ "device": "DEV-1" }""");
+        var used = await OperateAsync(client, "/consumables/U-1/designate", """{ "device": "DEV-1" }""");
+        var noDevice = await OperateAsync(client, "/consumables/T-1/designate", "{}");
+        Assert.Equal(new DeviceId("DEV-1"), system.Consumables.ReadConsumables().Single(c => c.Id.Value == "T-1").DesignatedFor);
+        var canceled = await OperateAsync(client, "/consumables/T-1/cancel-designation", "{}");
+
+        Assert.Equal((HttpStatusCode.OK, "designated"), designated);
+        Assert.Equal((HttpStatusCode.OK, "notDesignatable"), used);
+        Assert.Equal(HttpStatusCode.BadRequest, noDevice.Status);
+        Assert.Equal((HttpStatusCode.OK, "canceled"), canceled);
+        Assert.Null(system.Consumables.ReadConsumables().Single(c => c.Id.Value == "T-1").DesignatedFor);
+    }
+
     private static async Task<(HttpStatusCode Status, string? Result)> OperateAsync(HttpClient client, string path, string body)
     {
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), new StringContent(body, Encoding.UTF8, "application/json"), Token);
