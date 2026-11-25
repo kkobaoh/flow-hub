@@ -178,7 +178,7 @@ flowchart LR
 flowchart LR
     subgraph dev["開発（デバッグの「Api + 画面」）"]
         Edge["Edge"] -->|"http://localhost:5173"| Vite["Vite の開発用のサーバー<br/>（frontend）"]
-        Vite -->|"/hubs（SignalR）、/system、<br/>/transports、/agvs、/agv-types、<br/>/agv-registrations、/devices、<br/>/consumables を渡す"| Api["FlowHub.Api<br/>http://localhost:5020<br/>（装置・ステーション・上位システムは<br/>中のシミュレーターが代わりをする）"]
+        Vite -->|"/hubs（SignalR）、/system、<br/>/transports、/agvs、/agv-types、<br/>/agv-registrations、/configuration、<br/>/devices、/consumables を渡す"| Api["FlowHub.Api<br/>http://localhost:5020<br/>（装置・ステーション・上位システムは<br/>中のシミュレーターが代わりをする）"]
         AGV["AGV"] -->|"/agv/{agvId}/…（HTTP）"| Api
         Api --> Sqlite[("SQLite<br/>src/FlowHub.Api/data/<br/>コンテキストごとに1ファイル")]
     end

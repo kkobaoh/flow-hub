@@ -14,12 +14,13 @@ const meta = {
     carriers: demoCarriers,
     transferPanels: ['D1', 'D2', 'SP', 'ST'],
     permissions: initialRoles.管理者,
-    onSaveProcessKind: () => {},
-    onDeleteProcessKind: () => {},
-    onSaveVariety: () => {},
-    onDeleteVariety: () => {},
-    onAddId: () => {},
-    onRemoveId: () => {},
+    offline: false,
+    onSaveProcessKind: () => Promise.resolve(null),
+    onDeleteProcessKind: () => Promise.resolve(null),
+    onSaveVariety: () => Promise.resolve(null),
+    onDeleteVariety: () => Promise.resolve(null),
+    onAddId: () => Promise.resolve(null),
+    onRemoveId: () => Promise.resolve(null),
     onSaveDevice: () => {},
     onDeleteDevice: () => {},
     onSaveStation: () => {},
@@ -44,4 +45,9 @@ export const Default: Story = {};
 /** 管理者でないロール。見るだけ。 */
 export const Maintainer: Story = {
   args: { permissions: initialRoles.保守 },
+};
+
+/** サーバーとつながっていない。加工の種類と品種は変えられない。 */
+export const Offline: Story = {
+  args: { offline: true },
 };

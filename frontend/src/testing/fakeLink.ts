@@ -7,6 +7,7 @@ import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../features/tool/api/equipmentStatus';
 import type { TransportsSnapshot } from '../features/dispatch/api/transportsSnapshot';
 import type { ConsumablesSnapshot } from '../features/tool/api/consumablesSnapshot';
+import type { ConfigurationCommand, ConfigurationResult, ConfigurationSnapshot } from '../features/tool/api/configurationSnapshot';
 import type { AgvRegistrationCommand, AgvRegistrationResult, AgvTypeCommand, AgvTypeCommandResult, FleetSnapshot } from '../features/fleet/api/fleetSnapshot';
 import type { TransportCancelResult } from '../features/dispatch/api/transportCommands';
 import type { ConsumableCommand, ConsumableCommandResult } from '../features/tool/api/consumableCommands';
@@ -44,6 +45,11 @@ export interface FakeLink extends ServerLink {
   emitTransports(snapshot: TransportsSnapshot): void;
   emitConsumables(snapshot: ConsumablesSnapshot): void;
   emitFleet(snapshot: FleetSnapshot): void;
+  emitConfiguration(snapshot: ConfigurationSnapshot): void;
+  /** 消耗品の構成へ送られた操作。 */
+  readonly configurationCommands: readonly ConfigurationCommand[];
+  /** 消耗品の構成の操作の結果を決める（既定は saved）。 */
+  respondToConfiguration(result: ConfigurationResult): void;
   /** AGV の種類へ送られた操作。 */
   readonly agvTypeCommands: readonly AgvTypeCommand[];
   /** AGV の種類の操作の結果を決める（既定は、受け付けたときの結果）。 */
@@ -72,6 +78,7 @@ export function createFakeLink(initial?: {
   readonly transports?: TransportsSnapshot;
   readonly consumables?: ConsumablesSnapshot;
   readonly fleet?: FleetSnapshot;
+  readonly configuration?: ConfigurationSnapshot;
 }): FakeLink {
   let handlers: ServerHandlers | null = null;
   let result: CommandResult = 'ok';
@@ -107,6 +114,9 @@ export function createFakeLink(initial?: {
     }
     return new Promise((resolve) => held.push(() => resolve(answer)));
   };
+
+  const configurationCommands: ConfigurationCommand[] = [];
+  let configurationResult: ConfigurationResult = 'saved';
 
   const operateConsumables = (command: ConsumableCommand): Promise<ConsumableCommandResult> => {
     consumableCommands.push(command);
@@ -160,6 +170,18 @@ export function createFakeLink(initial?: {
     respondToConsumables(next) {
       consumableResult = next;
     },
+    configurationCommands,
+    respondToConfiguration(next) {
+      configurationResult = next;
+    },
+    operateConfiguration(command) {
+      configurationCommands.push(command);
+      const answer = configurationResult;
+      if (!holding) {
+        return Promise.resolve(answer);
+      }
+      return new Promise((resolve) => held.push(() => resolve(answer)));
+    },
     operateConsumables,
     respondToAgv(next) {
       agvResult = next;
@@ -195,6 +217,9 @@ export function createFakeLink(initial?: {
         }
         if (initial.fleet) {
           h.onFleet(initial.fleet);
+        }
+        if (initial.configuration) {
+          h.onConfiguration(initial.configuration);
         }
       }
       return () => {
@@ -243,6 +268,9 @@ export function createFakeLink(initial?: {
     },
     emitFleet(snapshot) {
       handlers?.onFleet(snapshot);
+    },
+    emitConfiguration(snapshot) {
+      handlers?.onConfiguration(snapshot);
     },
   };
 }

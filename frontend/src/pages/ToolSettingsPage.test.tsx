@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { change, click, render } from '../testing/render';
 import type { DeviceConfig, ProcessKind, StationConfig, Variety } from '../features/tool/config';
@@ -5,8 +6,8 @@ import { ToolSettingsPage, type ToolSettingsPageProps } from './ToolSettingsPage
 import { initialRoles } from '../features/auth/permissions';
 
 const processKinds: ProcessKind[] = [
-  { name: '[加工A]', method: 'dedicated', carrier: '[キャリアA]', capacity: 3 },
-  { name: '[加工B]', method: 'plate', carrier: '[キャリアB]', capacity: 4 },
+  { name: '[加工A]', carrier: '[キャリアA]', capacity: 3 },
+  { name: '[加工B]', carrier: '[キャリアB]', capacity: 4 },
 ];
 const varieties: Variety[] = [{ name: '[品種A]', processKind: '[加工A]', ids: ['T-0101', 'T-0102'], stockedIds: ['T-0101'], inUse: true }];
 const devices: DeviceConfig[] = [{ id: 'DEV-1', panel: 'D1', layout: { kind: 'slots', slots: [3, 3] }, occupied: [[1], [3]], busy: true }];
@@ -14,12 +15,12 @@ const stations: StationConfig[] = [{ id: 'ST-1', panel: 'ST', busy: true }];
 
 function setup(overrides: Partial<ToolSettingsPageProps> = {}) {
   const handlers = {
-    onSaveProcessKind: vi.fn(),
-    onDeleteProcessKind: vi.fn(),
-    onSaveVariety: vi.fn(),
-    onDeleteVariety: vi.fn(),
-    onAddId: vi.fn(),
-    onRemoveId: vi.fn(),
+    onSaveProcessKind: vi.fn(() => Promise.resolve<string | null>(null)),
+    onDeleteProcessKind: vi.fn(() => Promise.resolve<string | null>(null)),
+    onSaveVariety: vi.fn(() => Promise.resolve<string | null>(null)),
+    onDeleteVariety: vi.fn(() => Promise.resolve<string | null>(null)),
+    onAddId: vi.fn(() => Promise.resolve<string | null>(null)),
+    onRemoveId: vi.fn(() => Promise.resolve<string | null>(null)),
     onSaveDevice: vi.fn(),
     onDeleteDevice: vi.fn(),
     onSaveStation: vi.fn(),
@@ -34,6 +35,7 @@ function setup(overrides: Partial<ToolSettingsPageProps> = {}) {
       carriers={['[キャリアA]', '[キャリアB]']}
       transferPanels={['D1', 'D2', 'ST', 'SP']}
       permissions={initialRoles.管理者}
+      offline={false}
       {...handlers}
       {...overrides}
     />,
@@ -48,32 +50,90 @@ const dialog = (c: HTMLElement) => c.querySelector('[role="dialog"]')!;
 const input = (root: Element, label: string) => root.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
 const select = (root: Element, label: string) => root.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
 
+/** ボタンを押し、送った結果を待つ。 */
+async function clickAndWait(button: Element) {
+  await act(async () => {
+    click(button);
+    await Promise.resolve();
+  });
+}
+
 describe('ToolSettingsPage（消耗品の構成）', () => {
-  it('加工の種類を加える', () => {
+  it('加工の種類を加える。キャリアの種類は文字で入れ、いまあるものを候補に出す', async () => {
     const { container, onSaveProcessKind } = setup();
 
     click(byText(container, '加工の種類を加える'));
-    change(input(dialog(container), '加工の種類の名前'), '[加工C]');
-    change(select(dialog(container), '運び方'), 'dedicated');
-    change(select(dialog(container), 'キャリアの種類'), '[キャリアA]');
-    change(input(dialog(container), 'キャリアに入る個数'), '2');
-    click(byText(dialog(container), '加工の種類を保存する'));
+    const d = dialog(container);
+    change(input(d, '加工の種類の名前'), '[加工C]');
+    const carrier = input(d, 'キャリアの種類');
+    const list = d.querySelector(`datalist[id="${carrier.getAttribute('list')}"]`)!;
+    expect([...list.querySelectorAll('option')].map((o) => o.getAttribute('value'))).toEqual(['[キャリアA]', '[キャリアB]']);
+    change(carrier, '[キャリアC]');
+    change(input(d, 'キャリアに入る個数'), '2');
+    await clickAndWait(byText(d, '加工の種類を保存する'));
 
-    expect(onSaveProcessKind).toHaveBeenCalledWith(null, { name: '[加工C]', method: 'dedicated', carrier: '[キャリアA]', capacity: 2 });
+    expect(onSaveProcessKind).toHaveBeenCalledWith(null, { name: '[加工C]', carrier: '[キャリアC]', capacity: 2 });
   });
 
-  it('品種がある加工の種類は消せず、ないものは確かめてから消す', () => {
+  it('運び方は出さない（今回はプレート搬送を使わない）', () => {
+    const { container } = setup();
+
+    expect(container.textContent).not.toContain('運び方');
+    click(byText(container, '加工の種類を加える'));
+    expect(select(dialog(container), '運び方')).toBeNull();
+  });
+
+  it('断られたら、表の上に理由を出し、送っている間は押せない', async () => {
+    let answer: (text: string | null) => void = () => {};
+    const onDeleteProcessKind = vi.fn(() => new Promise<string | null>((resolve) => (answer = resolve)));
+    const { container } = setup({ onDeleteProcessKind });
+
+    click(byText(row(container, '[加工B]'), '消す'));
+    await clickAndWait(byText(container.querySelector('[role="alertdialog"]')!, '加工の種類を消す'));
+    expect(byText(container, '加工の種類を加える').disabled).toBe(true);
+    await act(async () => {
+      answer('その加工の種類の品種があるので、消せませんでした。');
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('その加工の種類の品種があるので、消せませんでした。');
+    expect(byText(container, '加工の種類を加える').disabled).toBe(false);
+  });
+
+  it('サーバーとつながっていなければ、加工の種類と品種は変えられず、理由を出す', () => {
+    const { container } = setup({ offline: true });
+
+    expect(byText(container, '加工の種類を加える').disabled).toBe(true);
+    expect(container.textContent).toContain('サーバーとつながっていないので、加工の種類と品種を加えたり変えたりできません。');
+    click(tab(container, '品種'));
+    expect(byText(container, '品種を加える').disabled).toBe(true);
+    expect(byText(row(container, '[品種A]'), 'ID の対応').disabled).toBe(true);
+  });
+
+  it('品種を加える', async () => {
+    const { container, onSaveVariety } = setup();
+
+    click(tab(container, '品種'));
+    click(byText(container, '品種を加える'));
+    change(input(dialog(container), '品種の名前'), '[品種B]');
+    change(select(dialog(container), '加工の種類'), '[加工B]');
+    await clickAndWait(byText(dialog(container), '品種を保存する'));
+
+    expect(onSaveVariety).toHaveBeenCalledWith(null, { name: '[品種B]', processKind: '[加工B]' });
+  });
+
+  it('品種がある加工の種類は消せず、ないものは確かめてから消す', async () => {
     const { container, onDeleteProcessKind } = setup();
 
     expect(byText(row(container, '[加工A]'), '消す').disabled).toBe(true);
     expect(row(container, '[加工A]').textContent).toContain('[品種A] の加工の種類なので、消せません。');
 
     click(byText(row(container, '[加工B]'), '消す'));
-    click(byText(container.querySelector('[role="alertdialog"]')!, '加工の種類を消す'));
+    await clickAndWait(byText(container.querySelector('[role="alertdialog"]')!, '加工の種類を消す'));
     expect(onDeleteProcessKind).toHaveBeenCalledWith('[加工B]');
   });
 
-  it('品種の ID の対応：加えるのと外す。在庫にある ID は外せない', () => {
+  it('品種の ID の対応：加えるのと外す。在庫にある ID は外せない', async () => {
     const { container, onAddId, onRemoveId } = setup();
 
     click(tab(container, '品種'));
@@ -82,13 +142,13 @@ describe('ToolSettingsPage（消耗品の構成）', () => {
     const d = dialog(container);
     const idRow = (id: string) => [...d.querySelectorAll('li')].find((li) => li.textContent?.startsWith(id))!;
     expect(byText(idRow('T-0101'), '外す').disabled).toBe(true);
-    click(byText(idRow('T-0102'), '外す'));
+    await clickAndWait(byText(idRow('T-0102'), '外す'));
     expect(onRemoveId).toHaveBeenCalledWith('[品種A]', 'T-0102');
 
     change(input(d, '加える ID'), 'T-0101');
     expect(byText(d, '加える').disabled).toBe(true);
     change(input(d, '加える ID'), 'T-0103');
-    click(byText(d, '加える'));
+    await clickAndWait(byText(d, '加える'));
     expect(onAddId).toHaveBeenCalledWith('[品種A]', 'T-0103');
   });
 

@@ -6,6 +6,7 @@ import type { MapSnapshot } from '../../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../../features/tool/api/equipmentStatus';
 import type { TransportsSnapshot } from '../../features/dispatch/api/transportsSnapshot';
 import type { ConsumablesSnapshot } from '../../features/tool/api/consumablesSnapshot';
+import type { ConfigurationCommand, ConfigurationResult, ConfigurationSnapshot } from '../../features/tool/api/configurationSnapshot';
 import type { AgvRegistrationCommand, AgvRegistrationResult, AgvTypeCommand, AgvTypeCommandResult, FleetSnapshot } from '../../features/fleet/api/fleetSnapshot';
 import type { TransportCancelResult } from '../../features/dispatch/api/transportCommands';
 import type { ConsumableCommand, ConsumableCommandResult } from '../../features/tool/api/consumableCommands';
@@ -31,6 +32,7 @@ export interface ServerHandlers {
   readonly onTransports: (snapshot: TransportsSnapshot) => void;
   readonly onConsumables: (snapshot: ConsumablesSnapshot) => void;
   readonly onFleet: (snapshot: FleetSnapshot) => void;
+  readonly onConfiguration: (snapshot: ConfigurationSnapshot) => void;
 }
 
 /**
@@ -55,6 +57,8 @@ export interface ServerLink {
   operateAgvTypes(command: AgvTypeCommand): Promise<AgvTypeCommandResult>;
   /** AGV の登録を加える・変える・そろえる・消す（応答がなければ、あきらめて failed。やり直さない）。 */
   operateAgvRegistrations(command: AgvRegistrationCommand): Promise<AgvRegistrationResult>;
+  /** 消耗品の構成（加工の種類、品種、入庫の予定）を加える・変える・消す（応答がなければ、あきらめて failed。やり直さない）。 */
+  operateConfiguration(command: ConfigurationCommand): Promise<ConfigurationResult>;
 }
 
 /** 操作を送って、応答を待つ長さ。 */

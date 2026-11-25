@@ -1,11 +1,8 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  demoCarriers,
-  demoConfigVarieties,
   demoDeviceConfigs,
   demoHeights,
   demoMapDraft,
-  demoProcessKinds,
   demoRoles,
   demoStationConfigs,
   demoUsers,
@@ -45,6 +42,8 @@ import { deviceInsideOf, stationInventoryOf } from '../features/tool/inside';
 import { toTransports } from '../features/dispatch/api/transportsSnapshot';
 import { toHit, toRecord } from '../features/tool/api/consumablesSnapshot';
 import { agvRegistrationNotice, agvTypeNotice, type AgvRegistrationCommand } from '../features/fleet/api/fleetSnapshot';
+import { configurationNotice, type ConfigurationCommand } from '../features/tool/api/configurationSnapshot';
+import type { ProcessKind } from '../features/tool/config';
 import { cancelNotice } from '../features/dispatch/api/transportCommands';
 import { consumableNotice, type ConsumableCommand } from '../features/tool/api/consumableCommands';
 
@@ -87,6 +86,12 @@ const commandFailed = {
 /** サーバーとつないだデータで出す画面（ほかの画面には、見本のデータだと帯で知らせる）。 */
 const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables', 'agvs']);
 
+/** 一部だけサーバーとつないだ画面の、見本のデータの部分の知らせ（装置とステーションは CN-15 でつなぐ）。 */
+const PARTLY_DEMO: ReadonlyMap<ScreenKey, string> = new Map([['consumableConfig', 'この画面の装置とステーションは、見本のデータです']]);
+
+/** キャリアの種類の候補（いまある加工の種類のもの。重ねず、名前の順）。 */
+const carrierSuggestions = (kinds: readonly ProcessKind[]) => [...new Set(kinds.map((k) => k.carrier))].sort();
+
 /** サーバーから様子が届くまで出す。 */
 function Loading({ what }: { readonly what: string }) {
   return <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">{what}を読み込んでいます。</p>;
@@ -123,8 +128,6 @@ export function App({ link }: AppProps) {
   const [sendingAgvs, setSendingAgvs] = useState<ReadonlyMap<AgvId, number>>(new Map());
   const [agvNotices, setAgvNotices] = useState<ReadonlyMap<AgvId, string>>(new Map());
   const offline = server.connection !== 'connected';
-  const [processKinds, setProcessKinds] = useState(demoProcessKinds);
-  const [configVarieties, setConfigVarieties] = useState(demoConfigVarieties);
   const [deviceConfigs, setDeviceConfigs] = useState(demoDeviceConfigs);
   const [stationConfigs, setStationConfigs] = useState(demoStationConfigs);
   const [users, setUsers] = useState(demoUsers);
@@ -152,6 +155,8 @@ export function App({ link }: AppProps) {
   /** AGV の登録の操作を送り、断られたら理由の文を返す（やり直さない。表示は、届いた様子で変える）。 */
   const operateAgvRegistrations = async (command: AgvRegistrationCommand) => agvRegistrationNotice(await link.operateAgvRegistrations(command));
   const operateConsumables = async (command: ConsumableCommand) => consumableNotice(command.kind, await link.operateConsumables(command));
+  /** 消耗品の構成の操作を送り、断られたら理由の文を返す（やり直さない。表示は、届いた様子で変える）。 */
+  const operateConfiguration = async (command: ConfigurationCommand) => configurationNotice(command, await link.operateConfiguration(command));
   // AGV は、サーバーから届いた様子を、描いているマップに合わせて使う（まだ届いていなければ、いない）
   const agvs = useMemo(
     () => (server.agvs.kind === 'waiting' ? [] : toAgvDetails(server.agvs.snapshot.agvs, layout)),
@@ -329,25 +334,24 @@ export function App({ link }: AppProps) {
           />
         );
       case 'consumableConfig':
-        return (
+        return server.configuration.kind === 'waiting' ? (
+          <Loading what="消耗品の構成" />
+        ) : (
           <ToolSettingsPage
-            processKinds={processKinds}
-            varieties={configVarieties}
+            processKinds={server.configuration.snapshot.processKinds}
+            varieties={server.configuration.snapshot.varieties}
             devices={deviceConfigs}
             stations={stationConfigs}
-            carriers={demoCarriers}
+            carriers={carrierSuggestions(server.configuration.snapshot.processKinds)}
             transferPanels={transferPanels}
             permissions={permissions}
-            onSaveProcessKind={(original, k) => setProcessKinds((ks) => (original === null ? [...ks, k] : ks.map((x) => (x.name === original ? k : x))))}
-            onDeleteProcessKind={(name) => setProcessKinds((ks) => ks.filter((k) => k.name !== name))}
-            onSaveVariety={(original, v) =>
-              setConfigVarieties((vs) =>
-                original === null ? [...vs, { ...v, ids: [], stockedIds: [], inUse: false }] : vs.map((x) => (x.name === original ? { ...x, ...v } : x)),
-              )
-            }
-            onDeleteVariety={(name) => setConfigVarieties((vs) => vs.filter((v) => v.name !== name))}
-            onAddId={(name, id) => setConfigVarieties((vs) => vs.map((v) => (v.name === name ? { ...v, ids: [...v.ids, id] } : v)))}
-            onRemoveId={(name, id) => setConfigVarieties((vs) => vs.map((v) => (v.name === name ? { ...v, ids: v.ids.filter((i) => i !== id) } : v)))}
+            offline={offline}
+            onSaveProcessKind={(original, k) => operateConfiguration({ kind: original === null ? 'addProcessKind' : 'editProcessKind', processKind: k })}
+            onDeleteProcessKind={(name) => operateConfiguration({ kind: 'deleteProcessKind', name })}
+            onSaveVariety={(original, v) => operateConfiguration({ kind: original === null ? 'addVariety' : 'editVariety', name: v.name, processKind: v.processKind })}
+            onDeleteVariety={(name) => operateConfiguration({ kind: 'deleteVariety', name })}
+            onAddId={(variety, id) => operateConfiguration({ kind: 'addId', variety, id })}
+            onRemoveId={(_, id) => operateConfiguration({ kind: 'removeId', id })}
             onSaveDevice={(original, d) =>
               setDeviceConfigs((ds) =>
                 original === null ? [...ds, { ...d, occupied: [], busy: false }] : ds.map((x) => (x.id === original ? { ...x, ...d } : x)),
@@ -422,7 +426,11 @@ export function App({ link }: AppProps) {
   return (
     <>
       <ConnectionBanner connection={server.connection} />
-      {!SERVER_SCREENS.has(route.screen) && <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">この画面は、見本のデータです</p>}
+      {!SERVER_SCREENS.has(route.screen) && (
+        <p className="m-0 bg-estop-plate px-3 py-1 text-center text-xs font-bold text-graphite">
+          {PARTLY_DEMO.get(route.screen) ?? 'この画面は、見本のデータです'}
+        </p>
+      )}
       {route.screen === 'map' && layout.panels.length === 0 ? (
         <MainLayout {...frame} current="map" title="全体の様子（マップ）">
           <p className="m-0 rounded-[10px] border border-line bg-paper p-5 text-[15px] text-ink-muted">

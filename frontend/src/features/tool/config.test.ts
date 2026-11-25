@@ -26,12 +26,11 @@ const empty: DeviceConfig = { id: 'DEV-9', panel: 'D9', layout: { kind: 'slots',
 const deviceDraft = (overrides: Partial<DeviceDraft> = {}): DeviceDraft => ({ id: 'DEV-5', panel: 'D5', plate: false, slots: ['3'], plateStockers: '1', ...overrides });
 
 describe('processKindProblem（加工の種類を保存できない理由）', () => {
-  const ok = { name: '[加工B]', method: 'dedicated', carrier: '[キャリアA]', capacity: '3' } as const;
+  const ok = { name: '[加工B]', carrier: '[キャリアA]', capacity: '3' } as const;
 
-  it('名前・運び方・キャリアの種類・個数をすべて入れ、個数は 1 以上の整数', () => {
+  it('名前・キャリアの種類・個数をすべて入れ、個数は 1 以上の整数', () => {
     expect(processKindProblem({ ...ok, name: '' }, [], null)).toBe('加工の種類の名前を入れてください。');
-    expect(processKindProblem({ ...ok, method: '' }, [], null)).toBe('運び方を選んでください。');
-    expect(processKindProblem({ ...ok, carrier: '' }, [], null)).toBe('キャリアの種類を選んでください。');
+    expect(processKindProblem({ ...ok, carrier: ' ' }, [], null)).toBe('キャリアの種類を入れてください。');
     expect(processKindProblem({ ...ok, capacity: '0' }, [], null)).toBe('キャリアに入る個数を、1 以上の整数で入れてください。');
     expect(processKindProblem({ ...ok, name: '[加工A]' }, ['[加工A]'], null)).toBe('[加工A] は、もう登録してあります。');
     expect(processKindProblem(ok, ['[加工A]'], null)).toBeNull();

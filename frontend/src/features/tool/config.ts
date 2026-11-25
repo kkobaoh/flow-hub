@@ -1,16 +1,8 @@
 import { byIdNumber } from '../../shared/utils/listing';
 
-/** 運び方（domain.md の「消耗品の搬送方式」）。 */
-export type CarryMethod = 'plate' | 'dedicated';
-
-export const carryMethodLabel: Record<CarryMethod, string> = {
-  plate: 'プレート搬送（兼用 AGV）',
-  dedicated: '専用 AGV 搬送',
-};
-
+/** 加工の種類。今回はプレート搬送を使わないので、運び方は持たない（使うときに足す）。 */
 export interface ProcessKind {
   readonly name: string;
-  readonly method: CarryMethod;
   readonly carrier: string;
   /** キャリアに入る個数。 */
   readonly capacity: number;
@@ -49,7 +41,6 @@ export interface StationConfig {
 
 export interface ProcessKindDraft {
   readonly name: string;
-  readonly method: CarryMethod | '';
   readonly carrier: string;
   readonly capacity: string;
 }
@@ -87,8 +78,7 @@ function nameProblem(name: string, label: string, existing: readonly string[], o
 export function processKindProblem(draft: ProcessKindDraft, existing: readonly string[], original: string | null): string | null {
   return (
     nameProblem(draft.name, '加工の種類の名前', existing, original) ??
-    (draft.method === '' ? '運び方を選んでください。' : null) ??
-    (draft.carrier === '' ? 'キャリアの種類を選んでください。' : null) ??
+    (draft.carrier.trim() === '' ? 'キャリアの種類を入れてください。' : null) ??
     (positive(draft.capacity) ? null : 'キャリアに入る個数を、1 以上の整数で入れてください。')
   );
 }

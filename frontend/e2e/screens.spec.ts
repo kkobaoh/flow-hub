@@ -176,3 +176,44 @@ test('AGV と AGV の種類の登録：AGV を加えて切り離しから始め�
   await expect(agvs.getByRole('row', { name: /AGV-E2E/ })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('消耗品の構成：加工の種類と品種を加え、入庫の予定を加えて外し、消す', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/#/consumableConfig');
+
+  await expect(page.getByRole('row', { name: /drill/ })).toBeVisible(); // 初期データの加工の種類
+  await page.getByRole('button', { name: '加工の種類を加える' }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: '加工の種類の名前' }).fill('e2e-kind');
+  await dialog.getByLabel('キャリアの種類').fill('e2e-carrier');
+  await dialog.getByRole('spinbutton', { name: 'キャリアに入る個数' }).fill('3');
+  await dialog.getByRole('button', { name: '加工の種類を保存する' }).click();
+  await expect(page.getByRole('row', { name: /e2e-kind/ })).toContainText('e2e-carrier');
+
+  await page.getByRole('tab', { name: '品種' }).click();
+  await page.getByRole('button', { name: '品種を加える' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: '品種の名前' }).fill('E2E-1');
+  await dialog.getByRole('combobox', { name: '加工の種類' }).selectOption('e2e-kind');
+  await dialog.getByRole('button', { name: '品種を保存する' }).click();
+  const variety = page.getByRole('row', { name: /E2E-1/ });
+  await expect(variety).toContainText('e2e-kind');
+
+  await variety.getByRole('button', { name: 'ID の対応' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: '加える ID' }).fill('E2E-ID-1');
+  await dialog.getByRole('button', { name: '加える', exact: true }).click();
+  await expect(dialog.getByRole('listitem')).toContainText('E2E-ID-1');
+  await dialog.getByRole('button', { name: '外す' }).click();
+  await expect(dialog.getByRole('listitem')).toHaveCount(0);
+  await dialog.getByRole('button', { name: '閉じる' }).click();
+
+  await variety.getByRole('button', { name: '消す' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '品種を消す' }).click();
+  await expect(page.getByRole('row', { name: /E2E-1/ })).toHaveCount(0);
+  await page.getByRole('tab', { name: '加工の種類' }).click();
+  await page.getByRole('row', { name: /e2e-kind/ }).getByRole('button', { name: '消す' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '加工の種類を消す' }).click();
+  await expect(page.getByRole('row', { name: /e2e-kind/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

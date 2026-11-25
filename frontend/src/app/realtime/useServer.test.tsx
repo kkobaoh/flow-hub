@@ -22,7 +22,7 @@ describe('useServer', () => {
     const { latest } = watch(link);
 
     expect(link.connected).toBe(true);
-    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' }, messages: { kind: 'waiting' }, map: { kind: 'waiting' }, equipment: { kind: 'waiting' }, transports: { kind: 'waiting' }, consumables: { kind: 'waiting' }, fleet: { kind: 'waiting' } });
+    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' }, messages: { kind: 'waiting' }, map: { kind: 'waiting' }, equipment: { kind: 'waiting' }, transports: { kind: 'waiting' }, consumables: { kind: 'waiting' }, fleet: { kind: 'waiting' }, configuration: { kind: 'waiting' } });
   });
 
   it('届いた運転状態の様子と、つながりの様子を持つ', () => {
@@ -155,6 +155,21 @@ describe('useServer', () => {
 
     act(() => link.emitConnection('reconnecting'));
     expect(latest().consumables).toEqual({ kind: 'stale', snapshot: consumables });
+  });
+
+  it('消耗品の構成も、番号の古いものは捨て、切れたら古いものにする', () => {
+    const link = createFakeLink();
+    const { latest } = watch(link);
+    const configuration = { version: 2, processKinds: [], varieties: [] };
+
+    act(() => {
+      link.emitConfiguration(configuration);
+      link.emitConfiguration({ version: 1, processKinds: [], varieties: [] });
+    });
+    expect(latest().configuration).toEqual({ kind: 'live', snapshot: configuration });
+
+    act(() => link.emitConnection('reconnecting'));
+    expect(latest().configuration).toEqual({ kind: 'stale', snapshot: configuration });
   });
 
   it('消したら切る', () => {

@@ -366,12 +366,46 @@ describe('App', () => {
     ['#/agvs', false],
     ['#/users', true],
     ['#/consumables', false],
-    ['#/consumableConfig', true],
   ])('見本のデータで動かしている画面だけ、そのことを帯で知らせる（%s）', (hash, demo) => {
     window.location.hash = hash;
     const { container } = render(<App link={connected()} />);
 
     expect(container.textContent?.includes('この画面は、見本のデータです')).toBe(demo);
+    window.location.hash = '';
+  });
+
+  it('消耗品の構成は、装置とステーションだけが見本のデータであることを帯で知らせる', () => {
+    window.location.hash = '#/consumableConfig';
+    const { container } = render(<App link={connected()} />);
+
+    expect(container.textContent).toContain('装置とステーションは、見本のデータです');
+    expect(container.textContent).not.toContain('この画面は、見本のデータです');
+    window.location.hash = '';
+  });
+
+  it('消耗品の構成は、届くまで読み込み中を出し、届いた加工の種類と品種を出して、操作をサーバーへ送る', async () => {
+    window.location.hash = '#/consumableConfig';
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    expect(container.textContent).toContain('消耗品の構成を読み込んでいます');
+
+    act(() =>
+      link.emitConfiguration({
+        version: 1,
+        processKinds: [{ name: 'drill', carrier: 'X', capacity: 2 }, { name: 'mill', carrier: 'Y', capacity: 1 }],
+        varieties: [{ name: 'DR-5', processKind: 'drill', ids: [], stockedIds: [], inUse: false }],
+      }),
+    );
+    expect(container.querySelector('tbody')?.textContent).toContain('drill');
+    link.respondToConfiguration('inUse');
+    click([...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('mill'))!.querySelectorAll('button')[1]!);
+    await act(async () => {
+      click(buttonByText(container.querySelector('[role="alertdialog"]')!, '加工の種類を消す'));
+      await Promise.resolve();
+    });
+
+    expect(link.configurationCommands).toEqual([{ kind: 'deleteProcessKind', name: 'mill' }]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('その加工の種類の品種があるので、消せませんでした。');
     window.location.hash = '';
   });
 

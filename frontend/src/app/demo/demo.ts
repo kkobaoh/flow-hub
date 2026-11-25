@@ -320,8 +320,8 @@ export const demoCarriers: readonly string[] = ['[キャリアの種類A]', '[�
 
 /** 見本の加工の種類。 */
 export const demoProcessKinds: readonly ProcessKind[] = [
-  { name: '[加工の種類A]', method: 'dedicated', carrier: '[キャリアの種類A]', capacity: 3 },
-  { name: '[加工の種類B]', method: 'plate', carrier: '[キャリアの種類B]', capacity: 4 },
+  { name: '[加工の種類A]', carrier: '[キャリアの種類A]', capacity: 3 },
+  { name: '[加工の種類B]', carrier: '[キャリアの種類B]', capacity: 4 },
 ];
 
 /** 見本の品種と ID の対応（在庫と記録は demoRecords とそろえている）。 */

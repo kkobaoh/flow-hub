@@ -111,6 +111,7 @@ export function TextField({
   numeric = false,
   unit,
   placeholder,
+  suggestions,
 }: {
   readonly label: string;
   readonly value: string;
@@ -119,7 +120,10 @@ export function TextField({
   /** 見出しに添える単位（mm/s など）。 */
   readonly unit?: string | undefined;
   readonly placeholder?: string | undefined;
+  /** 入れる候補（選んでも、ほかの文字を入れてもよい）。 */
+  readonly suggestions?: readonly string[] | undefined;
 }) {
+  const listId = useId();
   return (
     <label className="flex flex-col gap-1.5 text-sm font-bold">
       {unit === undefined ? label : `${label}（${unit}）`}
@@ -129,10 +133,18 @@ export function TextField({
         inputMode={numeric ? 'numeric' : undefined}
         step={numeric ? 1 : undefined}
         placeholder={placeholder}
+        list={suggestions === undefined ? undefined : listId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={`${field} ${numeric ? 'font-number text-[17px] font-semibold' : ''}`}
       />
+      {suggestions !== undefined && (
+        <datalist id={listId}>
+          {suggestions.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      )}
     </label>
   );
 }
