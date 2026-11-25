@@ -187,6 +187,73 @@ export async function validateMapDraft(baseUrl: string, draft: MapDraft, timeout
   }
 }
 
+/**
+ * 下書きを公開した結果（サーバーの MapDraftEndpoints と同じ言葉）。
+ * - published：公開して、すぐにその版に切り替えた（agvs は、切り離しにした AGV）。
+ * - stale・running・agvMoving（agvs は走っている AGV）・problems（検証の問題）：公開していない。
+ * - failed：応答がない、または思わない応答（公開したかわからない。やり直さない）。
+ */
+export type MapPublishOutcome =
+  | { readonly result: 'published'; readonly version: number; readonly agvs: readonly string[] }
+  | { readonly result: 'stale' | 'running' | 'failed' }
+  | { readonly result: 'agvMoving'; readonly agvs: readonly string[] }
+  | { readonly result: 'problems'; readonly problems: readonly string[] };
+
+const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === 'string');
+
+/** 下書きを公開する（読んだときの番号を渡す）。応答がなければ failed（やり直さない）。 */
+export async function publishMapDraft(baseUrl: string, revision: number, draft: MapDraft, timeoutMs: number): Promise<MapPublishOutcome> {
+  try {
+    const response = await fetch(`${baseUrl}/map/draft/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision, draft: toWireDraft(draft) }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const body: unknown = response.ok ? await response.json() : null;
+    if (isRecord(body) && strings(body.problems) && strings(body.agvs)) {
+      switch (body.result) {
+        case 'published':
+          return { result: 'published', version: int(body.version, '公開した版の番号'), agvs: body.agvs };
+        case 'stale':
+        case 'running':
+          return { result: body.result };
+        case 'agvMoving':
+          return { result: 'agvMoving', agvs: body.agvs };
+        case 'problems':
+          return { result: 'problems', problems: body.problems };
+        default:
+          break;
+      }
+    }
+    console.warn(`マップの下書きを公開できたかわかりません（${response.status}）。`);
+    return { result: 'failed' };
+  } catch (error) {
+    console.warn('マップの下書きを公開できたかわかりません。', error);
+    return { result: 'failed' };
+  }
+}
+
+/** 画面に出す、公開の結果の知らせ（公開できたら null）。 */
+export function mapPublishNotice(outcome: MapPublishOutcome): string | null {
+  switch (outcome.result) {
+    case 'published':
+      return null;
+    case 'stale':
+      return '読んだあとに、ほかの人が下書きを保存したか公開したので、公開しませんでした。「サーバーから読み直す」で読み直してください。';
+    case 'running':
+      return '運転中なので、公開しませんでした。運転状態を停止にしてから、公開してください。';
+    case 'agvMoving':
+      return `${outcome.agvs.join('、')} が走っているので、公開しませんでした。止まってから、公開してください。`;
+    case 'problems':
+      return `公開しませんでした。${outcome.problems.join(' ')}`;
+    case 'failed':
+      return '公開できたかわかりません。サーバーから応答がありません。「サーバーから読み直す」で、公開中の版を確かめてください。';
+    default:
+      throw new Error(`知らない結果です: ${JSON.stringify(outcome satisfies never)}`);
+  }
+}
+
 /** 画面に出す、下書きの保存の結果の知らせ（保存できたら null）。 */
 export function mapDraftNotice(outcome: MapDraftSaveOutcome): string | null {
   switch (outcome.result) {

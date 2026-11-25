@@ -7,7 +7,7 @@ import type { EquipmentStatusSnapshot } from '../../features/tool/api/equipmentS
 import type { TransportsSnapshot } from '../../features/dispatch/api/transportsSnapshot';
 import type { ConsumablesSnapshot } from '../../features/tool/api/consumablesSnapshot';
 import type { ConfigurationCommand, ConfigurationResult, ConfigurationSnapshot } from '../../features/tool/api/configurationSnapshot';
-import type { MapDraftLoad, MapDraftSaveOutcome } from '../../features/routing/api/mapDraft';
+import type { MapDraftLoad, MapDraftSaveOutcome, MapPublishOutcome } from '../../features/routing/api/mapDraft';
 import type { MapDraft } from '../../features/routing/mapEdit';
 import type { AgvRegistrationCommand, AgvRegistrationResult, AgvTypeCommand, AgvTypeCommandResult, FleetSnapshot } from '../../features/fleet/api/fleetSnapshot';
 import type { TransportCancelResult } from '../../features/dispatch/api/transportCommands';
@@ -67,6 +67,8 @@ export interface ServerLink {
   saveMapDraft(revision: number, draft: MapDraft): Promise<MapDraftSaveOutcome>;
   /** マップの下書きをサーバーで検証し、見つかった問題を返す（検証できなければ、そのことを問題として返す）。 */
   validateMapDraft(draft: MapDraft): Promise<readonly string[]>;
+  /** マップの下書きを公開する（読んだときの番号を渡す。応答がなければ failed。やり直さない）。 */
+  publishMapDraft(revision: number, draft: MapDraft): Promise<MapPublishOutcome>;
 }
 
 /** 操作を送って、応答を待つ長さ。 */

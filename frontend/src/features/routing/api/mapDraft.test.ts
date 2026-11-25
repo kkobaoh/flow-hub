@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { heading, panelId } from '../model';
 import type { MapDraft } from '../mapEdit';
-import { loadMapDraft, parseMapDraft, saveMapDraft, toWireDraft, VALIDATION_FAILED, validateMapDraft } from './mapDraft';
+import { loadMapDraft, mapPublishNotice, parseMapDraft, publishMapDraft, saveMapDraft, toWireDraft, VALIDATION_FAILED, validateMapDraft } from './mapDraft';
 
 const wireDraft = {
   panelSizeMm: 1000,
@@ -95,6 +95,26 @@ describe('loadMapDraft と saveMapDraft', () => {
     expect((fetch.mock.calls[0] as [string, RequestInit])[0]).toBe('/map/draft/validate');
     expect(JSON.parse((fetch.mock.calls[0] as [string, RequestInit])[1].body as string)).toEqual({ draft: wireDraft });
     expect(await validateMapDraft('', draft, 1000)).toEqual([VALIDATION_FAILED]);
+  });
+
+  it('公開する。結果ごとに中身を返し、応答がなければ failed', async () => {
+    const reply = (body: object) => new Response(JSON.stringify({ version: 0, problems: [], agvs: [], ...body }), { status: 200 });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(reply({ result: 'published', version: 4, agvs: ['AGV-2'] }))
+      .mockResolvedValueOnce(reply({ result: 'agvMoving', agvs: ['AGV-1'] }))
+      .mockResolvedValueOnce(reply({ result: 'problems', problems: ['P1 がつながっていません。'] }))
+      .mockRejectedValueOnce(new Error('切れた'));
+    vi.stubGlobal('fetch', fetch);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(await publishMapDraft('', 3, draft, 1000)).toEqual({ result: 'published', version: 4, agvs: ['AGV-2'] });
+    expect((fetch.mock.calls[0] as [string, RequestInit])[0]).toBe('/map/draft/publish');
+    expect(JSON.parse((fetch.mock.calls[0] as [string, RequestInit])[1].body as string)).toEqual({ revision: 3, draft: wireDraft });
+    const moving = await publishMapDraft('', 3, draft, 1000);
+    expect(mapPublishNotice(moving)).toBe('AGV-1 が走っているので、公開しませんでした。止まってから、公開してください。');
+    expect(mapPublishNotice(await publishMapDraft('', 3, draft, 1000))).toBe('公開しませんでした。P1 がつながっていません。');
+    expect(await publishMapDraft('', 3, draft, 1000)).toEqual({ result: 'failed' });
   });
 
   it('保存する。古い番号なら stale、応答がなければ failed', async () => {

@@ -8,7 +8,7 @@ import type { EquipmentStatusSnapshot } from '../features/tool/api/equipmentStat
 import type { TransportsSnapshot } from '../features/dispatch/api/transportsSnapshot';
 import type { ConsumablesSnapshot } from '../features/tool/api/consumablesSnapshot';
 import type { ConfigurationCommand, ConfigurationResult, ConfigurationSnapshot } from '../features/tool/api/configurationSnapshot';
-import type { MapDraftLoad, MapDraftSaveOutcome } from '../features/routing/api/mapDraft';
+import type { MapDraftLoad, MapDraftSaveOutcome, MapPublishOutcome } from '../features/routing/api/mapDraft';
 import type { MapDraft } from '../features/routing/mapEdit';
 import { demoMapDraft } from '../app/demo/demo';
 import type { AgvRegistrationCommand, AgvRegistrationResult, AgvTypeCommand, AgvTypeCommandResult, FleetSnapshot } from '../features/fleet/api/fleetSnapshot';
@@ -63,6 +63,10 @@ export interface FakeLink extends ServerLink {
   readonly validatedMapDrafts: readonly MapDraft[];
   /** マップの下書きを検証したときの問題を決める（既定は、問題なし）。 */
   respondToMapDraftValidation(problems: readonly string[]): void;
+  /** 公開を頼まれたマップの下書き（読んだときの番号と、中身）。 */
+  readonly publishedMapDrafts: readonly { readonly revision: number; readonly draft: MapDraft }[];
+  /** マップの下書きを公開したときの答えを決める（既定は、版2として published）。 */
+  respondToMapPublish(result: MapPublishOutcome): void;
   /** AGV の種類へ送られた操作。 */
   readonly agvTypeCommands: readonly AgvTypeCommand[];
   /** AGV の種類の操作の結果を決める（既定は、受け付けたときの結果）。 */
@@ -134,6 +138,8 @@ export function createFakeLink(initial?: {
   let mapDraftSave: MapDraftSaveOutcome | null = null;
   const validatedMapDrafts: MapDraft[] = [];
   let mapDraftProblems: readonly string[] = [];
+  const publishedMapDrafts: { revision: number; draft: MapDraft }[] = [];
+  let mapPublish: MapPublishOutcome = { result: 'published', version: 2, agvs: [] };
   let configurationResult: ConfigurationResult = 'saved';
 
   const operateConsumables = (command: ConsumableCommand): Promise<ConsumableCommandResult> => {
@@ -197,6 +203,14 @@ export function createFakeLink(initial?: {
       mapDraftSave = next;
     },
     loadMapDraft: () => Promise.resolve(mapDraftLoad),
+    publishedMapDrafts,
+    respondToMapPublish(next) {
+      mapPublish = next;
+    },
+    publishMapDraft(revision, draft) {
+      publishedMapDrafts.push({ revision, draft });
+      return Promise.resolve(mapPublish);
+    },
     validatedMapDrafts,
     respondToMapDraftValidation(next) {
       mapDraftProblems = next;

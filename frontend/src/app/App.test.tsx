@@ -397,6 +397,29 @@ describe('App', () => {
     window.location.hash = '';
   });
 
+  it('マップの編集で、検証のあとに公開を送り、公開したら公開した版から始め直す', async () => {
+    window.location.hash = '#/mapEdit';
+    const link = createFakeLink({ connection: 'connected', status: { version: 1, state: 'stopped' }, map: serverMap, transports: { version: 1, transports: [] } });
+    link.respondToMapDraftLoad({ revision: 3, savedAt: null, publishedVersion: 1, draft: { layout: serverMap.layout, outlines: {} } });
+    const { container } = render(<App link={link} />);
+    await act(() => Promise.resolve());
+    await act(async () => {
+      click(buttonByText(container, '確かめる（検証）'));
+      await Promise.resolve();
+    });
+    link.respondToMapDraftLoad({ revision: 4, savedAt: null, publishedVersion: 2, draft: { layout: serverMap.layout, outlines: {} } });
+    click(buttonByText(container, '版2を公開する'));
+    await act(async () => {
+      click(buttonByText(container.querySelector('[role="alertdialog"]')!, '版2を公開する'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(link.publishedMapDrafts.map((p) => p.revision)).toEqual([3]);
+    expect(container.textContent).toContain('公開中：版2');
+    window.location.hash = '';
+  });
+
   it.each([
     ['', false],
     ['#/devices', false],

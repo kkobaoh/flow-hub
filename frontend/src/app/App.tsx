@@ -39,7 +39,7 @@ import { toHit, toRecord } from '../features/tool/api/consumablesSnapshot';
 import { agvRegistrationNotice, agvTypeNotice, type AgvRegistrationCommand } from '../features/fleet/api/fleetSnapshot';
 import { configurationNotice, type ConfigurationCommand } from '../features/tool/api/configurationSnapshot';
 import type { ProcessKind } from '../features/tool/config';
-import { mapDraftNotice, type MapDraftLoad } from '../features/routing/api/mapDraft';
+import { mapDraftNotice, mapPublishNotice, type MapDraftLoad } from '../features/routing/api/mapDraft';
 import { cancelNotice } from '../features/dispatch/api/transportCommands';
 import { consumableNotice, type ConsumableCommand } from '../features/tool/api/consumableCommands';
 
@@ -438,8 +438,14 @@ export function App({ link }: AppProps) {
             }}
             onReload={() => void reloadDraft()}
             onValidate={(d) => link.validateMapDraft(d)}
-            // 公開は、まだサーバーとつないでいない（CN-16c）
-            onPublish={() => Promise.resolve('公開は、まだサーバーとつないでいません。')}
+            onPublish={async (d) => {
+              const outcome = await link.publishMapDraft(draftView.load.revision, d);
+              if (outcome.result === 'published') {
+                // 下書きは消えたので、公開した版の写しから始め直す（切り離しにした AGV は、画面のメッセージで知らせる）
+                await reloadDraft();
+              }
+              return mapPublishNotice(outcome);
+            }}
             onSaveHeight={(panel, mm) => setHeights((hs) => ({ ...hs, [panel]: mm === null ? null : { heightMm: mm, source: 'manual', at: new Date() } }))}
             onDirtyChange={setMapDirty}
           />
