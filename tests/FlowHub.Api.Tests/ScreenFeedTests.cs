@@ -184,7 +184,7 @@ public sealed class ScreenFeedTests : IDisposable
     [Fact]
     public void 搬送の一覧は頼んだ側から聞いた中身と受け渡しの相手の名前で画面へ送る形にする()
     {
-        var description = new TransportDescription(TransportPurpose.Delivery, [new CargoCount(new VarietyId("DR-5"), 1), new CargoCount(null, 1)]);
+        var description = new TransportDescription(TransportPurpose.Delivery, [new CargoCount(new VarietyId("DR-5"), 1), new CargoCount(null, 1)], [new ConsumableId("T-1"), new ConsumableId("T-2")]);
 
         var waiting = TransportSnapshot.From(Listing(3, new WaitingForAgv()), description, n => n.Split(':')[1]);
         var running = TransportSnapshot.From(Listing(4, new AssignedTo(new AgvId("AGV-1"), AssignedTransportStage.MovingToDestination, Paused: true), new SourceAgv(new AgvId("AGV-1"))), null, n => n.Split(':')[1]);

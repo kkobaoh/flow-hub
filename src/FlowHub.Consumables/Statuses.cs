@@ -185,6 +185,56 @@ public enum ShipmentResult
     InAssignedTransport,
 }
 
+/// <summary>
+/// 1個の消耗品の記録（消耗品の検索の画面に出す）。
+/// </summary>
+/// <param name="Variety">品種。わからなければ null。</param>
+/// <param name="ProcessType">加工の種類。わからなければ null。</param>
+/// <param name="Check">要確認かどうかと、要確認になったわけ。</param>
+/// <param name="Reservation">届ける・回収するの予約。</param>
+/// <param name="DesignatedFor">指名した届け先の装置。指名していなければ null。</param>
+/// <param name="ShippingRequested">出庫を頼んで、まだ出ていない。</param>
+public sealed record ConsumableRecord(
+    ConsumableId Id,
+    VarietyId? Variety,
+    ProcessTypeId? ProcessType,
+    ConsumableCondition Condition,
+    ConsumableLocation Location,
+    NeedsCheckReason Check,
+    ConsumableReservation Reservation,
+    DeviceId? DesignatedFor,
+    bool ShippingRequested);
+
+/// <summary>消耗品に付いている、搬送の予約。</summary>
+public abstract record ConsumableReservation;
+
+/// <summary>予約はない。</summary>
+public sealed record NoReservation : ConsumableReservation;
+
+/// <summary>装置へ届ける予約。</summary>
+public sealed record DeliveryReservation(DeviceId Device) : ConsumableReservation;
+
+/// <summary>装置から回収する予約。</summary>
+public sealed record RecoveryReservation : ConsumableReservation;
+
+/// <summary>届ける消耗品を指名した結果。</summary>
+public enum DesignationResult
+{
+    Designated,
+
+    /// <summary>指名できない（ステーションにある、要確認でない新品で、届ける予約も出庫の頼みも指名もないものに限る。何も変えていない）。</summary>
+    NotDesignatable,
+}
+
+/// <summary>指名を取り消した結果。</summary>
+public enum DesignationCancelResult
+{
+    Canceled,
+
+    /// <summary>AGV を割り当て済みの、届ける搬送に入っている（取り消していない）。</summary>
+    InAssignedTransport,
+}
+
 /// <summary>要確認の消耗品を直した結果。</summary>
 public enum CorrectionResult
 {

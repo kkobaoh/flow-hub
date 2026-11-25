@@ -10,19 +10,20 @@ public sealed partial class ConsumablesService
     private readonly Dictionary<ConsumableId, DeviceId> _designations = [];
 
     /// <summary>
-    /// 届ける消耗品を指名する。ステーションにある、要確認でない新品で、届ける予約も出庫の頼みも指名もないものに限る。
+    /// 届ける消耗品を指名する。ステーションにある、要確認でない新品で、届ける予約も出庫の頼みも指名もないものに限る（登録されていないものも、指名できないものとして断る）。
     /// </summary>
-    public void Designate(DeviceId device, ConsumableId id) =>
+    public DesignationResult Designate(DeviceId device, ConsumableId id) =>
         Locked(() =>
         {
             Layout(device);
             ForgetInvalidDesignations();
-            if (!IsDeliverable(Consumable(id)) || _deliveries.ContainsKey(id) || _designations.ContainsKey(id))
+            if (!_consumables.TryGetValue(id, out var consumable) || !IsDeliverable(consumable) || _deliveries.ContainsKey(id) || _designations.ContainsKey(id))
             {
-                throw new InvalidOperationException($"消耗品 {id} は指名できません（ステーションにある、要確認でない新品で、届ける予約も出庫の頼みも指名もないものに限ります）。");
+                return DesignationResult.NotDesignatable;
             }
 
             _designations[id] = device;
+            return DesignationResult.Designated;
         });
 
     /// <summary>指名を取り消す。割り当て前かどうかは、搬送の要求を持つ搬送計画が確かめてから呼ぶ。</summary>

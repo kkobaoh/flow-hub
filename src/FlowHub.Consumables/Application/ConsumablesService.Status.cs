@@ -21,6 +21,27 @@ public sealed partial class ConsumablesService
         return new ConsumablesStatuses(devices, stations, varieties);
     });
 
+    /// <summary>すべての消耗品の記録（ID の順。消耗品の検索の画面に出す）。</summary>
+    public IReadOnlyList<ConsumableRecord> ReadConsumables() => Locked(() =>
+    {
+        ForgetInvalidDesignations();
+        return _consumables.Values
+            .OrderBy(c => c.Id.Value, StringComparer.Ordinal)
+            .Select(c => new ConsumableRecord(
+                c.Id,
+                c.Variety,
+                c.ProcessType,
+                c.Condition,
+                c.Location,
+                c.Check,
+                _deliveries.TryGetValue(c.Id, out var device) ? new DeliveryReservation(device)
+                    : _recoveries.Contains(c.Id) ? new RecoveryReservation()
+                    : new NoReservation(),
+                _designations.TryGetValue(c.Id, out var designated) ? designated : null,
+                _shipping.Contains(c.Id)))
+            .ToArray();
+    });
+
     private DeviceStatus DeviceStatusOf(DeviceId device)
     {
         var needs = Evaluate(device);

@@ -78,8 +78,8 @@ public class ToolPlanningServiceTests
         var descriptions = f.Planning.DescribeTransports();
 
         Assert.Equal(2, descriptions.Count);
-        Assert.Equal(new TransportDescription(TransportPurpose.Delivery, [new CargoCount(VarietyA, 2)]), descriptions[delivery]);
-        Assert.Equal(new TransportDescription(TransportPurpose.Recovery, [new CargoCount(VarietyZ, 1)]), descriptions[recovery]);
+        Assert.Equal(new TransportDescription(TransportPurpose.Delivery, [new CargoCount(VarietyA, 2)], [new ConsumableId("A-1"), new ConsumableId("A-2")]), descriptions[delivery]);
+        Assert.Equal(new TransportDescription(TransportPurpose.Recovery, [new CargoCount(VarietyZ, 1)], [new ConsumableId("Z-1")]), descriptions[recovery]);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public class ToolPlanningServiceTests
         await f.Planning.ReplanAsync(None);
         var recovery = f.Dispatching.Orders.Single(o => o.Order.CargoRefs.Contains("X-9")).Id;
 
-        Assert.Equal(new TransportDescription(TransportPurpose.Recovery, [new CargoCount(null, 1)]), f.Planning.DescribeTransports()[recovery]);
+        Assert.Equal(new TransportDescription(TransportPurpose.Recovery, [new CargoCount(null, 1)], [new ConsumableId("X-9")]), f.Planning.DescribeTransports()[recovery]);
 
         await f.Planning.OnTransportCompletedAsync(new TransportCompleted(EventMetadata.Start("test", f.Time), recovery, ConsumablesService.Requester), None);
         Assert.False(f.Planning.DescribeTransports().ContainsKey(recovery));
@@ -439,11 +439,11 @@ public class ToolPlanningServiceTests
         AtStation(f, "A-1", VarietyA);
         AtStation(f, "A-2", VarietyA);
         await SetAsync(f, (VarietyA, 1));
-        await f.Planning.DesignateAsync(Device, new ConsumableId("A-2"), None);
+        Assert.Equal(DesignationResult.Designated, await f.Planning.DesignateAsync(Device, new ConsumableId("A-2"), None));
 
         var cancelled = await f.Planning.CancelDesignationAsync(new ConsumableId("A-2"), None);
 
-        Assert.True(cancelled);
+        Assert.Equal(DesignationCancelResult.Canceled, cancelled);
         Assert.Equal(["A-1"], ActiveCargo(f));
     }
 
@@ -459,7 +459,7 @@ public class ToolPlanningServiceTests
 
         var cancelled = await f.Planning.CancelDesignationAsync(new ConsumableId("A-2"), None);
 
-        Assert.False(cancelled);
+        Assert.Equal(DesignationCancelResult.InAssignedTransport, cancelled);
         Assert.Equal(["A-2"], ActiveCargo(f));
     }
 

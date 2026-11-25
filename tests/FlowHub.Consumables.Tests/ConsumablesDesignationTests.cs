@@ -96,8 +96,8 @@ public class ConsumablesDesignationTests
         var inStocker = new ConsumableId("S-1");
         service.RegisterConsumable(inStocker, VarietyA, Process, ConsumableCondition.New, new InStocker(Device, new SlotRef(1, 1)));
 
-        Assert.Throws<InvalidOperationException>(() => service.Designate(Device, used));
-        Assert.Throws<InvalidOperationException>(() => service.Designate(Device, inStocker));
+        Assert.Equal(DesignationResult.NotDesignatable, service.Designate(Device, used));
+        Assert.Equal(DesignationResult.NotDesignatable, service.Designate(Device, inStocker));
     }
 
     [Fact]
@@ -109,18 +109,18 @@ public class ConsumablesDesignationTests
         await service.RequestShipmentAsync(A1, None);
         service.ReserveForDelivery(OtherDevice, [A2]);
 
-        Assert.Throws<InvalidOperationException>(() => service.Designate(Device, x));
-        Assert.Throws<InvalidOperationException>(() => service.Designate(Device, A1));
-        Assert.Throws<InvalidOperationException>(() => service.Designate(Device, A2));
+        Assert.Equal(DesignationResult.NotDesignatable, service.Designate(Device, x));
+        Assert.Equal(DesignationResult.NotDesignatable, service.Designate(Device, A1));
+        Assert.Equal(DesignationResult.NotDesignatable, service.Designate(Device, A2));
     }
 
     [Fact]
     public void 指名済みの消耗品はもう一度指名できない()
     {
         using var service = Setup();
-        service.Designate(Device, A2);
+        Assert.Equal(DesignationResult.Designated, service.Designate(Device, A2));
 
-        Assert.Throws<InvalidOperationException>(() => service.Designate(OtherDevice, A2));
+        Assert.Equal(DesignationResult.NotDesignatable, service.Designate(OtherDevice, A2));
     }
 
     [Fact]

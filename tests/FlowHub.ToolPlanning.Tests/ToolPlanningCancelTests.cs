@@ -76,7 +76,7 @@ public class ToolPlanningCancelTests
         await CanceledAsync(f, Held, loaded: true);
         var deliver = Assert.Single(f.Dispatching.FromAgvOrders).Id;
 
-        Assert.Equal(new TransportDescription(TransportPurpose.DeliveryFromAgv, [new CargoCount(VarietyA, 1)]), f.Planning.DescribeTransports()[deliver]);
+        Assert.Equal(new TransportDescription(TransportPurpose.DeliveryFromAgv, [new CargoCount(VarietyA, 1)], [new ConsumableId("A-1")]), f.Planning.DescribeTransports()[deliver]);
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public class ToolPlanningCancelTests
         await CanceledAsync(f, Held, loaded: true); // どの装置でも要らないので返す
         var back = Assert.Single(f.Dispatching.FromAgvOrders).Id;
 
-        Assert.Equal(new TransportDescription(TransportPurpose.ReturnFromAgv, [new CargoCount(VarietyA, 2), new CargoCount(VarietyB, 1)]), f.Planning.DescribeTransports()[back]);
+        Assert.Equal(new TransportDescription(TransportPurpose.ReturnFromAgv, [new CargoCount(VarietyA, 2), new CargoCount(VarietyB, 1)], [new ConsumableId("A-1"), new ConsumableId("A-2"), new ConsumableId("B-1")]), f.Planning.DescribeTransports()[back]);
     }
 
     // ---- 取りやめの知らせ ----

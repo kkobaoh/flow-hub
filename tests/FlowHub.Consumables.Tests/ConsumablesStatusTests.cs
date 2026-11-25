@@ -284,6 +284,33 @@ public class ConsumablesStatusTests
         Assert.Equal([VarietyA, VarietyB, VarietyZ], service.ReadStatuses().Varieties);
     }
 
+    // ---- 消耗品ごとの記録（消耗品の検索の画面） ----
+
+    [Fact]
+    public async Task 消耗品ごとの記録をIDの順に予約と指名と出庫の頼みと要確認のわけと一緒に出す()
+    {
+        var service = Setup();
+        var a1 = AtStation(service, "A1", VarietyA);
+        service.Designate(Device, a1);
+        var a2 = AtStation(service, "A2", VarietyA);
+        service.ReserveForDelivery(Device, [a2]);
+        var a3 = AtStation(service, "A3", VarietyA);
+        await service.RequestShipmentAsync(a3, None);
+        var b1 = InStocker(service, "B1", VarietyB, 1);
+        service.ReserveForRecovery([b1]);
+        await service.ReportReadAtStationAsync(Station, new ConsumableId("X1"), None);
+
+        Assert.Equal(
+            [
+                new ConsumableRecord(a1, VarietyA, Process, ConsumableCondition.New, new AtStation(Station), NeedsCheckReason.NotNeeded, new NoReservation(), DesignatedFor: Device, ShippingRequested: false),
+                new ConsumableRecord(a2, VarietyA, Process, ConsumableCondition.New, new AtStation(Station), NeedsCheckReason.NotNeeded, new DeliveryReservation(Device), null, false),
+                new ConsumableRecord(a3, VarietyA, Process, ConsumableCondition.New, new AtStation(Station), NeedsCheckReason.NotNeeded, new NoReservation(), null, true),
+                new ConsumableRecord(b1, VarietyB, Process, ConsumableCondition.New, new InStocker(Device, new SlotRef(1, 1)), NeedsCheckReason.NotNeeded, new RecoveryReservation(), null, false),
+                new ConsumableRecord(new ConsumableId("X1"), null, null, ConsumableCondition.New, new AtStation(Station), NeedsCheckReason.UnregisteredId, new NoReservation(), null, false),
+            ],
+            service.ReadConsumables());
+    }
+
     // ---- ストッカーの設定 ----
 
     [Fact]

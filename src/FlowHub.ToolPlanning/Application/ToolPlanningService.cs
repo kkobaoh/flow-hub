@@ -53,7 +53,7 @@ public sealed class ToolPlanningService(
             _gate.Release();
         }
 
-        return trips.ToDictionary(t => t.Id, t => new TransportDescription(t.Purpose, CountByVariety(t.Cargo)));
+        return trips.ToDictionary(t => t.Id, t => new TransportDescription(t.Purpose, CountByVariety(t.Cargo), [.. t.Cargo]));
     }
 
     /// <summary>品種ごとの数（品種の ID の順。わからないものは最後）。もう記録にない消耗品も、わからないものとして数える。</summary>
@@ -115,13 +115,19 @@ public sealed class ToolPlanningService(
     /// <summary>
     /// ユーザーが、装置へ届ける消耗品を指名した。指名を記録して、判断をやり直す。
     /// </summary>
-    public async Task DesignateAsync(DeviceId device, ConsumableId id, CancellationToken cancellationToken)
+    /// <returns>指名したか。指名できない消耗品なら、何も変えずに断る。</returns>
+    public async Task<DesignationResult> DesignateAsync(DeviceId device, ConsumableId id, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            consumables.Designate(device, id);
-            await ReplanCoreAsync(cancellationToken).ConfigureAwait(false);
+            var result = consumables.Designate(device, id);
+            if (result == DesignationResult.Designated)
+            {
+                await ReplanCoreAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            return result;
         }
         finally
         {
@@ -132,20 +138,20 @@ public sealed class ToolPlanningService(
     /// <summary>
     /// ユーザーが、指名を取り消した。届ける要求に入っていれば、割り当て前ならその要求を取りやめてから取り消し、判断をやり直す。
     /// </summary>
-    /// <returns>取り消したら true。割り当て済みの要求に入っていれば取り消さずに false。</returns>
-    public async Task<bool> CancelDesignationAsync(ConsumableId id, CancellationToken cancellationToken)
+    /// <returns>取り消したか。割り当て済みの要求に入っていれば、取り消さずに断る。</returns>
+    public async Task<DesignationCancelResult> CancelDesignationAsync(ConsumableId id, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (!await CancelRequestContainingAsync(id, cancellationToken).ConfigureAwait(false))
             {
-                return false;
+                return DesignationCancelResult.InAssignedTransport;
             }
 
             consumables.CancelDesignation(id);
             await ReplanCoreAsync(cancellationToken).ConfigureAwait(false);
-            return true;
+            return DesignationCancelResult.Canceled;
         }
         finally
         {

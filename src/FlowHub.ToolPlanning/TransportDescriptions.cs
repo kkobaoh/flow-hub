@@ -26,9 +26,11 @@ public sealed record CargoCount(VarietyId? Variety, int Count);
 /// 頼んだ消耗品の搬送の中身（画面の搬送の一覧に出すため。配車は運ぶものを知らないので、頼んだ側が出す）。
 /// </summary>
 /// <param name="Cargo">品種ごとの数（品種の ID の順。わからないものは最後）。</param>
-public sealed record TransportDescription(TransportPurpose Purpose, IReadOnlyList<CargoCount> Cargo)
+/// <param name="CargoIds">運ぶ消耗品の ID（頼んだ順）。消耗品から、それが入っている搬送を引くために使う。</param>
+public sealed record TransportDescription(TransportPurpose Purpose, IReadOnlyList<CargoCount> Cargo, IReadOnlyList<ConsumableId> CargoIds)
 {
-    public bool Equals(TransportDescription? other) => other is not null && Purpose == other.Purpose && Cargo.SequenceEqual(other.Cargo);
+    public bool Equals(TransportDescription? other) =>
+        other is not null && Purpose == other.Purpose && Cargo.SequenceEqual(other.Cargo) && CargoIds.SequenceEqual(other.CargoIds);
 
     public override int GetHashCode() => HashCode.Combine(Purpose, Cargo.Count);
 }
