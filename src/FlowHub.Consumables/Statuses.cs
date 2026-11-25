@@ -11,6 +11,9 @@ public sealed record ConsumablesStatuses(IReadOnlyList<DeviceStatus> Devices, IR
 /// <param name="MismatchedSlots">ID の食い違い：照合のエラーが来てから、片付くまでのスロット（番号の順）。</param>
 /// <param name="SetupErrors">段取り替えのエラー：頼まれたがストッカーの設定になかった品種（ID の順）。設定を変えるか、次のリクエストが通ったら消える。</param>
 /// <param name="Stocker">品種ごとの、設定の個数とある新品（設定にある品種と、設定にないがある品種。品種の ID の順）。</param>
+/// <param name="Processing">加工部にある消耗品（ID の順）。</param>
+/// <param name="StockerSlots">すべてのスロットの中身（スロットの番号の順）。取り込み中の元のスロットは、空きとして出す。</param>
+/// <param name="Handover">受け渡し部にある消耗品（ID の順）。</param>
 public sealed record DeviceStatus(
     DeviceId Device,
     int Shortage,
@@ -18,7 +21,10 @@ public sealed record DeviceStatus(
     IReadOnlyList<SlotRef> MismatchedSlots,
     IReadOnlyList<VarietyId> SetupErrors,
     IReadOnlyList<StockerLine> Stocker,
-    SlotSummary Slots)
+    SlotSummary Slots,
+    IReadOnlyList<HeldConsumable> Processing,
+    IReadOnlyList<StockerSlot> StockerSlots,
+    IReadOnlyList<HeldConsumable> Handover)
 {
     public bool Equals(DeviceStatus? other) =>
         other is not null
@@ -28,7 +34,10 @@ public sealed record DeviceStatus(
         && MismatchedSlots.SequenceEqual(other.MismatchedSlots)
         && SetupErrors.SequenceEqual(other.SetupErrors)
         && Stocker.SequenceEqual(other.Stocker)
-        && Slots == other.Slots;
+        && Slots == other.Slots
+        && Processing.SequenceEqual(other.Processing)
+        && StockerSlots.SequenceEqual(other.StockerSlots)
+        && Handover.SequenceEqual(other.Handover);
 
     public override int GetHashCode() => HashCode.Combine(Device, Shortage, CollectWaiting, Slots);
 }
@@ -49,15 +58,130 @@ public sealed record SlotSummary(int Total, int Free, int Delivering);
 /// <param name="NeedsCheck">要確認の消耗品の数。</param>
 /// <param name="ReplenishWaiting">補充を頼んで、まだ入っていない数（すべての品種の合計。どのステーションに入るかは決まっていないので、どのステーションにも同じ数を出す）。</param>
 /// <param name="Stock">品種ごとの数（登録してあるすべての品種。ID の順）。</param>
-public sealed record StationStatus(StationId Station, int NeedsCheck, int ReplenishWaiting, IReadOnlyList<StationLine> Stock)
+/// <param name="Items">ステーションにある消耗品（ID の順）。</param>
+public sealed record StationStatus(StationId Station, int NeedsCheck, int ReplenishWaiting, IReadOnlyList<StationLine> Stock, IReadOnlyList<StationItem> Items)
 {
     public bool Equals(StationStatus? other) =>
-        other is not null && Station == other.Station && NeedsCheck == other.NeedsCheck && ReplenishWaiting == other.ReplenishWaiting && Stock.SequenceEqual(other.Stock);
+        other is not null
+        && Station == other.Station
+        && NeedsCheck == other.NeedsCheck
+        && ReplenishWaiting == other.ReplenishWaiting
+        && Stock.SequenceEqual(other.Stock)
+        && Items.SequenceEqual(other.Items);
 
     public override int GetHashCode() => HashCode.Combine(Station, NeedsCheck, ReplenishWaiting);
 }
 
 /// <summary>ステーションの、品種ごとの数。</summary>
 /// <param name="Available">届けられる新品（要確認でなく、届ける予約も指名もないもの）。</param>
+/// <param name="Reserved">このステーションにあって、届ける予約が付いている数。</param>
 /// <param name="ReplenishWaiting">補充を頼んで、まだ入っていない数。</param>
-public sealed record StationLine(VarietyId Variety, int Available, int ReplenishWaiting);
+public sealed record StationLine(VarietyId Variety, int Available, int Reserved, int ReplenishWaiting);
+
+/// <summary>
+/// 装置の中（加工部、ストッカー、受け渡し部）にある消耗品。
+/// </summary>
+/// <param name="Variety">品種。未登録の ID など、わからなければ null。</param>
+/// <param name="Mismatched">照合のエラーや交換で記録と現物が合わず、現物を確かめるまでスロットをふさいでいる。</param>
+/// <param name="DiscardRequested">装置から廃棄リクエストを受けた。</param>
+/// <param name="Recovery">回収の様子。</param>
+public sealed record HeldConsumable(ConsumableId Id, VarietyId? Variety, ConsumableCondition Condition, bool Mismatched, bool DiscardRequested, RecoveryState Recovery);
+
+/// <summary>装置にある消耗品の、回収の様子。</summary>
+public abstract record RecoveryState;
+
+/// <summary>回収しない。</summary>
+public sealed record NotRecovering : RecoveryState;
+
+/// <summary>回収が要ると判断した（まだ搬送を頼んでいない）。</summary>
+public sealed record RecoveryNeeded(RecoveryReason Reason) : RecoveryState;
+
+/// <summary>回収の搬送を頼んで、まだ取り出していない。</summary>
+public sealed record RecoveryRequested : RecoveryState;
+
+/// <summary>ストッカーのスロットと、その中身。</summary>
+public sealed record StockerSlot(SlotRef Slot, SlotContent Content);
+
+/// <summary>スロットの中身。</summary>
+public abstract record SlotContent;
+
+/// <summary>空いている。</summary>
+public sealed record EmptySlot : SlotContent;
+
+/// <summary>消耗品がある。</summary>
+public sealed record OccupiedSlot(HeldConsumable Consumable) : SlotContent;
+
+/// <summary>
+/// ステーションにある消耗品。
+/// </summary>
+/// <param name="Variety">品種。未登録の ID など、わからなければ null。</param>
+/// <param name="ArrivedAt">ステーションに入った日時。</param>
+public sealed record StationItem(ConsumableId Id, VarietyId? Variety, ConsumableCondition Condition, DateTimeOffset ArrivedAt, StationItemState State);
+
+/// <summary>ステーションにある消耗品の状態。いくつも当てはまるときは、要確認、出庫を頼んだ、届ける予約、指名、の順に1つを出す。</summary>
+public abstract record StationItemState;
+
+/// <summary>届けられる新品。</summary>
+public sealed record Deliverable : StationItemState;
+
+/// <summary>届ける予約が付いている。</summary>
+public sealed record ReservedForDelivery(DeviceId Device) : StationItemState;
+
+/// <summary>指名されている。</summary>
+public sealed record DesignatedFor(DeviceId Device) : StationItemState;
+
+/// <summary>要確認。</summary>
+public sealed record CheckNeeded(NeedsCheckReason Reason) : StationItemState;
+
+/// <summary>出庫を頼んで、まだ出ていない。</summary>
+public sealed record ShippingRequested : StationItemState;
+
+/// <summary>届けない中古品。</summary>
+public sealed record NotDeliverable : StationItemState;
+
+/// <summary>要確認かどうかと、要確認になったわけ。</summary>
+public enum NeedsCheckReason
+{
+    /// <summary>要確認ではない。</summary>
+    NotNeeded,
+
+    /// <summary>登録されていない ID として、ステーションに入ってきた。</summary>
+    UnregisteredId,
+
+    /// <summary>所在不明だったものが、ステーションで見つかった。</summary>
+    FoundAfterLost,
+
+    /// <summary>装置で ID が食い違った（照合のエラーや交換）ので、回収した。</summary>
+    IdMismatch,
+}
+
+/// <summary>ストッカーの設定を保存した結果。</summary>
+public enum StockerSettingResult
+{
+    Saved,
+
+    /// <summary>個数の合計が、装置のスロットの数を超えている（保存していない）。</summary>
+    ExceedsSlots,
+}
+
+/// <summary>出庫を頼んだ結果。</summary>
+public enum ShipmentResult
+{
+    /// <summary>ステーションに出庫を頼んだ。</summary>
+    Requested,
+
+    /// <summary>ステーションにない（頼んでいない）。</summary>
+    NotAtStation,
+
+    /// <summary>AGV を割り当て済みの、届ける搬送に入っている（頼んでいない）。</summary>
+    InAssignedTransport,
+}
+
+/// <summary>要確認の消耗品を直した結果。</summary>
+public enum CorrectionResult
+{
+    Corrected,
+
+    /// <summary>ステーションにある要確認の消耗品ではない（ほかの人が直した、出庫したなど。何も変えていない）。</summary>
+    NotNeedingCheck,
+}

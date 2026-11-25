@@ -51,7 +51,8 @@ public sealed partial class ConsumablesService
             }
 
             var lost = consumable.Location is UnknownLocation;
-            _consumables[id] = consumable with { Location = location, NeedsCheck = consumable.NeedsCheck || lost };
+            var check = consumable.NeedsCheck ? consumable.Check : lost ? NeedsCheckReason.FoundAfterLost : NeedsCheckReason.NotNeeded;
+            _consumables[id] = consumable with { Location = location, Check = check };
             NoteArrival(id, location);
             ReleaseReservations(id);
             return new NotificationReport(lost ? [] : [id]);
@@ -65,22 +66,23 @@ public sealed partial class ConsumablesService
     /// 人がステーションで確かめて、要確認の消耗品の品種と、新品か中古品かを直した。要確認を外す。
     /// 未登録の ID として入庫した消耗品を新品と直したときは、品種の対応なしに届いた補充とみなし、入庫に数える。
     /// </summary>
-    public async Task CorrectAtStationAsync(ConsumableId id, VarietyId variety, ConsumableCondition condition, CancellationToken cancellationToken)
+    /// <returns>直したか。ステーションにある要確認の消耗品でなければ（ほかの人が直した、出庫したなど）、何も変えずに断る。</returns>
+    public async Task<CorrectionResult> CorrectAtStationAsync(ConsumableId id, VarietyId variety, ConsumableCondition condition, CancellationToken cancellationToken)
     {
         var station = await LockedAsync(() =>
         {
-            var consumable = Consumable(id);
-            if (consumable.Location is not AtStation at || !consumable.NeedsCheck)
+            var processType = VarietyProcessType(variety);
+            if (!_consumables.TryGetValue(id, out var consumable) || consumable.Location is not AtStation at || !consumable.NeedsCheck)
             {
-                throw new InvalidOperationException($"消耗品 {id} は、ステーションにある要確認の消耗品ではありません。");
+                return (StationId?)null;
             }
 
             _consumables[id] = consumable with
             {
                 Variety = variety,
-                ProcessType = VarietyProcessType(variety),
+                ProcessType = processType,
                 Condition = condition,
-                NeedsCheck = false,
+                Check = NeedsCheckReason.NotNeeded,
             };
             if (_arrivedUnregistered.Remove(id) && condition == ConsumableCondition.New)
             {
@@ -90,27 +92,33 @@ public sealed partial class ConsumablesService
             return at.Station;
         }, cancellationToken).ConfigureAwait(false);
 
+        if (station is null)
+        {
+            return CorrectionResult.NotNeedingCheck;
+        }
+
         await PublishStockChangedAsync($"station:{station}", cancellationToken).ConfigureAwait(false);
+        return CorrectionResult.Corrected;
     }
 
     /// <summary>
     /// ステーションに、消耗品の出庫を頼む（上位システムの指示）。出るまで、届ける候補にしない。
     /// 届ける予約が付いているかどうかは、搬送の要求を持つ搬送計画が確かめてから呼ぶ。
     /// </summary>
-    /// <returns>受け付けたら true。ステーションにない消耗品なら false。</returns>
-    public async Task<bool> RequestShipmentAsync(ConsumableId id, CancellationToken cancellationToken)
+    /// <returns>頼んだか。ステーションにない消耗品なら、頼まずに断る。</returns>
+    public async Task<ShipmentResult> RequestShipmentAsync(ConsumableId id, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (Consumable(id).Location is not AtStation at)
             {
-                return false;
+                return ShipmentResult.NotAtStation;
             }
 
             _shipping.Add(id);
             await stations.RequestShipmentAsync(at.Station, id, cancellationToken).ConfigureAwait(false);
-            return true;
+            return ShipmentResult.Requested;
         }
         finally
         {
@@ -133,7 +141,7 @@ public sealed partial class ConsumablesService
             }
 
             ReleaseReservations(id);
-            _arrivalOrder.Remove(id);
+            _arrivals.Remove(id);
             _arrivedUnregistered.Remove(id);
             return new NotificationReport(consumable.Location == new AtStation(station) ? [] : [id]);
         }, cancellationToken).ConfigureAwait(false);
@@ -154,7 +162,7 @@ public sealed partial class ConsumablesService
         }
         else
         {
-            _consumables[id] = new ConsumableView(id, null, null, ConsumableCondition.New, location, NeedsCheck: true);
+            _consumables[id] = new ConsumableView(id, null, null, ConsumableCondition.New, location, NeedsCheckReason.UnregisteredId);
         }
 
         NoteArrival(id, location);

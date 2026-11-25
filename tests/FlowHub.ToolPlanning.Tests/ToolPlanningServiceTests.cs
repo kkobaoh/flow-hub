@@ -54,7 +54,7 @@ public class ToolPlanningServiceTests
     private static void InStocker(Fixture f, string id, VarietyId variety, int slot, ConsumableCondition condition = ConsumableCondition.New) =>
         f.Consumables.RegisterConsumable(new ConsumableId(id), variety, Process, condition, new InStocker(Device, new SlotRef(1, slot)));
 
-    private static Task SetAsync(Fixture f, params (VarietyId Variety, int Count)[] counts) =>
+    private static Task<StockerSettingResult> SetAsync(Fixture f, params (VarietyId Variety, int Count)[] counts) =>
         f.Consumables.SetStockerSettingAsync(Device, counts.ToDictionary(c => c.Variety, c => c.Count), None);
 
     /// <summary>取りやめずに残っている要求の荷（頼んだ順）。例："A-1,A-2"。</summary>
@@ -434,9 +434,9 @@ public class ToolPlanningServiceTests
         var f = Setup();
         AtStation(f, "A-1", VarietyA);
 
-        var accepted = await f.Planning.RequestShipmentAsync(new ConsumableId("A-1"), None);
+        var result = await f.Planning.RequestShipmentAsync(new ConsumableId("A-1"), None);
 
-        Assert.True(accepted);
+        Assert.Equal(ShipmentResult.Requested, result);
         Assert.Equal([new ConsumableId("A-1")], f.Stations.Shipments);
     }
 
@@ -449,9 +449,9 @@ public class ToolPlanningServiceTests
         await SetAsync(f, (VarietyA, 2));
         await f.Planning.ReplanAsync(None);
 
-        var accepted = await f.Planning.RequestShipmentAsync(new ConsumableId("A-1"), None);
+        var result = await f.Planning.RequestShipmentAsync(new ConsumableId("A-1"), None);
 
-        Assert.True(accepted);
+        Assert.Equal(ShipmentResult.Requested, result);
         Assert.Equal([new ConsumableId("A-1")], f.Stations.Shipments);
         Assert.Equal(["A-2"], ActiveCargo(f));
     }
@@ -465,9 +465,9 @@ public class ToolPlanningServiceTests
         await f.Planning.ReplanAsync(None);
         f.Dispatching.AssignAll();
 
-        var accepted = await f.Planning.RequestShipmentAsync(new ConsumableId("A-1"), None);
+        var result = await f.Planning.RequestShipmentAsync(new ConsumableId("A-1"), None);
 
-        Assert.False(accepted);
+        Assert.Equal(ShipmentResult.InAssignedTransport, result);
         Assert.Empty(f.Stations.Shipments);
         Assert.Equal(["A-1"], ActiveCargo(f));
     }

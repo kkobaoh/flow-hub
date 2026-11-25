@@ -110,7 +110,7 @@ public class ConsumablesStationTests
 
         await f.Service.ReportReadAtStationAsync(Station, C1, None);
 
-        Assert.Equal(new ConsumableView(C1, null, null, ConsumableCondition.New, new AtStation(Station), NeedsCheck: true), f.Service.GetConsumable(C1));
+        Assert.Equal(new ConsumableView(C1, null, null, ConsumableCondition.New, new AtStation(Station), NeedsCheckReason.UnregisteredId), f.Service.GetConsumable(C1));
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class ConsumablesStationTests
 
         var view = f.Service.GetConsumable(C1);
         Assert.Equal(new AtStation(Station), view.Location);
-        Assert.True(view.NeedsCheck);
+        Assert.Equal(NeedsCheckReason.FoundAfterLost, view.Check);
         Assert.Empty(f.Service.GetStationStock(VarietyA));
         Assert.Empty(report.Mismatched);
     }
@@ -196,15 +196,25 @@ public class ConsumablesStationTests
     }
 
     [Fact]
-    public async Task ステーションにない消耗品や要確認でない消耗品は直せない()
+    public async Task ステーションにない消耗品や要確認でない消耗品は直さずに断る()
     {
         var f = Setup();
         f.Service.RegisterConsumable(C1, VarietyA, Process, ConsumableCondition.New, new AtStation(Station));
         var lost = new ConsumableId("C-2");
         f.Service.RegisterConsumable(lost, VarietyA, Process, ConsumableCondition.New, new UnknownLocation());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.CorrectAtStationAsync(C1, VarietyA, ConsumableCondition.Used, None));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.CorrectAtStationAsync(lost, VarietyA, ConsumableCondition.Used, None));
+        Assert.Equal(CorrectionResult.NotNeedingCheck, await f.Service.CorrectAtStationAsync(C1, VarietyA, ConsumableCondition.Used, None));
+        Assert.Equal(CorrectionResult.NotNeedingCheck, await f.Service.CorrectAtStationAsync(lost, VarietyA, ConsumableCondition.Used, None));
+        Assert.Equal(ConsumableCondition.New, f.Service.GetConsumable(C1).Condition);
+    }
+
+    [Fact]
+    public async Task 直すと直したことを返す()
+    {
+        var f = Setup();
+        await f.Service.ReportReadAtStationAsync(Station, C1, None);
+
+        Assert.Equal(CorrectionResult.Corrected, await f.Service.CorrectAtStationAsync(C1, VarietyA, ConsumableCondition.New, None));
     }
 
     // ---- 出庫 ----
@@ -252,9 +262,9 @@ public class ConsumablesStationTests
         var f = Setup();
         f.Service.RegisterConsumable(C1, VarietyA, Process, ConsumableCondition.New, new AtStation(Station));
 
-        var accepted = await f.Service.RequestShipmentAsync(C1, None);
+        var result = await f.Service.RequestShipmentAsync(C1, None);
 
-        Assert.True(accepted);
+        Assert.Equal(ShipmentResult.Requested, result);
         Assert.Equal([(Station, C1)], f.Stations.Shipments);
         Assert.Empty(f.Service.GetStationStock(VarietyA));
     }
@@ -265,9 +275,9 @@ public class ConsumablesStationTests
         var f = Setup();
         f.Service.RegisterConsumable(C1, VarietyA, Process, ConsumableCondition.New, new InStocker(Device, new SlotRef(1, 1)));
 
-        var accepted = await f.Service.RequestShipmentAsync(C1, None);
+        var result = await f.Service.RequestShipmentAsync(C1, None);
 
-        Assert.False(accepted);
+        Assert.Equal(ShipmentResult.NotAtStation, result);
         Assert.Empty(f.Stations.Shipments);
     }
 

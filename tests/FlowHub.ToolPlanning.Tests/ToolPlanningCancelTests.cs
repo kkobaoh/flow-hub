@@ -56,7 +56,7 @@ public class ToolPlanningCancelTests
     private static void Carried(Fixture f, string id, VarietyId variety, ConsumableCondition condition = ConsumableCondition.New) =>
         f.Consumables.RegisterConsumable(new ConsumableId(id), variety, Process, condition, new OnAgv(Held));
 
-    private static Task SetAsync(Fixture f, params (VarietyId Variety, int Count)[] counts) =>
+    private static Task<StockerSettingResult> SetAsync(Fixture f, params (VarietyId Variety, int Count)[] counts) =>
         f.Consumables.SetStockerSettingAsync(Device, counts.ToDictionary(c => c.Variety, c => c.Count), None);
 
     private static Task CanceledAsync(Fixture f, TransportId transport, bool loaded) =>

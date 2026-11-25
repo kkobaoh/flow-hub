@@ -259,7 +259,7 @@ public class ConsumablesDeviceNotificationsTests
         Assert.Equal(new UnknownLocation(), f.Service.GetConsumable(c1).Location);
         var read = f.Service.GetConsumable(c5);
         Assert.Equal(new UnknownLocation(Device, Slot(1)), read.Location);
-        Assert.True(read.NeedsCheck);
+        Assert.Equal(NeedsCheckReason.IdMismatch, read.Check);
     }
 
     [Fact]
@@ -398,7 +398,7 @@ public class ConsumablesDeviceNotificationsTests
         Assert.Equal(new UnknownLocation(), f.Service.GetConsumable(c5).Location);
         var replaced = f.Service.GetConsumable(c7);
         Assert.Equal(new UnknownLocation(Device, Slot(1)), replaced.Location);
-        Assert.True(replaced.NeedsCheck);
+        Assert.Equal(NeedsCheckReason.IdMismatch, replaced.Check);
         Assert.Equal([new DeviceRecovery(c7, VarietyA, Process, RecoveryReason.Mismatch)], f.Service.EvaluateDevice(Device).Recoveries);
     }
 

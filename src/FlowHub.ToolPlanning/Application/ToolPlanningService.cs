@@ -58,20 +58,20 @@ public sealed class ToolPlanningService(
     /// 届ける要求に入っていれば、割り当て前ならその要求を取りやめて予約を解き、出庫を頼んでから、残りを出し直す。
     /// 割り当て済みなら受け付けない。
     /// </summary>
-    /// <returns>受け付けたら true。割り当て済みの要求に入っているか、ステーションにない消耗品なら false。</returns>
-    public async Task<bool> RequestShipmentAsync(ConsumableId id, CancellationToken cancellationToken)
+    /// <returns>頼んだか。割り当て済みの要求に入っているか、ステーションにない消耗品なら、頼まずに断る。</returns>
+    public async Task<ShipmentResult> RequestShipmentAsync(ConsumableId id, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (!await CancelRequestContainingAsync(id, cancellationToken).ConfigureAwait(false))
             {
-                return false;
+                return ShipmentResult.InAssignedTransport;
             }
 
-            var accepted = await consumables.RequestShipmentAsync(id, cancellationToken).ConfigureAwait(false);
+            var result = await consumables.RequestShipmentAsync(id, cancellationToken).ConfigureAwait(false);
             await ReplanCoreAsync(cancellationToken).ConfigureAwait(false);
-            return accepted;
+            return result;
         }
         finally
         {

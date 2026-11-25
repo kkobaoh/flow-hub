@@ -126,8 +126,8 @@ public sealed partial class ConsumablesService
 
         var location = new UnknownLocation(device, slot);
         _consumables[actual] = known is not null
-            ? known with { Location = location, NeedsCheck = true }
-            : new ConsumableView(actual, null, processType, ConsumableCondition.New, location, NeedsCheck: true);
+            ? known with { Location = location, Check = NeedsCheckReason.IdMismatch }
+            : new ConsumableView(actual, null, processType, ConsumableCondition.New, location, NeedsCheckReason.IdMismatch);
         ReleaseReservations(actual);
     }
 

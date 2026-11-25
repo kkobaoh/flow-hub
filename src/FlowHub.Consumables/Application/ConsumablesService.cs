@@ -9,14 +9,18 @@ namespace FlowHub.Consumables.Application;
 /// </summary>
 /// <param name="Variety">品種。未登録の ID を仮に登録したもの（照合のエラーなど）は、わからないので null。</param>
 /// <param name="ProcessType">加工の種類。ステーションで読み取った未登録の ID など、わからなければ null。</param>
-/// <param name="NeedsCheck">記録と現物が合わず、人の確認が要る（ステーションで届ける候補にしない）。</param>
+/// <param name="Check">記録と現物が合わず、人の確認が要るか（要確認なら、ステーションで届ける候補にしない）と、そのわけ。</param>
 public sealed record ConsumableView(
     ConsumableId Id,
     VarietyId? Variety,
     ProcessTypeId? ProcessType,
     ConsumableCondition Condition,
     ConsumableLocation Location,
-    bool NeedsCheck = false);
+    NeedsCheckReason Check = NeedsCheckReason.NotNeeded)
+{
+    /// <summary>人の確認が要る。</summary>
+    public bool NeedsCheck => Check != NeedsCheckReason.NotNeeded;
+}
 
 /// <summary>
 /// 受け渡しの完了の通知を受けた結果。通知の ID を正として所在を更新し、食い違いを返す（ログに残し、画面で警告する）。
@@ -63,8 +67,8 @@ public sealed partial class ConsumablesService(
     private readonly Dictionary<ConsumableId, ConsumableView> _consumables = [];
     private readonly Dictionary<TransportId, PendingTransfer> _pending = [];
 
-    /// <summary>ステーションに入庫した順の番号（先入れ先出しの仮の基準）。</summary>
-    private readonly Dictionary<ConsumableId, long> _arrivalOrder = [];
+    /// <summary>ステーションに入庫した順の番号（先入れ先出しの仮の基準）と日時。DB には残さない（在庫と所在と一緒に、未決事項 #14 で決める）。</summary>
+    private readonly Dictionary<ConsumableId, Arrival> _arrivals = [];
     private long _nextArrival = 1;
 
     /// <summary>届ける予約（消耗品 → 届け先の装置）。装置で降ろしたら外す。</summary>
@@ -201,27 +205,38 @@ public sealed partial class ConsumablesService(
     /// <summary>
     /// 装置のストッカーの設定（品種ごとにストックしておく個数）を変える。
     /// </summary>
-    public async Task SetStockerSettingAsync(DeviceId device, IReadOnlyDictionary<VarietyId, int> counts, CancellationToken cancellationToken)
+    /// <returns>保存したか。個数の合計がスロットの数を超えていたら、保存しない。</returns>
+    public async Task<StockerSettingResult> SetStockerSettingAsync(DeviceId device, IReadOnlyDictionary<VarietyId, int> counts, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(counts);
 
-        await LockedAsync(() =>
+        var result = await LockedAsync(() =>
         {
-            Layout(device);
+            var layout = Layout(device);
             foreach (var (variety, count) in counts)
             {
                 VarietyProcessType(variety);
                 ArgumentOutOfRangeException.ThrowIfNegative(count, nameof(counts));
             }
 
+            if (counts.Values.Sum() > layout.SlotsPerStocker.Sum())
+            {
+                return StockerSettingResult.ExceedsSlots;
+            }
+
             var setting = new Dictionary<VarietyId, int>(counts);
             _persistence.SaveStockerSetting(device, setting);
             _settings[device] = setting;
             _setupErrors.Remove(device); // 設定を変えたら、段取り替えのエラーは片付いたものとする
-            return Task.CompletedTask;
+            return StockerSettingResult.Saved;
         }, cancellationToken).ConfigureAwait(false);
 
-        await PublishStockChangedAsync($"device:{device}", cancellationToken).ConfigureAwait(false);
+        if (result == StockerSettingResult.Saved)
+        {
+            await PublishStockChangedAsync($"device:{device}", cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -315,7 +330,7 @@ public sealed partial class ConsumablesService(
         ForgetInvalidDesignations();
         return _consumables.Values
             .Where(c => c.Variety == variety && IsDeliverable(c) && !_deliveries.ContainsKey(c.Id) && !_designations.ContainsKey(c.Id))
-            .OrderBy(c => _arrivalOrder.GetValueOrDefault(c.Id))
+            .OrderBy(c => ArrivalOrder(c.Id))
             .Select(c => new StationStock(c.Id, ((AtStation)c.Location).Station))
             .ToArray();
     });
@@ -512,15 +527,18 @@ public sealed partial class ConsumablesService(
     }
 
     /// <summary>
-    /// ステーションに入ったら、入庫した順の番号を付ける。
+    /// ステーションに入ったら、入庫した順の番号と日時を付ける。
     /// </summary>
     private void NoteArrival(ConsumableId id, ConsumableLocation location)
     {
         if (location is AtStation)
         {
-            _arrivalOrder[id] = _nextArrival++;
+            _arrivals[id] = new Arrival(_nextArrival++, timeProvider.GetUtcNow());
         }
     }
+
+    /// <summary>入庫した順の番号（ステーションに入っていなければ 0）。</summary>
+    private long ArrivalOrder(ConsumableId id) => _arrivals.TryGetValue(id, out var arrival) ? arrival.Order : 0;
 
     private Task PublishStockChangedAsync(string correlationId, CancellationToken cancellationToken) =>
         publisher.PublishAsync(new StockChanged(EventMetadata.Start($"stock:{correlationId}", timeProvider)), cancellationToken);
@@ -672,6 +690,9 @@ public sealed partial class ConsumablesService(
             _gate.Release();
         }
     }
+
+    /// <summary>ステーションに入った順の番号と日時。</summary>
+    private sealed record Arrival(long Order, DateTimeOffset At);
 
     /// <summary>
     /// 許可を出して、完了の通知を待っている受け渡し。

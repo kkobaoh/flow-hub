@@ -46,7 +46,7 @@ public sealed partial class ConsumablesService
             return _designations
                 .Where(pair => pair.Value == device && _consumables[pair.Key].Variety == variety && !_deliveries.ContainsKey(pair.Key))
                 .Select(pair => pair.Key)
-                .OrderBy(id => _arrivalOrder.GetValueOrDefault(id))
+                .OrderBy(ArrivalOrder)
                 .ToArray();
         });
 

@@ -57,6 +57,23 @@ public sealed partial class ConsumablesService
             .ToArray();
 
         var setupErrors = _setupErrors.TryGetValue(device, out var errors) ? errors.OrderBy(v => v.Value, StringComparer.Ordinal).ToArray() : [];
+        var needed = needs.Recoveries.ToDictionary(r => r.Consumable, r => r.Reason);
+        HeldConsumable Held(ConsumableView c) => new(
+            c.Id,
+            c.Variety,
+            c.Condition,
+            Mismatched: c.Location is UnknownLocation,
+            DiscardRequested: _discards.ContainsKey(c.Id),
+            _recoveries.Contains(c.Id) ? new RecoveryRequested() : needed.TryGetValue(c.Id, out var reason) ? new RecoveryNeeded(reason) : new NotRecovering());
+        HeldConsumable[] HeldWhere(Func<ConsumableLocation, bool> where) =>
+            _consumables.Values.Where(c => where(c.Location)).OrderBy(c => c.Id.Value, StringComparer.Ordinal).Select(Held).ToArray();
+
+        var slots = Layout(device).AllSlots
+            .Select(slot => new StockerSlot(
+                slot,
+                atDevice.FirstOrDefault(c => SlotOfLocation(c.Location) == slot) is { } here ? new OccupiedSlot(Held(here)) : new EmptySlot()))
+            .ToArray();
+
         return new DeviceStatus(
             device,
             needs.Shortages.Values.Sum(),
@@ -64,8 +81,19 @@ public sealed partial class ConsumablesService
             mismatched,
             setupErrors,
             stocker,
-            new SlotSummary(Layout(device).SlotsPerStocker.Sum(), needs.FreeSlots, reserved.Length));
+            new SlotSummary(Layout(device).SlotsPerStocker.Sum(), needs.FreeSlots, reserved.Length),
+            Processing: HeldWhere(l => l is InProcessing p && p.Device == device),
+            StockerSlots: slots,
+            Handover: HeldWhere(l => l is AtTransferUnit u && u.Device == device));
     }
+
+    /// <summary>ストッカーにあるもの、現物がスロットにある所在不明のもののスロット。</summary>
+    private static SlotRef? SlotOfLocation(ConsumableLocation location) => location switch
+    {
+        InStocker s => s.Slot,
+        UnknownLocation u => u.Slot,
+        _ => null,
+    };
 
     private StationStatus StationStatusOf(StationId station)
     {
@@ -74,10 +102,44 @@ public sealed partial class ConsumablesService
             .Where(c => IsDeliverable(c) && !_deliveries.ContainsKey(c.Id) && !_designations.ContainsKey(c.Id))
             .GroupBy(c => c.Variety.GetValueOrDefault())
             .ToDictionary(g => g.Key, g => g.Count());
+        var reserved = here
+            .Where(c => _deliveries.ContainsKey(c.Id) && c.Variety is not null)
+            .GroupBy(c => c.Variety.GetValueOrDefault())
+            .ToDictionary(g => g.Key, g => g.Count());
         var stock = _varieties.Keys
             .OrderBy(v => v.Value, StringComparer.Ordinal)
-            .Select(v => new StationLine(v, available.GetValueOrDefault(v), _outstanding.GetValueOrDefault(v)))
+            .Select(v => new StationLine(v, available.GetValueOrDefault(v), reserved.GetValueOrDefault(v), _outstanding.GetValueOrDefault(v)))
             .ToArray();
-        return new StationStatus(station, here.Count(c => c.NeedsCheck), _outstanding.Values.Sum(), stock);
+        var items = here
+            .OrderBy(c => c.Id.Value, StringComparer.Ordinal)
+            .Select(c => new StationItem(c.Id, c.Variety, c.Condition, _arrivals[c.Id].At, StationItemStateOf(c)))
+            .ToArray();
+        return new StationStatus(station, here.Count(c => c.NeedsCheck), _outstanding.Values.Sum(), stock, items);
+    }
+
+    /// <summary>ステーションにある消耗品の状態（要確認、出庫を頼んだ、届ける予約、指名、の順に1つ）。</summary>
+    private StationItemState StationItemStateOf(ConsumableView consumable)
+    {
+        if (consumable.NeedsCheck)
+        {
+            return new CheckNeeded(consumable.Check);
+        }
+
+        if (_shipping.Contains(consumable.Id))
+        {
+            return new ShippingRequested();
+        }
+
+        if (_deliveries.TryGetValue(consumable.Id, out var reservedFor))
+        {
+            return new ReservedForDelivery(reservedFor);
+        }
+
+        if (_designations.TryGetValue(consumable.Id, out var designatedFor))
+        {
+            return new DesignatedFor(designatedFor);
+        }
+
+        return IsDeliverable(consumable) ? new Deliverable() : new NotDeliverable();
     }
 }

@@ -147,8 +147,8 @@ public sealed class ScreenFeedTests : IDisposable
     public async Task 装置とステーションの様子が変わったら番号を進めて送る()
     {
         static ConsumablesStatuses Statuses(int shortage) => new(
-            [new DeviceStatus(new DeviceId("DEV-1"), shortage, 1, [new SlotRef(1, 2)], [new VarietyId("DR-8")], [new StockerLine(new VarietyId("DR-5"), 2, 1)], new SlotSummary(10, 7, 1))],
-            [new StationStatus(new StationId("ST-1"), 1, 2, [new StationLine(new VarietyId("DR-5"), 3, 2)])]);
+            [new DeviceStatus(new DeviceId("DEV-1"), shortage, 1, [new SlotRef(1, 2)], [new VarietyId("DR-8")], [new StockerLine(new VarietyId("DR-5"), 2, 1)], new SlotSummary(10, 7, 1), [], [], [])],
+            [new StationStatus(new StationId("ST-1"), 1, 2, [new StationLine(new VarietyId("DR-5"), 3, 0, 2)], [])]);
         _equipment = () => Statuses(shortage: 1);
         Attach();
 
