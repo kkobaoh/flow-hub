@@ -19,6 +19,7 @@ namespace FlowHub.Api.Composition;
 /// - 要確認を直す（<c>POST /consumables/{id}/correct</c>）：<c>corrected</c>、<c>notNeedingCheck</c>（もうステーションにある要確認の消耗品ではない）。
 /// - 指名（<c>POST /consumables/{id}/designate</c>、<c>{ "device": "…" }</c>）：<c>designated</c>、<c>notDesignatable</c>（ステーションにある、要確認でない新品で、予約も出庫の頼みも指名もないものではない）。
 /// - 指名の取り消し（<c>POST /consumables/{id}/cancel-designation</c>）：<c>canceled</c>、<c>inAssignedTransport</c>（AGV を割り当て済みの、届ける搬送に入っている）。
+/// - 在庫の手入力（<c>POST /consumables</c>（登録）、<c>/consumables/{id}/edit</c>、<c>/consumables/{id}/delete</c>）：<c>saved</c>、<c>alreadyRegistered</c>、<c>notFound</c>、<c>notEditable</c>（AGV の中、加工部・受け渡し部にある、出庫を頼んだもの）、<c>inAssignedTransport</c>、<c>slotTaken</c>。所在は <c>{ "kind": "station", "station": "…" }</c> か <c>{ "kind": "slot", "device": "…", "stocker": 1, "slot": 1 }</c>。
 /// - 断ったときは、何も変えていない。頼みの形が正しくない（知らない品種、負の個数、知らない届け先の装置など）：400。ストッカーの設定の知らない装置：404。
 /// 今はログインなしで開く（docs/backlog.md #23）。
 /// </remarks>
@@ -80,7 +81,47 @@ internal static partial class ConsumableEndpoints
             }));
 
         MapDesignationEndpoints(endpoints, toolPlanning, logger);
+        MapManualEntryEndpoints(endpoints, consumables, toolPlanning, logger);
     }
+
+    private static void MapManualEntryEndpoints(IEndpointRouteBuilder endpoints, ConsumablesService consumables, ToolPlanningService toolPlanning, ILogger logger)
+    {
+        endpoints.MapPost("/consumables", (RecordBody body, CancellationToken cancellationToken) =>
+            RunAsync(logger, "在庫の登録", body.Id ?? "", async () =>
+            {
+                var result = await consumables.RegisterManuallyAsync(ToConsumable(body.Id ?? ""), ToVariety(body.Variety), ConditionText.Parse(body.Condition), ToLocation(body.Location), cancellationToken).ConfigureAwait(false);
+                return ManualText(result);
+            }));
+
+        endpoints.MapPost("/consumables/{id}/edit", (string id, RecordBody body, CancellationToken cancellationToken) =>
+            RunAsync(logger, "在庫の修正", id, async () =>
+            {
+                var result = await toolPlanning.EditManuallyAsync(ToConsumable(id), ToVariety(body.Variety), ConditionText.Parse(body.Condition), ToLocation(body.Location), cancellationToken).ConfigureAwait(false);
+                return ManualText(result);
+            }));
+
+        endpoints.MapPost("/consumables/{id}/delete", (string id, CancellationToken cancellationToken) =>
+            RunAsync(logger, "在庫の削除", id, async () => ManualText(await toolPlanning.DeleteManuallyAsync(ToConsumable(id), cancellationToken).ConfigureAwait(false))));
+    }
+
+    private static string ManualText(ManualEntryResult result) => result switch
+    {
+        ManualEntryResult.Saved => "saved",
+        ManualEntryResult.AlreadyRegistered => "alreadyRegistered",
+        ManualEntryResult.NotFound => "notFound",
+        ManualEntryResult.NotEditable => "notEditable",
+        ManualEntryResult.InAssignedTransport => "inAssignedTransport",
+        ManualEntryResult.SlotTaken => "slotTaken",
+        _ => throw new InvalidOperationException($"知らない在庫の手入力の結果です（{result}）。"),
+    };
+
+    /// <summary>画面から届いた所在（ステーションか、ストッカーのスロット）。ほかは頼みの形の誤り。</summary>
+    private static ConsumableLocation ToLocation(LocationBody? body) => body?.Kind switch
+    {
+        "station" when !string.IsNullOrWhiteSpace(body.Station) => new AtStation(new StationId(body.Station)),
+        "slot" when !string.IsNullOrWhiteSpace(body.Device) && body.Stocker is { } stocker && body.Slot is { } slot => new InStocker(new DeviceId(body.Device), new SlotRef(stocker, slot)),
+        _ => throw new ArgumentException($"所在は、ステーションか、ストッカーのスロットを指定してください（{body?.Kind}）。", nameof(body)),
+    };
 
     private static void MapDesignationEndpoints(IEndpointRouteBuilder endpoints, ToolPlanningService toolPlanning, ILogger logger)
     {
@@ -147,4 +188,8 @@ internal static partial class ConsumableEndpoints
     private sealed record CorrectionBody(string? Variety, string? Condition);
 
     private sealed record DesignationBody(string? Device);
+
+    private sealed record RecordBody(string? Id, string? Variety, string? Condition, LocationBody? Location);
+
+    private sealed record LocationBody(string? Kind, string? Station, string? Device, int? Stocker, int? Slot);
 }

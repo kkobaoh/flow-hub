@@ -422,6 +422,34 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Null(system.Consumables.ReadConsumables().Single(c => c.Id.Value == "T-1").DesignatedFor);
     }
 
+    [Fact]
+    public async Task 在庫を手入力で登録し直し消す()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        await SeedConsumablesAsync();
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+        ConsumableRecord Record() => system.Consumables.ReadConsumables().Single();
+
+        var registered = await OperateAsync(client, "/consumables", """{ "id": "T-1", "variety": "DR-5", "condition": "new", "location": { "kind": "station", "station": "ST-1" } }""");
+        var again = await OperateAsync(client, "/consumables", """{ "id": "T-1", "variety": "DR-5", "condition": "new", "location": { "kind": "station", "station": "ST-1" } }""");
+        var unknownPlace = await OperateAsync(client, "/consumables", """{ "id": "T-2", "variety": "DR-5", "condition": "new", "location": { "kind": "moon" } }""");
+        Assert.Equal(new AtStation(new StationId("ST-1")), Record().Location);
+
+        var edited = await OperateAsync(client, "/consumables/T-1/edit", """{ "variety": "DR-6", "condition": "used", "location": { "kind": "slot", "device": "DEV-1", "stocker": 1, "slot": 2 } }""");
+        Assert.Equal((new VarietyId("DR-6"), ConsumableCondition.Used, (ConsumableLocation)new InStocker(new DeviceId("DEV-1"), new SlotRef(1, 2))), (Record().Variety, Record().Condition, Record().Location));
+        var deleted = await OperateAsync(client, "/consumables/T-1/delete", "{}");
+        var gone = await OperateAsync(client, "/consumables/T-1/delete", "{}");
+
+        Assert.Equal((HttpStatusCode.OK, "saved"), registered);
+        Assert.Equal((HttpStatusCode.OK, "alreadyRegistered"), again);
+        Assert.Equal(HttpStatusCode.BadRequest, unknownPlace.Status);
+        Assert.Equal((HttpStatusCode.OK, "saved"), edited);
+        Assert.Equal((HttpStatusCode.OK, "saved"), deleted);
+        Assert.Equal((HttpStatusCode.OK, "notFound"), gone);
+        Assert.Empty(system.Consumables.ReadConsumables());
+    }
+
     private static async Task<(HttpStatusCode Status, string? Result)> OperateAsync(HttpClient client, string path, string body)
     {
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), new StringContent(body, Encoding.UTF8, "application/json"), Token);
