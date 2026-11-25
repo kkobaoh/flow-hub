@@ -237,6 +237,41 @@ public sealed class ConsumablesStoreTests : IDisposable
         persistence.SaveVariety(VarietyA, Process);
         persistence.DeleteVariety(VarietyA);
         persistence.DeleteProcessType(Process);
+        persistence.SaveDevice(new DeviceLayout(Device, new PanelId("D"), [1]));
+        persistence.DeleteDevice(Device);
+        persistence.SaveStation(new StationLayout(Station, new PanelId("S")));
+        persistence.DeleteStation(Station);
+    }
+
+    [Fact]
+    public async Task 画面から変えた装置とステーションを保存し次に開いたときも同じ構成になる()
+    {
+        var store = await OpenAsync();
+        await AddBasicsAsync(store);
+        var panels = new HashSet<PanelId> { new("D"), new("S"), new("D2"), new("S2") };
+        using (var service = ServiceFrom(await store.LoadAsync(Token), store))
+        {
+            await service.SetStockerSettingAsync(Device, new Dictionary<VarietyId, int> { [VarietyA] = 1 }, Token);
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.AddDeviceAsync(new DeviceLayout(new DeviceId("D2"), new PanelId("D2"), [4]), panels, Token));
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.UpdateDeviceAsync(new DeviceLayout(new DeviceId("D2"), new PanelId("D2"), [1, 2]), panels, Token));
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.DeleteDeviceAsync(Device, Token));
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.UpdateStationAsync(new StationLayout(Station, new PanelId("S2")), panels, Token));
+        }
+
+        var configuration = await (await OpenAsync()).LoadAsync(Token);
+
+        var device = Assert.Single(configuration.Devices);
+        Assert.Equal((new DeviceId("D2"), new PanelId("D2")), (device.Id, device.TransferPanel));
+        Assert.Equal([1, 2], device.SlotsPerStocker);
+        Assert.Empty(configuration.StockerSettings); // 消した装置のストッカーの設定も消える
+        Assert.Equal([new StationLayout(Station, new PanelId("S2"))], configuration.Stations);
+
+        using (var service = ServiceFrom(configuration, await OpenAsync()))
+        {
+            Assert.Equal(ConfigurationChangeResult.Saved, await service.DeleteStationAsync(Station, Token));
+        }
+
+        Assert.Empty((await (await OpenAsync()).LoadAsync(Token)).Stations);
     }
 
     [Fact]

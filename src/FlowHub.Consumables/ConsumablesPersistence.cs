@@ -25,6 +25,18 @@ public interface IConsumablesPersistence
 
     /// <summary>品種を消す。その品種の入庫の予定と、ストッカーの設定の行も一緒に消す。</summary>
     void DeleteVariety(VarietyId variety);
+
+    /// <summary>装置を保存する（なければ加え、あれば受け渡しパネルとストッカーを置き換える）。</summary>
+    void SaveDevice(DeviceLayout layout);
+
+    /// <summary>装置を消す。その装置のストッカーの設定も一緒に消す。</summary>
+    void DeleteDevice(DeviceId device);
+
+    /// <summary>ステーションを保存する（なければ加え、あれば受け渡しパネルを置き換える）。</summary>
+    void SaveStation(StationLayout layout);
+
+    /// <summary>ステーションを消す。</summary>
+    void DeleteStation(StationId station);
 }
 
 /// <summary>
@@ -63,6 +75,22 @@ public sealed class NoConsumablesPersistence : IConsumablesPersistence
     }
 
     public void DeleteVariety(VarietyId variety)
+    {
+    }
+
+    public void SaveDevice(DeviceLayout layout)
+    {
+    }
+
+    public void DeleteDevice(DeviceId device)
+    {
+    }
+
+    public void SaveStation(StationLayout layout)
+    {
+    }
+
+    public void DeleteStation(StationId station)
     {
     }
 }

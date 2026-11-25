@@ -499,6 +499,37 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(["Y", "Z"], system.Consumables.CarrierTypes.Select(c => c.Value));
     }
 
+    [Fact]
+    public async Task 装置とステーションを公開中のマップの受け渡しパネルで加え変え消す()
+    {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []); // マップの受け渡しパネルは S と D
+        var system = await StartAsync();
+        var client = await ServeAsync(system);
+
+        var added = await OperateAsync(client, "/configuration/devices", """{ "id": "DEV-2", "panel": "D", "slots": [2, 3] }""");
+        var notTransfer = await OperateAsync(client, "/configuration/devices", """{ "id": "DEV-3", "panel": "A", "slots": [1] }""");
+        var taken = await OperateAsync(client, "/configuration/devices", """{ "id": "DEV-3", "panel": "D", "slots": [1] }""");
+        var noStocker = await OperateAsync(client, "/configuration/devices", """{ "id": "DEV-3", "panel": "S", "slots": [] }""");
+        var edited = await OperateAsync(client, "/configuration/devices/DEV-2/edit", """{ "panel": "D", "slots": [4] }""");
+        var station = await OperateAsync(client, "/configuration/stations", """{ "id": "ST-1", "panel": "S" }""");
+        var secondStation = await OperateAsync(client, "/configuration/stations", """{ "id": "ST-2", "panel": "S" }""");
+        var deleted = await OperateAsync(client, "/configuration/devices/DEV-2/delete", "{}");
+        var gone = await OperateAsync(client, "/configuration/stations/ST-9/delete", "{}");
+
+        Assert.Equal((HttpStatusCode.OK, "saved"), added);
+        Assert.Equal((HttpStatusCode.OK, "panelUnavailable"), notTransfer);
+        Assert.Equal((HttpStatusCode.OK, "panelUnavailable"), taken);
+        Assert.Equal(HttpStatusCode.BadRequest, noStocker.Status);
+        Assert.Equal((HttpStatusCode.OK, "saved"), edited);
+        Assert.Equal((HttpStatusCode.OK, "saved"), station);
+        Assert.Equal((HttpStatusCode.OK, "stationLimit"), secondStation);
+        Assert.Equal((HttpStatusCode.OK, "saved"), deleted);
+        Assert.Equal((HttpStatusCode.OK, "notFound"), gone);
+        var configuration = system.Consumables.ReadConfiguration();
+        Assert.Empty(configuration.Devices);
+        Assert.Equal([new StationConfigurationView(new StationId("ST-1"), S, InUse: false)], configuration.Stations);
+    }
+
     // ---- AGV の種類（AGV と AGV の種類の登録の画面から） ----
 
     [Fact]

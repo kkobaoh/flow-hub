@@ -29,7 +29,7 @@ public sealed class ScreenFeedTests : IDisposable
     private Func<IReadOnlyList<TransportSnapshot>> _transports = () => [];
     private Func<IReadOnlyList<ConsumableSnapshot>> _consumables = () => [];
     private Func<FleetScreenState> _fleet = () => FleetScreenState.Empty;
-    private Func<ConsumablesConfigurationView> _configuration = () => new([], []);
+    private Func<ConsumablesConfigurationView> _configuration = () => new([], [], [], []);
 
     public ScreenFeedTests()
     {
@@ -70,7 +70,7 @@ public sealed class ScreenFeedTests : IDisposable
                 new ScreenMessage(ScreenFeed.TransportsMethod, new TransportsSnapshot(1, [])),
                 new ScreenMessage(ScreenFeed.ConsumablesMethod, new ConsumablesSnapshot(1, [])),
                 new ScreenMessage(ScreenFeed.FleetMethod, FleetSnapshot.From(1, FleetScreenState.Empty)),
-                new ScreenMessage(ScreenFeed.ConfigurationMethod, ConfigurationSnapshot.From(1, new([], []))),
+                new ScreenMessage(ScreenFeed.ConfigurationMethod, ConfigurationSnapshot.From(1, new([], [], [], []))),
             ],
             _feed.Current(),
             MessageComparer.Instance);
@@ -241,19 +241,31 @@ public sealed class ScreenFeedTests : IDisposable
     {
         var process = new ProcessTypeSettings(new ProcessTypeId("drill"), new CarrierTypeId("X"), 2);
         var variety = new VarietyConfigurationView(new VarietyId("DR-5"), process.Id, [new ConsumableId("T-5")], [new ConsumableId("T-1")], InUse: true);
-        _configuration = () => new([process], [variety]);
+        _configuration = () => new([process], [variety], [], []);
         Attach();
 
-        _configuration = () => new([process], [variety with { }]);
+        _configuration = () => new([process], [variety with { }], [], []);
         await _feed.PublishIfChangedAsync(Token);
-        _configuration = () => new([process], [variety with { ExpectedIds = [] }]);
+        _configuration = () => new([process], [variety with { ExpectedIds = [] }], [], []);
         await _feed.PublishIfChangedAsync(Token);
 
         var sent = Assert.Single(_broadcast.Sent);
         Assert.Equal(ScreenFeed.ConfigurationMethod, sent.Method);
         Assert.Equal(
-            new ConfigurationSnapshot(2, [new ProcessTypeConfigurationView("drill", "X", 2)], [new VarietyView("DR-5", "drill", [], ["T-1"], true)]),
+            new ConfigurationSnapshot(2, [new ProcessTypeConfigurationView("drill", "X", 2)], [new VarietyView("DR-5", "drill", [], ["T-1"], true)], [], []),
             sent.Payload);
+    }
+
+    [Fact]
+    public void 消耗品の構成の装置とステーションを画面へ送る形にする()
+    {
+        var device = new DeviceConfigurationView(new DeviceId("DEV-1"), new PanelId("D1"), [2, 3], [new SlotRef(2, 1)], InUse: true);
+        var station = new StationConfigurationView(new StationId("ST-1"), new PanelId("ST"), InUse: false);
+
+        var snapshot = ConfigurationSnapshot.From(1, new([], [], [device], [station]));
+
+        Assert.Equal([new DeviceConfigurationWire("DEV-1", "D1", [2, 3], [new SlotView(2, 1)], true)], snapshot.Devices);
+        Assert.Equal([new StationConfigurationWire("ST-1", "ST", false)], snapshot.Stations);
     }
 
     // ---- 搬送の一覧 ----

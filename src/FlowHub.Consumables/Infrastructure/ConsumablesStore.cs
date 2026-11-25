@@ -245,4 +245,66 @@ public sealed class ConsumablesStore : IConsumablesPersistence
 
         transaction.Commit();
     }
+
+    public void SaveDevice(DeviceLayout layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+
+        using var context = _createContext();
+        var row = context.Devices.Find(layout.Id.Value);
+        if (row is null)
+        {
+            row = new DeviceRow { Id = layout.Id.Value };
+            context.Devices.Add(row);
+        }
+
+        row.TransferPanel = layout.TransferPanel.Value;
+        context.DeviceStockers.RemoveRange(context.DeviceStockers.Where(s => s.DeviceId == layout.Id.Value));
+        context.DeviceStockers.AddRange(layout.SlotsPerStocker.Select((slots, index) => new DeviceStockerRow
+        {
+            DeviceId = layout.Id.Value,
+            StockerNumber = index + 1,
+            SlotCount = slots,
+        }));
+        context.SaveChanges();
+    }
+
+    public void DeleteDevice(DeviceId device)
+    {
+        using var context = _createContext();
+        if (context.Devices.Find(device.Value) is { } row)
+        {
+            // ストッカーとストッカーの設定の行は、DB の外部キーで一緒に消える
+            context.Devices.Remove(row);
+            context.SaveChanges();
+        }
+    }
+
+    public void SaveStation(StationLayout layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+
+        using var context = _createContext();
+        var row = context.Stations.Find(layout.Id.Value);
+        if (row is null)
+        {
+            context.Stations.Add(new StationRow { Id = layout.Id.Value, TransferPanel = layout.TransferPanel.Value });
+        }
+        else
+        {
+            row.TransferPanel = layout.TransferPanel.Value;
+        }
+
+        context.SaveChanges();
+    }
+
+    public void DeleteStation(StationId station)
+    {
+        using var context = _createContext();
+        if (context.Stations.Find(station.Value) is { } row)
+        {
+            context.Stations.Remove(row);
+            context.SaveChanges();
+        }
+    }
 }

@@ -219,6 +219,10 @@ internal sealed partial class FlowHubSystem : IDisposable
         return new ScreenMapState(_map.CurrentVersion, map, equipment);
     }
 
+    /// <summary>公開中のマップの受け渡しパネル（特殊消耗品受け渡しパネルを含む）。まだ公開していなければ空。</summary>
+    private IReadOnlySet<PanelId> TransferPanels() =>
+        _map.Current?.Panels.Where(p => p.Type is PanelType.Transfer or PanelType.SpecialTransfer).Select(p => p.Id).ToHashSet() ?? [];
+
     /// <summary>
     /// 処理のあとの後始末。たまったイベントを届けてから、画面へ様子を送る（変わっていれば）。
     /// HTTP のリクエスト、シミュレーターの通知、交通整理のタイマーのあとは、すべてここを通す。
@@ -259,7 +263,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         app.MapAgvRegistrationEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.AgvRegistrations"));
         app.MapFleetEndpoints(Fleet, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.FleetOperations"));
         app.MapConsumableEndpoints(Consumables, ToolPlanning, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConsumableOperations"));
-        app.MapConfigurationEndpoints(Consumables, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConfigurationOperations"));
+        app.MapConfigurationEndpoints(Consumables, TransferPanels, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FlowHub.Api.ConfigurationOperations"));
     }
 
     public void Dispose()

@@ -19,7 +19,7 @@ public sealed partial class ConsumablesService
                 _consumables.Values.Where(c => c.Variety == pair.Key).Select(c => c.Id).OrderBy(id => id.Value, StringComparer.Ordinal).ToArray(),
                 IsVarietyInUse(pair.Key)))
             .ToArray();
-        return new ConsumablesConfigurationView(processTypes, varieties);
+        return new ConsumablesConfigurationView(processTypes, varieties, DeviceConfigurations(), StationConfigurations());
     });
 
     /// <summary>加工の種類を加える。</summary>

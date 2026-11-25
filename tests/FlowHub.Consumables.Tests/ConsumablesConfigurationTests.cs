@@ -89,6 +89,14 @@ public class ConsumablesConfigurationTests
         public void SaveVariety(VarietyId variety, ProcessTypeId processType) => Calls.Add($"variety {variety} {processType}");
 
         public void DeleteVariety(VarietyId variety) => Calls.Add($"variety- {variety}");
+
+        public void SaveDevice(DeviceLayout layout) => Calls.Add($"device {layout.Id}");
+
+        public void DeleteDevice(DeviceId device) => Calls.Add($"device- {device}");
+
+        public void SaveStation(StationLayout layout) => Calls.Add($"station {layout.Id}");
+
+        public void DeleteStation(StationId station) => Calls.Add($"station- {station}");
     }
 
     private sealed record Fixture(ConsumablesService Service, RecordingPersistence Saved, RecordingPublisher Events, RecordingUpstream Upstream);
