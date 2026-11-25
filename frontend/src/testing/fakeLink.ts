@@ -7,6 +7,7 @@ import type { MapSnapshot } from '../features/routing/api/mapSnapshot';
 import type { EquipmentStatusSnapshot } from '../features/tool/api/equipmentStatus';
 import type { TransportsSnapshot } from '../features/dispatch/api/transportsSnapshot';
 import type { ConsumablesSnapshot } from '../features/tool/api/consumablesSnapshot';
+import type { AgvTypeCommand, AgvTypeCommandResult, FleetSnapshot } from '../features/fleet/api/fleetSnapshot';
 import type { TransportCancelResult } from '../features/dispatch/api/transportCommands';
 import type { ConsumableCommand, ConsumableCommandResult } from '../features/tool/api/consumableCommands';
 import type { MessagesSnapshot } from '../features/alarm/api/messages';
@@ -42,6 +43,11 @@ export interface FakeLink extends ServerLink {
   emitEquipment(snapshot: EquipmentStatusSnapshot): void;
   emitTransports(snapshot: TransportsSnapshot): void;
   emitConsumables(snapshot: ConsumablesSnapshot): void;
+  emitFleet(snapshot: FleetSnapshot): void;
+  /** AGV の種類へ送られた操作。 */
+  readonly agvTypeCommands: readonly AgvTypeCommand[];
+  /** AGV の種類の操作の結果を決める（既定は、受け付けたときの結果）。 */
+  respondToAgvTypes(result: AgvTypeCommandResult): void;
   /** 取りやめを頼まれた搬送（頼まれた順）。 */
   readonly canceledTransports: readonly number[];
   /** 取りやめの結果を決める（既定は canceled）。holdResponses で止めておける。 */
@@ -61,6 +67,7 @@ export function createFakeLink(initial?: {
   readonly equipment?: EquipmentStatusSnapshot;
   readonly transports?: TransportsSnapshot;
   readonly consumables?: ConsumablesSnapshot;
+  readonly fleet?: FleetSnapshot;
 }): FakeLink {
   let handlers: ServerHandlers | null = null;
   let result: CommandResult = 'ok';
@@ -71,6 +78,8 @@ export function createFakeLink(initial?: {
   let agvResult: AgvCommandResult = 'accepted';
   const consumableCommands: ConsumableCommand[] = [];
   const canceledTransports: number[] = [];
+  const agvTypeCommands: AgvTypeCommand[] = [];
+  let agvTypeResult: AgvTypeCommandResult | null = null;
   let cancelResult: TransportCancelResult = 'canceled';
   let consumableResult: ConsumableCommandResult | null = null;
   const accepted = { stockerSetting: 'saved', ship: 'requested', correct: 'corrected', designate: 'designated', cancelDesignation: 'canceled', register: 'saved', edit: 'saved', delete: 'saved' } as const;
@@ -107,6 +116,18 @@ export function createFakeLink(initial?: {
     agvCommands,
     consumableCommands,
     canceledTransports,
+    agvTypeCommands,
+    respondToAgvTypes(next) {
+      agvTypeResult = next;
+    },
+    operateAgvTypes(command) {
+      agvTypeCommands.push(command);
+      const answer = agvTypeResult ?? (command.kind === 'delete' ? 'deleted' : 'saved');
+      if (!holding) {
+        return Promise.resolve(answer);
+      }
+      return new Promise((resolve) => held.push(() => resolve(answer)));
+    },
     respondToCancel(next) {
       cancelResult = next;
     },
@@ -154,6 +175,9 @@ export function createFakeLink(initial?: {
         if (initial.consumables) {
           h.onConsumables(initial.consumables);
         }
+        if (initial.fleet) {
+          h.onFleet(initial.fleet);
+        }
       }
       return () => {
         if (handlers === h) {
@@ -198,6 +222,9 @@ export function createFakeLink(initial?: {
     },
     emitConsumables(snapshot) {
       handlers?.onConsumables(snapshot);
+    },
+    emitFleet(snapshot) {
+      handlers?.onFleet(snapshot);
     },
   };
 }

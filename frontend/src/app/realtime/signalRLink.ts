@@ -7,6 +7,7 @@ import { parseMap } from '../../features/routing/api/mapSnapshot';
 import { parseEquipmentStatus } from '../../features/tool/api/equipmentStatus';
 import { parseTransports } from '../../features/dispatch/api/transportsSnapshot';
 import { parseConsumables } from '../../features/tool/api/consumablesSnapshot';
+import { parseFleet, sendAgvTypeCommand } from '../../features/fleet/api/fleetSnapshot';
 import { sendCancelTransport } from '../../features/dispatch/api/transportCommands';
 import { sendConsumableCommand } from '../../features/tool/api/consumableCommands';
 import { parseMessages } from '../../features/alarm/api/messages';
@@ -33,6 +34,9 @@ const TRANSPORTS = 'transports';
 /** 消耗品ごとの記録を受け取る名前（サーバーの ScreenFeed.ConsumablesMethod と同じ）。 */
 const CONSUMABLES = 'consumables';
 
+/** AGV と AGV の種類の登録を受け取る名前（サーバーの ScreenFeed.FleetMethod と同じ）。 */
+const FLEET = 'fleet';
+
 /**
  * 本物のつながり。SignalR のハブ（/hubs/screen）で様子を受け取り、操作は HTTP の窓口へ送る。
  * 切れたら、間を空けてずっとつなぎ直す。初めてつなぐときに失敗しても、同じように試し続ける。
@@ -46,6 +50,7 @@ export function createSignalRLink(baseUrl = ''): ServerLink {
     operateAgv: (id, command) => sendAgvCommand(baseUrl, id, command, COMMAND_TIMEOUT_MS),
     operateConsumables: (command) => sendConsumableCommand(baseUrl, command, COMMAND_TIMEOUT_MS),
     cancelTransport: (number) => sendCancelTransport(baseUrl, number, COMMAND_TIMEOUT_MS),
+    operateAgvTypes: (command) => sendAgvTypeCommand(baseUrl, command, COMMAND_TIMEOUT_MS),
   };
 }
 
@@ -129,6 +134,14 @@ function connect(baseUrl: string, handlers: ServerHandlers): () => void {
     } catch (error) {
       // 形の正しくない様子は使わず、今の様子のままにする
       console.error('サーバーから届いた消耗品の記録を使えませんでした。', error);
+    }
+  });
+  connection.on(FLEET, (value: unknown) => {
+    try {
+      handlers.onFleet(parseFleet(value));
+    } catch (error) {
+      // 形の正しくない様子は使わず、今の様子のままにする
+      console.error('サーバーから届いた AGV と AGV の種類の登録を使えませんでした。', error);
     }
   });
   connection.onreconnecting(() => handlers.onConnection('reconnecting'));

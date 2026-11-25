@@ -131,3 +131,27 @@ test('消耗品の検索：在庫を手入力で登録して開き、消す', as
   await expect(page.getByText('「E2E-1」に合う消耗品はありません。ID を確かめてください。')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('AGV と AGV の種類の登録：サーバーの種類を出し、種類を加えて消す', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/#/agvs');
+
+  const types = page.locator('[aria-labelledby="type-title"]');
+  await expect(types.getByRole('row', { name: /標準の AGV/ })).toBeVisible(); // 初期データの種類
+
+  await types.getByRole('button', { name: '種類を加える' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: '種類の ID' }).fill('e2e-type');
+  await dialog.getByRole('textbox', { name: '種類の名前' }).fill('E2E の種類');
+  await dialog.getByRole('spinbutton', { name: '前進の速さ' }).fill('600');
+  await dialog.getByRole('spinbutton', { name: '後退の速さ' }).fill('300');
+  await dialog.getByRole('spinbutton', { name: '回転の速さ' }).fill('45');
+  await dialog.getByRole('button', { name: '種類を保存する' }).click();
+
+  const row = types.getByRole('row', { name: /E2E の種類/ });
+  await expect(row).toContainText('e2e-type');
+  await row.getByRole('button', { name: '消す' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '種類を消す' }).click();
+  await expect(types.getByRole('row', { name: /E2E の種類/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

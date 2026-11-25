@@ -8,6 +8,7 @@ import {
   toAgvType,
   typeDeleteBlockedReason,
   typeDraftOf,
+  typeNameOf,
   typeProblem,
   type AgvDraft,
   type AgvEntry,
@@ -28,14 +29,19 @@ export interface FleetPageProps {
   /** 充電の値の、いまの既定値（種類を加えるときに、空の値を埋める）。 */
   readonly defaults: ChargeDefaults;
   readonly permissions: Permissions;
+  /** サーバーとつながっていない（種類の操作を送れない）。 */
+  readonly offline: boolean;
+  /** AGV の登録（加える・変える・そろえる・消す）を使えない理由。使えるなら null。 */
+  readonly agvEntryNote: string | null;
   readonly onAddAgv: (agv: AgvDraft) => void;
   readonly onChangeAgv: (id: string, change: { readonly type: string; readonly carrier: string }) => void;
   /** 登録の食い違いをそろえる（足りない側に登録する）。 */
   readonly onAlignAgv: (id: string, change: { readonly type: string; readonly carrier: string }) => void;
   readonly onDeleteAgv: (id: string) => void;
-  /** 種類を保存する。original は直す前の名前（加えるときは null）。 */
-  readonly onSaveType: (original: string | null, type: AgvType) => void;
-  readonly onDeleteType: (name: string) => void;
+  /** 種類を保存する。original は変える種類の ID（加えるときは null）。受け付けたら null、断られたら理由の文を返す。 */
+  readonly onSaveType: (original: string | null, type: AgvType) => Promise<string | null>;
+  /** 種類を消す。受け付けたら null、断られたら理由の文を返す。 */
+  readonly onDeleteType: (id: string) => Promise<string | null>;
 }
 
 type Dialog =
@@ -50,7 +56,21 @@ export function FleetPage(props: FleetPageProps) {
   const { entries, types, permissions } = props;
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const blocked = configureBlockedReason(permissions);
+  const agvBlocked = blocked ?? props.agvEntryNote;
+  const typeBlocked = blocked ?? (props.offline ? 'サーバーとつながっていないので、種類を加えたり変えたりできません。' : null);
+  // 種類の操作は、送って結果を待つあいだは押せなくする。断られたら、理由を出す（次に送ったら消す）
+  const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const close = () => setDialog(null);
+  const send = async (operation: () => Promise<string | null>) => {
+    setSending(true);
+    setNotice(null);
+    try {
+      setNotice(await operation());
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <>
@@ -60,10 +80,11 @@ export function FleetPage(props: FleetPageProps) {
           <h2 id="agv-title" className="m-0 text-lg font-bold">
             AGV
           </h2>
-          <button type="button" disabled={blocked !== null} onClick={() => setDialog({ kind: 'addAgv' })} className={plainButton}>
+          <button type="button" disabled={agvBlocked !== null} onClick={() => setDialog({ kind: 'addAgv' })} className={plainButton}>
             AGV を加える
           </button>
         </div>
+        {blocked === null && props.agvEntryNote !== null && <p className="m-0 text-sm font-bold">{props.agvEntryNote}</p>}
         <p className="m-0 text-sm text-ink-muted">新しく加えた AGV は、切り離しから始めます。マップの上に置いて位置リセットをしてから、コントロールステータスを切り替えてください。</p>
         <div className="relative overflow-x-auto">
           <table className="w-full min-w-[820px] border-collapse text-sm">
@@ -92,16 +113,16 @@ export function FleetPage(props: FleetPageProps) {
             <tbody>
               {sortAgvEntries(entries).map((e) => {
                 const odd = e.registration !== 'both';
-                const reason = odd ? blocked : agvChangeBlockedReason(e, permissions);
+                const reason = agvBlocked ?? (odd ? null : agvChangeBlockedReason(e, permissions));
                 return (
                   <tr key={e.id} className={`border-b border-disabled-border ${odd ? 'bg-white' : ''}`}>
                     <td className={`${td} font-number text-[17px] font-bold`}>{e.id}</td>
-                    <td className={td}>{e.type ?? '－'}</td>
+                    <td className={td}>{e.type === null ? '－' : typeNameOf(types, e.type)}</td>
                     <td className={td}>{e.carrier ?? '－'}</td>
                     <td className={td}>{e.control === null ? '－' : controlStatusLabel[e.control]}</td>
                     <td className={`${td} font-bold ${odd ? 'text-attention' : 'text-running'}`}>{registrationLabel[e.registration]}</td>
                     <td className="px-3 py-1.5">
-                      <RowActions reason={blocked === null ? reason : null}>
+                      <RowActions reason={agvBlocked === null ? reason : null}>
                         {odd ? (
                           <button type="button" disabled={reason !== null} onClick={() => setDialog({ kind: 'alignAgv', entry: e })} className={darkButton}>
                             登録をそろえる
@@ -129,16 +150,22 @@ export function FleetPage(props: FleetPageProps) {
           <h2 id="type-title" className="m-0 text-lg font-bold">
             AGV の種類
           </h2>
-          <button type="button" disabled={blocked !== null} onClick={() => setDialog({ kind: 'addType' })} className={plainButton}>
+          <button type="button" disabled={typeBlocked !== null || sending} onClick={() => setDialog({ kind: 'addType' })} className={plainButton}>
             種類を加える
           </button>
         </div>
         <p className="m-0 text-sm text-ink-muted">変えた値は、次の割り当てと充電の判断から効きます。</p>
+        {blocked === null && typeBlocked !== null && <p className="m-0 text-sm font-bold">{typeBlocked}</p>}
+        {notice !== null && (
+          <p role="alert" className="m-0 text-sm font-bold text-attention">
+            {notice}
+          </p>
+        )}
         <div className="relative overflow-x-auto">
           <table className="w-full min-w-[960px] border-collapse text-sm">
             <thead>
               <tr>
-                {['種類', '前進の速さ', '後退の速さ', '回転の速さ', '充電に向かう残量', '割り当てに戻す残量', '特殊消耗品受け渡しパネル'].map((h) => (
+                {['種類', 'ID', '前進の速さ', '後退の速さ', '回転の速さ', '充電に向かう残量', '割り当てに戻す残量', '特殊消耗品受け渡しパネル'].map((h) => (
                   <th key={h} scope="col" className={th}>
                     {h}
                   </th>
@@ -150,10 +177,11 @@ export function FleetPage(props: FleetPageProps) {
             </thead>
             <tbody>
               {types.map((t) => {
-                const reason = typeDeleteBlockedReason(t, entries, permissions);
+                const reason = typeDeleteBlockedReason(t, entries, permissions) ?? typeBlocked;
                 return (
-                  <tr key={t.name} className="border-b border-disabled-border">
+                  <tr key={t.id} className="border-b border-disabled-border">
                     <td className={`${td} font-bold`}>{t.name}</td>
+                    <td className={`${td} font-number`}>{t.id}</td>
                     <td className={`${td} font-number text-base font-semibold`}>{t.forward} mm/s</td>
                     <td className={`${td} font-number text-base font-semibold`}>{t.backward} mm/s</td>
                     <td className={`${td} font-number text-base font-semibold`}>{t.rotation} °/s</td>
@@ -161,11 +189,11 @@ export function FleetPage(props: FleetPageProps) {
                     <td className={`${td} font-number text-base font-semibold`}>{t.resumeAt}%</td>
                     <td className={td}>{t.special ? '走れる' : '走れない'}</td>
                     <td className="px-3 py-1.5">
-                      <RowActions reason={blocked === null ? reason : null}>
-                        <button type="button" disabled={blocked !== null} onClick={() => setDialog({ kind: 'changeType', type: t })} className={plainButton}>
+                      <RowActions reason={blocked === null && typeBlocked === null ? reason : null}>
+                        <button type="button" disabled={typeBlocked !== null || sending} onClick={() => setDialog({ kind: 'changeType', type: t })} className={plainButton}>
                           変える
                         </button>
-                        <button type="button" disabled={reason !== null} onClick={() => setDialog({ kind: 'deleteType', type: t })} className={plainButton}>
+                        <button type="button" disabled={reason !== null || sending} onClick={() => setDialog({ kind: 'deleteType', type: t })} className={plainButton}>
                           消す
                         </button>
                       </RowActions>
@@ -182,7 +210,7 @@ export function FleetPage(props: FleetPageProps) {
         <AgvDialog
           dialog={dialog}
           existingIds={entries.map((e) => e.id)}
-          types={types.map((t) => t.name)}
+          types={types.map((t) => [t.id, t.name] as const)}
           carriers={props.carriers}
           onSave={(draft) => {
             if (dialog.kind === 'addAgv') {
@@ -211,11 +239,14 @@ export function FleetPage(props: FleetPageProps) {
       {(dialog?.kind === 'addType' || dialog?.kind === 'changeType') && (
         <TypeDialog
           type={dialog.kind === 'changeType' ? dialog.type : null}
-          existingNames={types.map((t) => t.name)}
+          existingIds={types.map((t) => t.id)}
+          // 変えるときは、自分の名前は数えない
+          existingNames={types.filter((t) => dialog.kind !== 'changeType' || t.id !== dialog.type.id).map((t) => t.name)}
           defaults={props.defaults}
           onSave={(type) => {
-            props.onSaveType(dialog.kind === 'changeType' ? dialog.type.name : null, type);
+            const original = dialog.kind === 'changeType' ? dialog.type.id : null;
             close();
+            void send(() => props.onSaveType(original, type));
           }}
           onCancel={close}
         />
@@ -227,8 +258,9 @@ export function FleetPage(props: FleetPageProps) {
           confirmLabel="種類を消す"
           tone="danger"
           onConfirm={() => {
-            props.onDeleteType(dialog.type.name);
+            const id = dialog.type.id;
             close();
+            void send(() => props.onDeleteType(id));
           }}
           onCancel={close}
         />
@@ -247,7 +279,8 @@ function AgvDialog({
 }: {
   readonly dialog: { readonly kind: 'addAgv' } | { readonly kind: 'changeAgv' | 'alignAgv'; readonly entry: AgvEntry };
   readonly existingIds: readonly string[];
-  readonly types: readonly string[];
+  /** 種類（ID と名前）。 */
+  readonly types: readonly (readonly [string, string])[];
   readonly carriers: readonly string[];
   readonly onSave: (draft: AgvDraft) => void;
   readonly onCancel: () => void;
@@ -276,7 +309,7 @@ function AgvDialog({
   );
 }
 
-const TYPE_FIELDS: readonly (readonly [keyof Omit<TypeDraft, 'name' | 'special'>, string, string])[] = [
+const TYPE_FIELDS: readonly (readonly [keyof Omit<TypeDraft, 'id' | 'name' | 'special'>, string, string])[] = [
   ['forward', '前進の速さ', 'mm/s'],
   ['backward', '後退の速さ', 'mm/s'],
   ['rotation', '回転の速さ', '°/s'],
@@ -286,26 +319,37 @@ const TYPE_FIELDS: readonly (readonly [keyof Omit<TypeDraft, 'name' | 'special'>
 
 function TypeDialog({
   type,
+  existingIds,
   existingNames,
   defaults,
   onSave,
   onCancel,
 }: {
   readonly type: AgvType | null;
+  readonly existingIds: readonly string[];
+  /** ほかの種類の名前。 */
   readonly existingNames: readonly string[];
   readonly defaults: ChargeDefaults;
   readonly onSave: (type: AgvType) => void;
   readonly onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<TypeDraft>(() =>
-    type === null ? { name: '', forward: '', backward: '', rotation: '', chargeAt: '', resumeAt: '', special: false } : typeDraftOf(type),
+    type === null ? { id: '', name: '', forward: '', backward: '', rotation: '', chargeAt: '', resumeAt: '', special: false } : typeDraftOf(type),
   );
-  const problem = typeProblem(draft, type === null ? { mode: 'add', existingNames, defaults } : { mode: 'edit', existingNames, defaults, original: type.name });
+  const problem = typeProblem(draft, type === null ? { mode: 'add', existingIds, existingNames, defaults } : { mode: 'edit', existingNames, defaults });
   const placeholder = (key: string) => (type === null && key === 'chargeAt' ? `既定値 ${defaults.chargeAt}` : type === null && key === 'resumeAt' ? `既定値 ${defaults.resumeAt}` : undefined);
 
   return (
     <FormDialog title={type === null ? 'AGV の種類を加える' : `${type.name} を変える`} onCancel={onCancel}>
       {type === null && <p className={note}>充電の値を空にすると、いまの既定値で埋めて保存します。あとで既定値を変えても、この種類の値は変わりません。</p>}
+      {type === null ? (
+        <TextField label="種類の ID" value={draft.id} onChange={(id) => setDraft((d) => ({ ...d, id }))} />
+      ) : (
+        <p className={note}>
+          種類の ID：<span className="font-number font-bold">{type.id}</span>（ID は変えられません）
+        </p>
+      )}
+      {type === null && <p className={note}>ID は、AGV が使う種類を指すものです。英数字と「-」「_」で入れてください。あとから変えられません。</p>}
       <TextField label="種類の名前" value={draft.name} onChange={(name) => setDraft((d) => ({ ...d, name }))} />
       <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         {TYPE_FIELDS.map(([key, label, unit]) => (

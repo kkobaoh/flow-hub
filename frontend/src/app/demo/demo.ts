@@ -305,14 +305,14 @@ export const demoRecords: readonly ConsumableRecord[] = [
 
 /** 見本の AGV の登録（AGV-4 は、走行の側にだけ登録されている食い違い）。 */
 export const demoAgvEntries: readonly AgvEntry[] = [
-  ...demoAgvs.map((a): AgvEntry => ({ id: a.id, type: a.id === 'AGV-3' ? '[種類B]' : '[種類A]', carrier: '[キャリアの種類A]', control: a.control, registration: 'both' })),
-  { id: agvId('AGV-4'), type: '[種類A]', carrier: null, control: null, registration: 'trafficOnly' },
+  ...demoAgvs.map((a): AgvEntry => ({ id: a.id, type: a.id === 'AGV-3' ? 'type-b' : 'type-a', carrier: '[キャリアの種類A]', control: a.control, registration: 'both' })),
+  { id: agvId('AGV-4'), type: 'type-a', carrier: null, control: null, registration: 'trafficOnly' },
 ];
 
 /** 見本の AGV の種類。 */
 export const demoAgvTypes: readonly AgvType[] = [
-  { name: '[種類A]', forward: 1000, backward: 500, rotation: 45, chargeAt: 20, resumeAt: 80, special: false },
-  { name: '[種類B]', forward: 800, backward: 400, rotation: 30, chargeAt: 20, resumeAt: 80, special: true },
+  { id: 'type-a', name: '[種類A]', forward: 1000, backward: 500, rotation: 45, chargeAt: 20, resumeAt: 80, special: false },
+  { id: 'type-b', name: '[種類B]', forward: 800, backward: 400, rotation: 30, chargeAt: 20, resumeAt: 80, special: true },
 ];
 
 /** 見本のキャリアの種類。 */

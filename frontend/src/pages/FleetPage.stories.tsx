@@ -12,12 +12,14 @@ const meta = {
     carriers: demoCarriers,
     defaults: { chargeAt: 20, resumeAt: 80 },
     permissions: initialRoles.管理者,
+    offline: false,
+    agvEntryNote: null,
     onAddAgv: () => {},
     onChangeAgv: () => {},
     onAlignAgv: () => {},
     onDeleteAgv: () => {},
-    onSaveType: () => {},
-    onDeleteType: () => {},
+    onSaveType: () => Promise.resolve(null),
+    onDeleteType: () => Promise.resolve(null),
   },
   decorators: [
     (Story) => (

@@ -5,6 +5,9 @@ import type { Permissions } from '../auth/permissions';
 
 /** AGV の種類。速さと充電の値はいつも具体的な数（加えるときに省いた充電の値は、既定値で埋めてある）。 */
 export interface AgvType {
+  /** 種類の ID（AGV が使う種類を指す。加えるときに入れ、あとから変えない）。 */
+  readonly id: string;
+  /** 画面に出す名前（いつでも変えられる。ほかの種類と同じ名前は付けられない）。 */
   readonly name: string;
   /** 前進の速さ（mm/s）。 */
   readonly forward: number;
@@ -23,7 +26,7 @@ export interface AgvType {
 /** 交通整理と配車の両方に登録してあるか（片方だけなら、起動したときの食い違い）。 */
 export type Registration = 'both' | 'trafficOnly' | 'dispatchOnly';
 
-/** 登録してある AGV。交通整理だけなら carrier と control がなく、配車だけなら type がない。 */
+/** 登録してある AGV。交通整理だけなら carrier と control がなく、配車だけなら type がない。type は種類の ID。 */
 export interface AgvEntry {
   readonly id: AgvId;
   readonly type: string | null;
@@ -40,6 +43,8 @@ export interface AgvDraft {
 
 /** AGV の種類の下書き（入力のままの文字）。 */
 export interface TypeDraft {
+  /** 種類の ID（加えるときだけ入れる）。 */
+  readonly id: string;
   readonly name: string;
   readonly forward: string;
   readonly backward: string;
@@ -54,9 +59,10 @@ export interface ChargeDefaults {
   readonly resumeAt: number;
 }
 
+/** existingNames は、ほかの種類の名前（変えるときは、自分の名前を含めない）。 */
 export type TypeMode =
-  | { readonly mode: 'add'; readonly existingNames: readonly string[]; readonly defaults: ChargeDefaults }
-  | { readonly mode: 'edit'; readonly existingNames: readonly string[]; readonly defaults: ChargeDefaults; readonly original: string };
+  | { readonly mode: 'add'; readonly existingIds: readonly string[]; readonly existingNames: readonly string[]; readonly defaults: ChargeDefaults }
+  | { readonly mode: 'edit'; readonly existingNames: readonly string[]; readonly defaults: ChargeDefaults };
 
 const CONFIGURE = 'AGV と AGV の種類の登録は、管理者のロールで使えます。';
 
@@ -106,6 +112,7 @@ export function agvProblem(draft: AgvDraft, existingIds: readonly string[] | nul
 }
 
 const INTEGER = /^\d+$/;
+const TYPE_ID = /^[A-Za-z0-9_-]+$/;
 
 function speedOk(text: string): boolean {
   return INTEGER.test(text.trim()) && Number(text) >= 1;
@@ -117,12 +124,24 @@ function percentOk(text: string): boolean {
 
 /** 種類を保存できない理由（保存できるなら null）。 */
 export function typeProblem(draft: TypeDraft, mode: TypeMode): string | null {
+  if (mode.mode === 'add') {
+    const id = draft.id.trim();
+    if (id === '') {
+      return '種類の ID を入れてください。';
+    }
+    if (!TYPE_ID.test(id)) {
+      return '種類の ID は、英数字と「-」「_」で入れてください。';
+    }
+    if (mode.existingIds.includes(id)) {
+      return `ID ${id} の種類は、もう登録してあります。`;
+    }
+  }
   const name = draft.name.trim();
   if (name === '') {
     return '種類の名前を入れてください。';
   }
-  if (mode.existingNames.includes(name) && !(mode.mode === 'edit' && mode.original === name)) {
-    return `${name} は、もう登録してあります。`;
+  if (mode.existingNames.includes(name)) {
+    return `${name} という名前の種類は、もう登録してあります。`;
   }
   for (const [text, label] of [
     [draft.forward, '前進の速さ'],
@@ -152,6 +171,7 @@ export function typeProblem(draft: TypeDraft, mode: TypeMode): string | null {
 export function toAgvType(draft: TypeDraft, defaults: ChargeDefaults): AgvType {
   const percent = (text: string, fallback: number) => (text.trim() === '' ? fallback : Number(text));
   return {
+    id: draft.id.trim(),
     name: draft.name.trim(),
     forward: Number(draft.forward),
     backward: Number(draft.backward),
@@ -164,6 +184,7 @@ export function toAgvType(draft: TypeDraft, defaults: ChargeDefaults): AgvType {
 
 export function typeDraftOf(type: AgvType): TypeDraft {
   return {
+    id: type.id,
     name: type.name,
     forward: String(type.forward),
     backward: String(type.backward),
@@ -174,6 +195,11 @@ export function typeDraftOf(type: AgvType): TypeDraft {
   };
 }
 
+/** 種類の ID から、画面に出す名前（知らない ID なら、ID のまま）。 */
+export function typeNameOf(types: readonly AgvType[], id: string): string {
+  return types.find((t) => t.id === id)?.name ?? id;
+}
+
 /** 種類を消すのを押せない理由。使う AGV がなければ消せる。 */
 export function typeDeleteBlockedReason(type: AgvType, entries: readonly AgvEntry[], permissions: Permissions): string | null {
   const blocked = configureBlockedReason(permissions);
@@ -181,7 +207,7 @@ export function typeDeleteBlockedReason(type: AgvType, entries: readonly AgvEntr
     return blocked;
   }
   const users = entries
-    .filter((e) => e.type === type.name)
+    .filter((e) => e.type === type.id)
     .map((e) => e.id)
     .sort(byIdNumber);
   return users.length === 0 ? null : `${users.join('、')} が使っているので、消せません。`;

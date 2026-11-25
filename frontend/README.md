@@ -37,9 +37,9 @@ React + TypeScript で作り、Vite でビルドします。見た目は Tailwin
 
 画面は、サーバー（`src/FlowHub.Api`）と SignalR と HTTP でつながります（決まりは [docs/screens.md](../docs/screens.md) の「画面とサーバーの通信」）。
 
-- 開発のときは、リポジトリの一番上で `dotnet run --project src/FlowHub.Api` を起こしてから、`npm run dev` で画面を開きます。開発用のサーバー（Vite）が、`/hubs`、`/system`、`/transports`、`/agvs`、`/devices`、`/consumables` を Api（既定は `http://localhost:5020`）へ渡します。つなぐ先は、環境変数 `FLOWHUB_API_URL` で変えられます。
+- 開発のときは、リポジトリの一番上で `dotnet run --project src/FlowHub.Api` を起こしてから、`npm run dev` で画面を開きます。開発用のサーバー（Vite）が、`/hubs`、`/system`、`/transports`、`/agvs`、`/agv-types`、`/devices`、`/consumables` を Api（既定は `http://localhost:5020`）へ渡します。つなぐ先は、環境変数 `FLOWHUB_API_URL` で変えられます。
 - Api を起こしていないときは、画面の下に「サーバーとつないでいます」の帯が出て、運転の切り替えは押せません。
-- サーバーとつないでいるのは、マップ、搬送の一覧、装置とストッカー、ステーションの在庫、消耗品の検索と手入力の画面です。ほかの画面は、まだ見本のデータ（`src/app/demo/`）で動き、上に「この画面は、見本のデータです」の帯を出します。
+- サーバーとつないでいるのは、マップ、搬送の一覧、装置とストッカー、ステーションの在庫、消耗品の検索と手入力、AGV と AGV の種類の登録の画面です（AGV の登録の操作はまだ）。ほかの画面は、まだ見本のデータ（`src/app/demo/`）で動き、上に「この画面は、見本のデータです」の帯を出します。
 - アプリの接続は `src/app/realtime/` で組み立てます。業務データの変換や操作の送信は各機能に置きます。テストや Storybook では `src/testing/` の `createFakeLink` を渡して動かします。
 - E2E テストは、Api をポート 5199、開発用のサーバーを 5190 で起こします。Api の DB（SQLite）は `frontend/.e2e-data/` に置きます（開発用の DB とは分けている。git には入れない）。
 

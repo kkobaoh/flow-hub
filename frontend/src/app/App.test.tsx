@@ -207,6 +207,36 @@ describe('App', () => {
     window.location.hash = '';
   });
 
+  it('AGV と AGV の種類の登録は、届いた登録で出し、種類を消すのをサーバーへ送って、断られたら理由を出す', async () => {
+    window.location.hash = '#/agvs';
+    const link = connected();
+    const { container } = render(<App link={link} />);
+    expect(container.textContent).toContain('AGV と AGV の種類の登録を読み込んでいます。');
+
+    act(() =>
+      link.emitFleet({
+        version: 1,
+        types: [{ id: 'small', name: '小さい AGV', forward: 500, backward: 250, rotation: 90, chargeAt: 20, resumeAt: 80, special: false }],
+        entries: [],
+        defaults: { chargeAt: 20, resumeAt: 80 },
+        carriers: ['X'],
+      }),
+    );
+    expect(container.textContent).toContain('AGV の登録（加える・変える・そろえる・消す）は、まだ使えません。');
+
+    link.respondToAgvTypes('inUse');
+    const row = [...container.querySelectorAll('[aria-labelledby="type-title"] tbody tr')].find((r) => r.textContent?.includes('小さい AGV'))!;
+    click(buttonByText(row, '消す'));
+    await act(async () => {
+      click(buttonByText(container.querySelector('[role="alertdialog"]')!, '種類を消す'));
+      await Promise.resolve();
+    });
+
+    expect(link.agvTypeCommands).toEqual([{ kind: 'delete', id: 'small' }]);
+    expect(container.querySelector('[aria-labelledby="type-title"] [role="alert"]')?.textContent).toBe('その種類を使う AGV があるので、消せませんでした。');
+    window.location.hash = '';
+  });
+
   it('URL で指定した装置を、装置とストッカーの画面で開く', () => {
     window.location.hash = '#/devices/DEV-2';
     const link = connected();
@@ -305,7 +335,8 @@ describe('App', () => {
     ['#/devices', false],
     ['#/station', false],
     ['#/transports', false],
-    ['#/agvs', true],
+    ['#/agvs', false],
+    ['#/users', true],
     ['#/consumables', false],
     ['#/consumableConfig', true],
   ])('見本のデータで動かしている画面だけ、そのことを帯で知らせる（%s）', (hash, demo) => {

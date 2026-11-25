@@ -1,7 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  demoAgvEntries,
-  demoAgvTypes,
   demoCarriers,
   demoConfigVarieties,
   demoDeviceConfigs,
@@ -30,7 +28,7 @@ import { StationPage } from '../pages/StationPage';
 import { DispatchPage } from '../pages/DispatchPage';
 import { fixProblem } from '../features/tool/station';
 import { UsersPage } from '../pages/UsersPage';
-import { agvId, type AgvId } from '../features/fleet/agv';
+import type { AgvId } from '../features/fleet/agv';
 import { panelOptions } from '../features/fleet/panelOptions';
 import { latestSequence, railMessages, readSeenUpTo, writeSeenUpTo, type LocalMessage } from '../features/alarm/messageList';
 import type { CommandResult } from '../shared/api/postCommand';
@@ -46,6 +44,7 @@ import { equipmentDetails } from '../features/tool/equipmentDetails';
 import { deviceInsideOf, stationInventoryOf } from '../features/tool/inside';
 import { toTransports } from '../features/dispatch/api/transportsSnapshot';
 import { toHit, toRecord } from '../features/tool/api/consumablesSnapshot';
+import { agvTypeNotice } from '../features/fleet/api/fleetSnapshot';
 import { cancelNotice } from '../features/dispatch/api/transportCommands';
 import { consumableNotice, type ConsumableCommand } from '../features/tool/api/consumableCommands';
 
@@ -86,7 +85,10 @@ const commandFailed = {
 } as const;
 
 /** サーバーとつないだデータで出す画面（ほかの画面には、見本のデータだと帯で知らせる）。 */
-const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables']);
+const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables', 'agvs']);
+
+/** AGV の登録（加える・変える・そろえる・消す）を、まだサーバーとつないでいないことの知らせ（CN-13 でつなぐ）。 */
+const AGV_ENTRY_NOTE = 'AGV の登録（加える・変える・そろえる・消す）は、まだ使えません。';
 
 /** サーバーから様子が届くまで出す。 */
 function Loading({ what }: { readonly what: string }) {
@@ -124,8 +126,6 @@ export function App({ link }: AppProps) {
   const [sendingAgvs, setSendingAgvs] = useState<ReadonlyMap<AgvId, number>>(new Map());
   const [agvNotices, setAgvNotices] = useState<ReadonlyMap<AgvId, string>>(new Map());
   const offline = server.connection !== 'connected';
-  const [agvEntries, setAgvEntries] = useState(demoAgvEntries);
-  const [agvTypes, setAgvTypes] = useState(demoAgvTypes);
   const [processKinds, setProcessKinds] = useState(demoProcessKinds);
   const [configVarieties, setConfigVarieties] = useState(demoConfigVarieties);
   const [deviceConfigs, setDeviceConfigs] = useState(demoDeviceConfigs);
@@ -309,19 +309,24 @@ export function App({ link }: AppProps) {
           />
         );
       case 'agvs':
-        return (
+        return server.fleet.kind === 'waiting' ? (
+          <Loading what="AGV と AGV の種類の登録" />
+        ) : (
           <FleetPage
-            entries={agvEntries}
-            types={agvTypes}
-            carriers={demoCarriers}
-            defaults={{ chargeAt: 20, resumeAt: 80 }}
+            entries={server.fleet.snapshot.entries}
+            types={server.fleet.snapshot.types}
+            carriers={server.fleet.snapshot.carriers}
+            defaults={server.fleet.snapshot.defaults}
             permissions={permissions}
-            onAddAgv={(d) => setAgvEntries((es) => [...es, { id: agvId(d.id), type: d.type, carrier: d.carrier, control: 'detached', registration: 'both' }])}
-            onChangeAgv={(id, c) => setAgvEntries((es) => es.map((e) => (e.id === id ? { ...e, ...c } : e)))}
-            onAlignAgv={(id, c) => setAgvEntries((es) => es.map((e) => (e.id === id ? { ...e, ...c, control: 'detached', registration: 'both' } : e)))}
-            onDeleteAgv={(id) => setAgvEntries((es) => es.filter((e) => e.id !== id))}
-            onSaveType={(original, t) => setAgvTypes((ts) => (original === null ? [...ts, t] : ts.map((x) => (x.name === original ? t : x))))}
-            onDeleteType={(name) => setAgvTypes((ts) => ts.filter((t) => t.name !== name))}
+            offline={offline}
+            agvEntryNote={AGV_ENTRY_NOTE}
+            // AGV の登録は、まだサーバーとつないでいない（CN-13）。押せないので、呼ばれない
+            onAddAgv={() => {}}
+            onChangeAgv={() => {}}
+            onAlignAgv={() => {}}
+            onDeleteAgv={() => {}}
+            onSaveType={async (original, type) => agvTypeNotice(await link.operateAgvTypes({ kind: original === null ? 'add' : 'edit', type }))}
+            onDeleteType={async (id) => agvTypeNotice(await link.operateAgvTypes({ kind: 'delete', id }))}
           />
         );
       case 'consumableConfig':

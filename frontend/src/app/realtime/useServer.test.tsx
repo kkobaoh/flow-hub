@@ -22,7 +22,7 @@ describe('useServer', () => {
     const { latest } = watch(link);
 
     expect(link.connected).toBe(true);
-    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' }, messages: { kind: 'waiting' }, map: { kind: 'waiting' }, equipment: { kind: 'waiting' }, transports: { kind: 'waiting' }, consumables: { kind: 'waiting' } });
+    expect(latest()).toEqual({ connection: 'connecting', status: { kind: 'waiting' }, agvs: { kind: 'waiting' }, messages: { kind: 'waiting' }, map: { kind: 'waiting' }, equipment: { kind: 'waiting' }, transports: { kind: 'waiting' }, consumables: { kind: 'waiting' }, fleet: { kind: 'waiting' } });
   });
 
   it('届いた運転状態の様子と、つながりの様子を持つ', () => {
