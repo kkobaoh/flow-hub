@@ -4,6 +4,8 @@ test('初期設定は一度だけ完了でき、もう一つのセッション�
   const other = await browser.newContext({ baseURL });
   try {
     const second = await other.newPage();
+    await second.goto('/#/users');
+    await expect(second.getByRole('link', { name: 'ログイン画面へ' })).toBeVisible();
     for (const tab of [page, second]) {
       await tab.goto('/setup');
       await tab.getByLabel('設置先のパスワード').fill('e2e-only-setup-password');
@@ -39,6 +41,11 @@ test('初期設定は一度だけ完了でき、もう一つのセッション�
     await page.getByLabel('パスワード', { exact: true }).fill(' 新admin123👨‍👩‍👦');
     await page.getByRole('button', { name: 'ログイン' }).click();
     await expect(page.getByRole('button', { name: 'ログアウト' })).toBeVisible();
+    await page.goto('/#/users');
+    await expect(page.getByRole('cell', { name: 'first-admin', exact: true })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'admin01', exact: true })).toHaveCount(0);
+    await page.getByRole('tab', { name: 'ロール' }).click();
+    await expect(page.getByRole('checkbox', { name: '管理者：ユーザーとロールの管理' })).toBeChecked();
   } finally {
     await other.close();
   }

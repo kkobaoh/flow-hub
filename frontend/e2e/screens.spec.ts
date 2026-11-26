@@ -21,6 +21,7 @@ test('入り口はマップの画面で、メニューからどの画面へも�
     await openMenu(page, key);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
     await expect(page).toHaveURL(new RegExp(`#/${key}$`));
+    if (key === 'users') await expect(page.getByRole('link', { name: 'ログイン画面へ' })).toBeVisible();
   }
   expect(errors).toEqual([]);
 });

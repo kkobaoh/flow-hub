@@ -27,6 +27,7 @@ internal static class UserLoginEndpoints
     internal static void AddServices(IServiceCollection services, DatabaseOptions database)
     {
         services.AddSingleton(IdentityDatabase.OpenUserLogins(builder => Databases.Configure(builder, database, IdentityDatabase.Schema)));
+        services.AddSingleton(IdentityDatabase.OpenRoles(builder => Databases.Configure(builder, database, IdentityDatabase.Schema)));
         services.AddAuthentication().AddCookie(Scheme, options =>
         {
             options.Cookie.Name = Scheme;
@@ -97,6 +98,10 @@ internal static class UserLoginEndpoints
             };
         }).RequireAuthorization(SignedIn);
         group.MapGet("/account", (ClaimsPrincipal user) => Results.Ok(new { userId = user.FindFirstValue(ClaimTypes.NameIdentifier) }))
+            .RequireAuthorization(Ready);
+        group.MapGet("/roles", (RoleDirectory directory, CancellationToken token) => directory.ListAsync(token))
+            .RequireAuthorization(Ready);
+        group.MapGet("/users", (UserLoginStore store, CancellationToken token) => store.ListAsync(clock.GetUtcNow(), token))
             .RequireAuthorization(Ready);
         group.MapPost("/logout", async (HttpContext context, IAntiforgery csrf) =>
         {

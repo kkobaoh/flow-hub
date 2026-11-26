@@ -1,8 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import {
-  demoRoles,
-  demoUsers,
-} from './demo/demo';
 import { FleetPage } from '../pages/FleetPage';
 import { ConnectionBanner } from './layouts/ConnectionBanner';
 import { ToolSettingsPage } from '../pages/ToolSettingsPage';
@@ -19,7 +15,7 @@ import { screens, type ScreenKey } from './screens';
 import { StationPage } from '../pages/StationPage';
 import { DispatchPage } from '../pages/DispatchPage';
 import { fixProblem } from '../features/tool/station';
-import { UsersPage } from '../pages/UsersPage';
+import { UserDirectoryPage } from '../pages/UserDirectoryPage';
 import type { AgvId } from '../features/fleet/agv';
 import { panelOptions } from '../features/fleet/panelOptions';
 import { latestSequence, railMessages, readSeenUpTo, writeSeenUpTo, type LocalMessage } from '../features/alarm/messageList';
@@ -45,11 +41,6 @@ import { consumableNotice, type ConsumableCommand } from '../features/tool/api/c
 const user = { name: '[ユーザー名]', role: '管理者' } as const;
 const permissions = initialRoles.管理者;
 
-/** 見本の画面で見せる仮のパスワード（本物は、サーバーが作る）。 */
-function demoPassword(): string {
-  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  return Array.from(crypto.getRandomValues(new Uint32Array(12)), (n) => letters[n % letters.length]).join('');
-}
 /** マップが届くまで、またはまだ公開されていないときのマップ（パネルがない）。 */
 const EMPTY_LAYOUT: MapLayout = { panelSizeMm: 1000, panels: [], connections: [] };
 
@@ -78,7 +69,7 @@ const commandFailed = {
 } as const;
 
 /** サーバーとつないだデータで出す画面（ほかの画面には、見本のデータだと帯で知らせる）。 */
-const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables', 'agvs', 'consumableConfig']);
+const SERVER_SCREENS: ReadonlySet<ScreenKey> = new Set(['map', 'transports', 'devices', 'station', 'consumables', 'agvs', 'consumableConfig', 'users']);
 
 
 /** キャリアの種類の候補（いまある加工の種類のもの。重ねず、名前の順）。 */
@@ -120,8 +111,6 @@ export function App({ link }: AppProps) {
   const [sendingAgvs, setSendingAgvs] = useState<ReadonlyMap<AgvId, number>>(new Map());
   const [agvNotices, setAgvNotices] = useState<ReadonlyMap<AgvId, string>>(new Map());
   const offline = server.connection !== 'connected';
-  const [users, setUsers] = useState(demoUsers);
-  const [roles, setRoles] = useState(demoRoles);
   // マップの編集の画面は、開くたびにサーバーから下書きを読む。読めるまでは、つながっていれば読み直す。
   // 読んだあとは、「サーバーから読み直す」を押したときだけ読み直す（つながり直しても、画面の変更は捨てない）
   const [draftView, setDraftView] = useState<{ readonly kind: 'loading' } | { readonly kind: 'failed' } | { readonly kind: 'loaded'; readonly load: MapDraftLoad; readonly key: number }>({
@@ -368,33 +357,7 @@ export function App({ link }: AppProps) {
           />
         );
       case 'users':
-        return (
-          <UsersPage
-            users={users}
-            roles={roles}
-            permissions={permissions}
-            onChangeRole={(id, role) => setUsers((us) => us.map((u) => (u.id === id ? { ...u, role } : u)))}
-            onUnlock={(id) => setUsers((us) => us.map((u) => (u.id === id ? { ...u, state: { kind: 'active' } } : u)))}
-            onResetPassword={(id) => {
-              setUsers((us) => us.map((u) => (u.id === id ? { ...u, state: { kind: 'mustChangePassword' } } : u)));
-              return Promise.resolve(demoPassword());
-            }}
-            onAddUser={(id) => {
-              setUsers((us) => [...us, { id, role: roles.find((r) => r.isDefault)?.id ?? '', lastLogin: null, state: { kind: 'mustChangePassword' } }]);
-              return Promise.resolve(demoPassword());
-            }}
-            onSaveRole={(original, r) =>
-              setRoles((rs) =>
-                original === null
-                  ? [...rs, { ...r, id: `role-${rs.length + 1}`, permissions: new Set(), isDefault: false, fixed: false }]
-                  : rs.map((x) => (x.id === original ? { ...x, ...r } : x)),
-              )
-            }
-            onDeleteRole={(id) => setRoles((rs) => rs.filter((r) => r.id !== id))}
-            onMakeDefault={(id) => setRoles((rs) => rs.map((r) => ({ ...r, isDefault: r.id === id })))}
-            onSavePermissions={(saved) => setRoles((rs) => rs.map((r) => ({ ...r, permissions: saved.get(r.id) ?? r.permissions })))}
-          />
-        );
+        return <UserDirectoryPage />;
       case 'mapEdit':
         if (draftView.kind === 'failed') {
           return (

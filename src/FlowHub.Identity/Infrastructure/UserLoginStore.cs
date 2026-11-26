@@ -9,6 +9,8 @@ namespace FlowHub.Identity.Infrastructure;
 
 public sealed record UserSession(string UserId, string CredentialStamp, bool MustChangePassword);
 
+public sealed record UserDetails(string Id, string Role, bool MustChangePassword, DateTimeOffset? LockedUntil, DateTimeOffset? LastLogin);
+
 public abstract record PasswordChangeResult
 {
     private PasswordChangeResult() { }
@@ -33,6 +35,18 @@ public sealed class UserLoginStore
 
     internal UserLoginStore(DbContextOptions<IdentityDbContext> options) => _options = options;
 
+    public async Task<IReadOnlyList<UserDetails>> ListAsync(DateTimeOffset now, CancellationToken token)
+    {
+        await using var db = new IdentityDbContext(_options);
+        var rows = await db.Users.AsNoTracking().Select(user => new
+        {
+            user.Id, user.RoleId, user.MustChangePassword, user.LockedUntilTicks, user.LastLoginTicks,
+        }).ToListAsync(token).ConfigureAwait(false);
+        return rows.Select(row => new UserDetails(row.Id, row.RoleId, row.MustChangePassword,
+            row.LockedUntilTicks > now.UtcTicks ? new DateTimeOffset(row.LockedUntilTicks, TimeSpan.Zero) : null,
+            row.LastLoginTicks is long ticks ? new DateTimeOffset(ticks, TimeSpan.Zero) : null)).ToArray();
+    }
+
     public async Task<UserLoginResult> LoginAsync(string userId, string password, DateTimeOffset now, int limit,
         TimeSpan lockDuration, CancellationToken token)
     {
@@ -51,7 +65,9 @@ public sealed class UserLoginStore
             var matches = _hasher.VerifyHashedPassword(user, user.PasswordHash, password) != PasswordVerificationResult.Failed;
             var state = new SetupLoginState(user.Failures, user.LockedUntilTicks);
             var (result, next) = state.Check(matches, now, limit, lockDuration);
-            if (state != next)
+            var recordLogin = matches && (user.LastLoginTicks is null || user.LastLoginTicks < now.UtcTicks);
+            if (recordLogin) user.LastLoginTicks = now.UtcTicks;
+            if (recordLogin || state != next)
             {
                 user.Failures = next.Failures;
                 user.LockedUntilTicks = next.LockedUntilTicks;

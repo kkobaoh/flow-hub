@@ -11,6 +11,7 @@ internal sealed class UserRow
     public required string RoleId { get; init; }
     public string PasswordHash { get; set; } = string.Empty;
     public bool MustChangePassword { get; set; }
+    public long? LastLoginTicks { get; set; }
     public int Failures { get; set; }
     public long LockedUntilTicks { get; set; }
     public long Version { get; set; }
@@ -82,7 +83,7 @@ public sealed class FirstAdministratorStore
         }
 
         var temporaryPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
-        var user = new UserRow { Id = id.Value, RoleId = "admin", MustChangePassword = true };
+        var user = new UserRow { Id = id.Value, RoleId = InitialRoles.Administrator.Id, MustChangePassword = true };
         user.PasswordHash = new PasswordHasher<UserRow>().HashPassword(user, temporaryPassword);
         db.Users.Add(user);
         // 固定の主キーで競合を検出する。2行は SaveChanges の同じトランザクションで保存する。

@@ -28,9 +28,15 @@ public class UserLoginTests
         Assert.IsType<UserLoginResult.Locked>(await Login("Admin", "wrong"));
         logins = new UserLoginStore(options);
         Assert.IsType<UserLoginResult.Locked>(await Login("Admin", created.TemporaryPassword));
+        var locked = Assert.Single(await logins.ListAsync(time, token));
+        Assert.Null(locked.LastLogin);
+        Assert.Equal(time.AddMinutes(15), locked.LockedUntil);
+        Assert.True(locked.MustChangePassword);
         time = time.AddMinutes(15);
+        Assert.Null(Assert.Single(await logins.ListAsync(time, token)).LockedUntil);
         var login = Assert.IsType<UserLoginResult.Accepted>(await Login(" Admin ", created.TemporaryPassword));
         Assert.True(login.Session.MustChangePassword);
+        Assert.Equal(time, Assert.Single(await logins.ListAsync(time, token)).LastLogin);
         Assert.Equal("Admin", login.Session.UserId);
         Assert.IsType<PasswordChangeResult.TooShort>(await logins.ChangeInitialPasswordAsync(login.Session, "123456👩‍💻", 8, token));
         Assert.IsType<PasswordChangeResult.Unchanged>(await logins.ChangeInitialPasswordAsync(login.Session, created.TemporaryPassword, 8, token));
@@ -41,7 +47,11 @@ public class UserLoginTests
         Assert.True(await logins.IsCurrentAsync(changed.Session, token));
         Assert.IsType<PasswordChangeResult.Expired>(await logins.ChangeInitialPasswordAsync(login.Session, "another password", 8, token));
         Assert.IsType<UserLoginResult.Denied>(await Login("Admin", created.TemporaryPassword));
+        time = time.AddMinutes(10);
         Assert.IsType<UserLoginResult.Accepted>(await Login("Admin", chosen));
+        var lastSuccess = time;
+        time = time.AddMinutes(1);
         Assert.IsType<UserLoginResult.Denied>(await Login("Admin", chosen.Trim()));
+        Assert.Equal(lastSuccess, Assert.Single(await logins.ListAsync(time, token)).LastLogin);
     }
 }

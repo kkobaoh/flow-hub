@@ -426,7 +426,7 @@ describe('App', () => {
     ['#/station', false],
     ['#/transports', false],
     ['#/agvs', false],
-    ['#/users', true],
+    ['#/users', false],
     ['#/consumables', false],
     ['#/consumableConfig', false],
   ])('見本のデータで動かしている画面だけ、そのことを帯で知らせる（%s）', (hash, demo) => {

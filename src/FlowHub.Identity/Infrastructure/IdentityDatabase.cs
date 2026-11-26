@@ -19,12 +19,21 @@ internal sealed class SetupLoginRow
 internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> options) : DbContext(options)
 {
     public DbSet<UserRow> Users => Set<UserRow>();
+    public DbSet<RoleRow> Roles => Set<RoleRow>();
     public DbSet<SetupLoginRow> SetupLogin => Set<SetupLoginRow>();
     public DbSet<SetupCompletion> SetupCompletions => Set<SetupCompletion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(IdentityDatabase.Schema);
+        var roles = modelBuilder.Entity<RoleRow>();
+        roles.ToTable("roles");
+        roles.HasKey(r => r.Id);
+        roles.HasIndex(r => r.Name).IsUnique();
+        var permissions = modelBuilder.Entity<RolePermissionRow>();
+        permissions.ToTable("role_permissions");
+        permissions.HasKey(p => new { p.RoleId, p.Permission });
+        roles.HasMany(r => r.Permissions).WithOne().HasForeignKey(p => p.RoleId);
         var login = modelBuilder.Entity<SetupLoginRow>();
         login.ToTable("setup_login");
         login.HasKey(row => row.Id);
@@ -58,11 +67,17 @@ public static class IdentityDatabase
     public const string Schema = "identity";
 
     public static UserLoginStore OpenUserLogins(Action<DbContextOptionsBuilder> configure)
+        => new(Options(configure));
+
+    public static RoleDirectory OpenRoles(Action<DbContextOptionsBuilder> configure)
+        => new(Options(configure));
+
+    private static DbContextOptions<IdentityDbContext> Options(Action<DbContextOptionsBuilder> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
         var builder = new DbContextOptionsBuilder<IdentityDbContext>();
         configure(builder);
-        return new UserLoginStore(builder.Options);
+        return builder.Options;
     }
 
     public static async Task<FirstAdministratorStore> OpenAsync(Action<DbContextOptionsBuilder> configure,
@@ -70,9 +85,8 @@ public static class IdentityDatabase
     {
         ArgumentNullException.ThrowIfNull(configure);
         ArgumentNullException.ThrowIfNull(initialize);
-        var builder = new DbContextOptionsBuilder<IdentityDbContext>();
-        configure(builder);
-        await using var context = new IdentityDbContext(builder.Options);
+        var options = Options(configure);
+        await using var context = new IdentityDbContext(options);
         await initialize(context, cancellationToken).ConfigureAwait(false);
         if (context.Database.IsSqlite())
         {
@@ -83,10 +97,15 @@ public static class IdentityDatabase
                 INSERT OR IGNORE INTO setup_login (Id, Failures, LockedUntilTicks, Version) VALUES (1, 0, 0, 0);
                 """, cancellationToken).ConfigureAwait(false);
             await using var upgrade = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-            var previousSchema = !await context.Database.SqlQueryRaw<string>(
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS roles (Id TEXT NOT NULL PRIMARY KEY, Name TEXT NOT NULL, IsDefault INTEGER NOT NULL, IdleTimeoutTicks INTEGER NOT NULL);
+                CREATE UNIQUE INDEX IF NOT EXISTS IX_roles_Name ON roles (Name);
+                CREATE TABLE IF NOT EXISTS role_permissions (RoleId TEXT NOT NULL REFERENCES roles(Id) ON DELETE CASCADE, Permission TEXT NOT NULL, PRIMARY KEY (RoleId, Permission));
+                """, cancellationToken).ConfigureAwait(false);
+            var columns = await context.Database.SqlQueryRaw<string>(
                 """SELECT name AS Value FROM pragma_table_info('users')""")
-                .AnyAsync(name => name == "Version", cancellationToken).ConfigureAwait(false);
-            if (previousSchema)
+                .ToListAsync(cancellationToken).ConfigureAwait(false);
+            if (!columns.Contains("Version"))
             {
                 await context.Database.ExecuteSqlRawAsync("""
                     ALTER TABLE users ADD COLUMN Failures INTEGER NOT NULL DEFAULT 0;
@@ -94,8 +113,13 @@ public static class IdentityDatabase
                     ALTER TABLE users ADD COLUMN Version INTEGER NOT NULL DEFAULT 0;
                     """, cancellationToken).ConfigureAwait(false);
             }
+            if (!columns.Contains("LastLoginTicks"))
+            {
+                await context.Database.ExecuteSqlRawAsync("ALTER TABLE users ADD COLUMN LastLoginTicks INTEGER NULL", cancellationToken).ConfigureAwait(false);
+            }
             await upgrade.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
-        return new FirstAdministratorStore(builder.Options);
+        await RoleDirectory.InitializeAsync(context, cancellationToken).ConfigureAwait(false);
+        return new FirstAdministratorStore(options);
     }
 }

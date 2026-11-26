@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { demoRoles, demoUsers } from '../app/demo/demo';
 import { initialRoles } from '../features/auth/permissions';
-import { UsersPage } from './UsersPage';
+import { UsersPage, type UsersPageProps } from './UsersPage';
 
 const meta = {
   title: 'ユーザーとロールの管理/UsersScreen',
-  component: UsersPage,
+  component: (props: UsersPageProps) => <UsersPage {...props} />,
   args: {
     users: demoUsers,
     roles: demoRoles,
@@ -26,7 +26,7 @@ const meta = {
       </div>
     ),
   ],
-} satisfies Meta<typeof UsersPage>;
+} satisfies Meta<UsersPageProps>;
 
 export default meta;
 

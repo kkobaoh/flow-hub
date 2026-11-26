@@ -14,6 +14,9 @@ public class IdentityDatabaseTests
         var setup = await IdentityDatabase.OpenAsync(b => Databases.Configure(b, database, IdentityDatabase.Schema),
             (context, ct) => Databases.InitializeAsync(context, database, ct), token);
         var created = Assert.IsType<FirstAdministratorResult.Created>(await setup.CreateAsync("first", token));
+        var roles = await IdentityDatabase.OpenRoles(b => Databases.Configure(b, database, IdentityDatabase.Schema)).ListAsync(token);
+        Assert.Equal("admin", Assert.Single(roles, role => role.Fixed).Id);
+        Assert.Equal("viewer", Assert.Single(roles, role => role.IsDefault).Id);
         Assert.True(await setup.IsSetupCompleteAsync(token));
         var logins = IdentityDatabase.OpenUserLogins(b => Databases.Configure(b, database, IdentityDatabase.Schema));
         var login = Assert.IsType<UserLoginResult.Accepted>(await logins.LoginAsync("first", created.TemporaryPassword,

@@ -22,6 +22,42 @@ namespace FlowHub.Identity.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("FlowHub.Identity.Infrastructure.RolePermissionRow", b =>
+                {
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Permission")
+                        .HasColumnType("text");
+
+                    b.HasKey("RoleId", "Permission");
+
+                    b.ToTable("role_permissions", "identity");
+                });
+
+            modelBuilder.Entity("FlowHub.Identity.Infrastructure.RoleRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<long>("IdleTimeoutTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("roles", "identity");
+                });
+
             modelBuilder.Entity("FlowHub.Identity.Infrastructure.SetupCompletion", b =>
                 {
                     b.Property<int>("Id")
@@ -69,6 +105,9 @@ namespace FlowHub.Identity.Infrastructure.Migrations
                     b.Property<int>("Failures")
                         .HasColumnType("integer");
 
+                    b.Property<long?>("LastLoginTicks")
+                        .HasColumnType("bigint");
+
                     b.Property<long>("LockedUntilTicks")
                         .HasColumnType("bigint");
 
@@ -90,6 +129,20 @@ namespace FlowHub.Identity.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("users", "identity");
+                });
+
+            modelBuilder.Entity("FlowHub.Identity.Infrastructure.RolePermissionRow", b =>
+                {
+                    b.HasOne("FlowHub.Identity.Infrastructure.RoleRow", null)
+                        .WithMany("Permissions")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FlowHub.Identity.Infrastructure.RoleRow", b =>
+                {
+                    b.Navigation("Permissions");
                 });
 #pragma warning restore 612, 618
         }

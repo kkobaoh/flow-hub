@@ -50,11 +50,14 @@ type Dialog =
 const VIEW_ALL = 'すべての画面を見る';
 
 /** ユーザーとロールの管理（docs/screens.md の「9 ユーザーとロールの管理」）。 */
-export function UsersPage(props: UsersPageProps) {
-  const { users, roles, permissions } = props;
+type DirectoryProps = Pick<UsersPageProps, 'users' | 'roles'> & { readonly readOnly: true };
+
+export function UsersPage(props: UsersPageProps | DirectoryProps) {
+  const { users, roles } = props;
+  const actions = 'readOnly' in props ? undefined : props;
   const [tab, setTab] = useState<'users' | 'roles'>('users');
   const [dialog, setDialog] = useState<Dialog | null>(null);
-  const blocked = userAdminBlockedReason(permissions);
+  const blocked = actions ? userAdminBlockedReason(actions.permissions) : '現在はユーザーとロールの一覧を閲覧できます。変更操作は未接続です。';
   const allowed = blocked === null;
   const close = () => setDialog(null);
   const defaultRole = roles.find((r) => r.isDefault);
@@ -115,7 +118,7 @@ export function UsersPage(props: UsersPageProps) {
                 {[...users]
                   .sort((a, b) => byIdNumber(a.id, b.id))
                   .map((u) => {
-                    const reason = roleChangeBlockedReason(u, users, roles, permissions);
+                    const reason = actions ? roleChangeBlockedReason(u, users, roles, actions.permissions) : blocked;
                     return (
                       <tr key={u.id} className="border-b border-disabled-border">
                         <td className={`${td} font-number text-[17px] font-bold`}>{u.id}</td>
@@ -124,7 +127,7 @@ export function UsersPage(props: UsersPageProps) {
                             aria-label={`${u.id} のロール`}
                             value={u.role}
                             disabled={reason !== null}
-                            onChange={(e) => props.onChangeRole(u.id, e.target.value)}
+                            onChange={(e) => actions?.onChangeRole(u.id, e.target.value)}
                             className={`${field} disabled:bg-ground`}
                           >
                             {roles.map((r) => (
@@ -140,7 +143,7 @@ export function UsersPage(props: UsersPageProps) {
                         <td className="px-3 py-1.5">
                           <RowActions reason={null}>
                             {u.state.kind === 'locked' && (
-                              <button type="button" disabled={!allowed} onClick={() => props.onUnlock(u.id)} className={darkButton}>
+                              <button type="button" disabled={!allowed} onClick={() => actions?.onUnlock(u.id)} className={darkButton}>
                                 ロックを外す
                               </button>
                             )}
@@ -193,7 +196,7 @@ export function UsersPage(props: UsersPageProps) {
                         <td className="px-3 py-1.5">
                           <RowActions reason={allowed && !r.fixed && !r.isDefault ? reason : null}>
                             {!r.isDefault && !r.fixed && (
-                              <button type="button" disabled={!allowed} onClick={() => props.onMakeDefault(r.id)} className={plainButton}>
+                              <button type="button" disabled={!allowed} onClick={() => actions?.onMakeDefault(r.id)} className={plainButton}>
                                 デフォルトにする
                               </button>
                             )}
@@ -212,22 +215,22 @@ export function UsersPage(props: UsersPageProps) {
               </table>
             </div>
           </section>
-          <PermissionMatrix key={roles.map((r) => r.id).join()} roles={roles} allowed={allowed} onSave={props.onSavePermissions} />
+          <PermissionMatrix key={roles.map((r) => r.id).join()} roles={roles} allowed={allowed} onSave={actions?.onSavePermissions} />
         </>
       )}
 
-      {dialog?.kind === 'addUser' && (
+      {actions && dialog?.kind === 'addUser' && (
         <AddUserDialog
           existing={users.map((u) => u.id)}
           defaultRole={defaultRole?.name ?? '－'}
           onSave={(id) => {
             close();
-            void showPassword(id, props.onAddUser(id));
+            void showPassword(id, actions.onAddUser(id));
           }}
           onCancel={close}
         />
       )}
-      {dialog?.kind === 'reset' && (
+      {actions && dialog?.kind === 'reset' && (
         <ConfirmDialog
           title={`${dialog.user} を仮のパスワードにしますか？`}
           body="いまのパスワードは使えなくなります。システムが仮のパスワードを作って、この画面で一度だけ見せます。次のログインで、パスワードの変更を求めます。"
@@ -236,7 +239,7 @@ export function UsersPage(props: UsersPageProps) {
           onConfirm={() => {
             const user = dialog.user;
             close();
-            void showPassword(user, props.onResetPassword(user));
+            void showPassword(user, actions.onResetPassword(user));
           }}
           onCancel={close}
         />
@@ -267,7 +270,7 @@ export function UsersPage(props: UsersPageProps) {
           target={dialog.target}
           roles={roles}
           onSave={(role) => {
-            props.onSaveRole(dialog.target?.id ?? null, role);
+            actions?.onSaveRole(dialog.target?.id ?? null, role);
             close();
           }}
           onCancel={close}
@@ -280,7 +283,7 @@ export function UsersPage(props: UsersPageProps) {
           confirmLabel="ロールを消す"
           tone="danger"
           onConfirm={() => {
-            props.onDeleteRole(dialog.target.id);
+            actions?.onDeleteRole(dialog.target.id);
             close();
           }}
           onCancel={close}
@@ -297,7 +300,7 @@ function PermissionMatrix({
 }: {
   readonly roles: readonly Role[];
   readonly allowed: boolean;
-  readonly onSave: (permissions: ReadonlyMap<string, ReadonlySet<Permission>>) => void;
+  readonly onSave: UsersPageProps['onSavePermissions'] | undefined;
 }) {
   const editable = roles.filter((r) => !r.fixed);
   const initial = new Map(editable.map((r) => [r.id, new Set(r.permissions)] as const));
@@ -323,7 +326,7 @@ function PermissionMatrix({
         <h2 id="perm-title" className="m-0 text-lg font-bold">
           ロールごとのパーミッション
         </h2>
-        <button type="button" disabled={!allowed || !changed} onClick={() => onSave(draft)} className={darkButton}>
+        <button type="button" disabled={!allowed || !changed} onClick={() => onSave?.(draft)} className={darkButton}>
           パーミッションを保存する
         </button>
       </div>

@@ -189,6 +189,20 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.True(JsonNode.Parse(await firstLogin.Content.ReadAsStringAsync(Token))!["mustChangePassword"]!.GetValue<bool>());
         using var beforeChange = await client.GetAsync(new Uri("/identity/user/account", UriKind.Relative), Token);
         Assert.Equal(HttpStatusCode.Forbidden, beforeChange.StatusCode);
+        var rolesPath = new Uri("/identity/user/roles", UriKind.Relative);
+        using var temporaryRoles = await client.GetAsync(rolesPath, Token);
+        Assert.Equal(HttpStatusCode.Forbidden, temporaryRoles.StatusCode);
+        using var changed = await Send("/identity/user/initial-password", """{"password":"permanent-test-password"}""",
+            await FormToken("/identity/user/session"));
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        var roles = JsonNode.Parse(await client.GetStringAsync(rolesPath, Token))!.AsArray();
+        Assert.Equal(4, roles.Count);
+        Assert.Equal("admin", Assert.Single(roles, r => r!["fixed"]!.GetValue<bool>())!["id"]!.GetValue<string>());
+        var users = JsonNode.Parse(await client.GetStringAsync(new Uri("/identity/user/users", UriKind.Relative), Token))!.AsArray();
+        var first = Assert.Single(users)!;
+        Assert.Equal("first", first["id"]!.GetValue<string>());
+        Assert.Equal("admin", first["role"]!.GetValue<string>());
+        Assert.DoesNotContain("passwordHash", first.ToJsonString(), StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<HttpClient> ServeAsync(FlowHubSystem system, bool setupLogin = false)
