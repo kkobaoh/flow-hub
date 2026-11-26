@@ -219,6 +219,13 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var newUser = Assert.Single(updated, row => row!["id"]!.GetValue<string>() == "new-user")!;
         Assert.Equal("viewer", newUser["role"]!.GetValue<string>());
         Assert.True(newUser["mustChangePassword"]!.GetValue<bool>());
+        const string rolePath = "/identity/user/users/role";
+        using var last = await Send(rolePath, """{"userId":"first","roleId":"viewer"}""", csrf);
+        Assert.Equal(HttpStatusCode.Conflict, last.StatusCode);
+        using var promoted = await Send(rolePath, """{"userId":"new-user","roleId":"admin"}""", csrf);
+        Assert.Equal(HttpStatusCode.NoContent, promoted.StatusCode);
+        using var restored = await Send(rolePath, """{"userId":"new-user","roleId":"viewer"}""", csrf);
+        Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
         using var logout = await Send("/identity/user/logout", "{}", csrf);
         var viewerCredentials = new JsonObject { ["userId"] = "new-user", ["password"] = issued }.ToJsonString();
         using var viewerLogin = await Send("/identity/user/login", viewerCredentials, await FormToken("/identity/user/form"));
@@ -229,8 +236,24 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var options = _app!.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>>().Get("FlowHub.User");
         var ticket = options.TicketDataFormat.Unprotect(cookie["FlowHub.User=".Length..cookie.IndexOf(';', StringComparison.Ordinal)])!;
         Assert.Equal(TimeSpan.FromDays(7), ticket.Properties.ExpiresUtc - ticket.Properties.IssuedUtc);
+        using var automatic = await client.GetAsync(new Uri("/system/status", UriKind.Relative), Token);
+        Assert.Contains(automatic.Headers.GetValues("Set-Cookie"), value => value.StartsWith("FlowHub.User=", StringComparison.Ordinal));
+        using var negotiate = await client.PostAsync(new Uri("/hubs/screen/negotiate?negotiateVersion=1", UriKind.Relative), null, Token);
+        var transport = JsonNode.Parse(await negotiate.Content.ReadAsStringAsync(Token))!;
+        var connection = Uri.EscapeDataString(transport["connectionToken"]!.GetValue<string>());
+        using var poll = await client.GetAsync(new Uri("/hubs/screen?id=" + connection, UriKind.Relative), Token);
+        Assert.Equal(HttpStatusCode.OK, poll.StatusCode);
+        Assert.Contains(poll.Headers.GetValues("Set-Cookie"), value => value.StartsWith("FlowHub.User=", StringComparison.Ordinal));
         using var denied = await Send(addPath, """{"userId":"another"}""", await FormToken("/identity/user/session"));
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        using var selfPromotion = await Send(rolePath, """{"userId":"new-user","roleId":"admin"}""", await FormToken("/identity/user/session"));
+        Assert.Equal(HttpStatusCode.Forbidden, selfPromotion.StatusCode);
+        const string unlockPath = "/identity/user/users/unlock";
+        const string unlockBody = """{"userId":"new-user","lockToken":"1"}""";
+        using var invalidUnlock = await Send(unlockPath, unlockBody, "invalid");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidUnlock.StatusCode);
+        using var viewerUnlock = await Send(unlockPath, unlockBody, await FormToken("/identity/user/session"));
+        Assert.Equal(HttpStatusCode.Forbidden, viewerUnlock.StatusCode);
     }
 
     private async Task<HttpClient> ServeAsync(FlowHubSystem system, bool setupLogin = false)

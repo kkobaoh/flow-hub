@@ -117,6 +117,10 @@ public static class IdentityDatabase
             {
                 await context.Database.ExecuteSqlRawAsync("ALTER TABLE users ADD COLUMN LastLoginTicks INTEGER NULL", cancellationToken).ConfigureAwait(false);
             }
+            if (!columns.Contains("LockGeneration"))
+            {
+                await context.Database.ExecuteSqlRawAsync("ALTER TABLE users ADD COLUMN LockGeneration INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
+            }
             await upgrade.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
         await RoleDirectory.InitializeAsync(context, cancellationToken).ConfigureAwait(false);

@@ -21,7 +21,7 @@ export interface Role {
   readonly fixed: boolean;
 }
 
-export type UserState = { readonly kind: 'active' } | { readonly kind: 'locked'; readonly until: Date } | { readonly kind: 'mustChangePassword' };
+export type UserState = { readonly kind: 'active' } | { readonly kind: 'locked'; readonly until: Date; readonly lockToken?: string } | { readonly kind: 'mustChangePassword' };
 
 export interface UserAccount {
   readonly id: string;

@@ -8,6 +8,45 @@ namespace FlowHub.Identity.Tests;
 public class UserLoginTests
 {
     [Fact]
+    public async Task 古い解除要求は同じ期限でも新しいロックを解除しない()
+    {
+        var token = TestContext.Current.CancellationToken;
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<IdentityDbContext>().UseSqlite(connection)
+            .ConfigureWarnings(warnings => warnings.Ignore(SqliteEventId.SchemaConfiguredWarning)).Options;
+        await using var db = new IdentityDbContext(options);
+        await db.Database.EnsureCreatedAsync(token);
+        await RoleDirectory.InitializeAsync(db, token);
+        var first = Assert.IsType<FirstAdministratorResult.Created>(await new FirstAdministratorStore(options).CreateAsync("Admin", token));
+        var store = new UserLoginStore(options);
+        var now = DateTimeOffset.UnixEpoch;
+        Task<UserLoginResult> Login(string id, string password) => store.LoginAsync(id, password, now, 1, TimeSpan.FromMinutes(15), token);
+        var login = Assert.IsType<UserLoginResult.Accepted>(await Login("Admin", first.TemporaryPassword));
+        var admin = Assert.IsType<PasswordChangeResult.Changed>(await store.ChangeInitialPasswordAsync(login.Session, "permanent", 8, token));
+        var added = Assert.IsType<AddUserResult.Created>(await store.AddAsync(admin.Session, "viewer", token));
+        async Task<string> Lock()
+        {
+            Assert.IsType<UserLoginResult.Locked>(await Login("viewer", "wrong"));
+            return (await store.ListAsync(now, token)).Single(user => user.Id == "viewer").LockToken!;
+        }
+        Task<UnlockResult> Unlock(string seen) => store.UnlockAsync(admin.Session, "viewer", seen, now, token);
+        var old = await Lock();
+        Assert.Equal(UnlockResult.Unlocked, await Unlock(old));
+        Assert.Equal(UnlockResult.Unlocked, await Unlock(old));
+        var current = await Lock();
+        Assert.NotEqual(old, current);
+        Assert.Equal(UnlockResult.LockChanged, await Unlock(old));
+        Assert.IsType<UserLoginResult.Locked>(await Login("viewer", added.TemporaryPassword));
+        Assert.Equal(UnlockResult.Unlocked, await Unlock(current));
+        Assert.True(Assert.IsType<UserLoginResult.Accepted>(await Login("viewer", added.TemporaryPassword)).Session.MustChangePassword);
+        var expired = await Lock();
+        now = now.AddMinutes(15);
+        Assert.Equal(UnlockResult.Unlocked, await Unlock(expired));
+        Assert.Null((await store.ListAsync(now, token)).Single(user => user.Id == "viewer").LockedUntil);
+    }
+
+    [Fact]
     public async Task 管理者の失敗回数を保存し期限後は仮ログインできる()
     {
         var token = TestContext.Current.CancellationToken;

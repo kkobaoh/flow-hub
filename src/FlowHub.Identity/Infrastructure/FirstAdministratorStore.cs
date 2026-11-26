@@ -14,6 +14,7 @@ internal sealed class UserRow
     public long? LastLoginTicks { get; set; }
     public int Failures { get; set; }
     public long LockedUntilTicks { get; set; }
+    public long LockGeneration { get; set; }
     public long Version { get; set; }
 
     public static UserRow Create(UserId id, string roleId, out string temporaryPassword)

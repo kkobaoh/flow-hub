@@ -56,6 +56,18 @@ describe('UsersPage（ユーザーとロールの管理）', () => {
     expect(onUnlock).toHaveBeenCalledWith('ops01');
   });
 
+  it('保存済みの一覧では、解除操作が有効なときだけロック中の行から対象 ID を渡す', () => {
+    const onUnlock = vi.fn();
+    const view = render(<UsersPage readOnly users={users} roles={roles} />);
+    expect(byText(row(view.container, 'ops01'), 'ロックを外す').disabled).toBe(true);
+    view.rerender(<UsersPage readOnly users={users} roles={roles} onUnlock={onUnlock} />);
+    const unlock = byText(row(view.container, 'ops01'), 'ロックを外す');
+    expect(unlock.disabled).toBe(false);
+    click(unlock);
+    expect(onUnlock).toHaveBeenCalledWith('ops01');
+    expect(byText(row(view.container, 'admin01'), 'ロックを外す')).toBeUndefined();
+  });
+
   it('仮のパスワードにする：確かめてから作り、一度だけ見せる', async () => {
     const { container, onResetPassword } = setup();
 

@@ -9,7 +9,11 @@ namespace FlowHub.Identity.Infrastructure;
 
 public sealed record UserSession(string UserId, string CredentialStamp, bool MustChangePassword);
 
-public sealed record UserDetails(string Id, string Role, bool MustChangePassword, DateTimeOffset? LockedUntil, DateTimeOffset? LastLogin);
+public enum RoleChangeResult { Changed, Forbidden, NotFound, LastAdministrator }
+
+public enum UnlockResult { Unlocked, Forbidden, NotFound, LockChanged }
+
+public sealed record UserDetails(string Id, string Role, bool MustChangePassword, DateTimeOffset? LockedUntil, DateTimeOffset? LastLogin, string? LockToken);
 
 public abstract class AddUserResult
 {
@@ -62,8 +66,8 @@ public sealed class UserLoginStore
     {
         ArgumentNullException.ThrowIfNull(actor);
         await using var db = new IdentityDbContext(_options);
-        var caller = await db.Users.FindAsync([actor.UserId], token).ConfigureAwait(false);
-        if (actor.MustChangePassword || caller is null || Session(caller) != actor || caller.RoleId != InitialRoles.Administrator.Id)
+        await using var transaction = await db.Database.BeginTransactionAsync(token).ConfigureAwait(false);
+        if (!await LockAndCheckAdministratorAsync(db, actor, token).ConfigureAwait(false))
             return new AddUserResult.Forbidden();
 
         UserId id;
@@ -82,7 +86,35 @@ public sealed class UserLoginStore
             if (await db.Users.AnyAsync(u => u.Id == id.Value, token).ConfigureAwait(false)) return new AddUserResult.Duplicate();
             throw;
         }
+        await transaction.CommitAsync(token).ConfigureAwait(false);
         return new AddUserResult.Created(password);
+    }
+
+    private static async Task<bool> LockAndCheckAdministratorAsync(IdentityDbContext db, UserSession actor, CancellationToken token)
+    {
+        // 固定ロールの行を先にロックし、管理者の権限の確認から更新までを直列にする。
+        await db.Roles.Where(r => r.Id == InitialRoles.Administrator.Id)
+            .ExecuteUpdateAsync(change => change.SetProperty(r => r.Name, r => r.Name), token).ConfigureAwait(false);
+        var caller = await db.Users.FindAsync([actor.UserId], token).ConfigureAwait(false);
+        return !actor.MustChangePassword && caller is not null && Session(caller) == actor && caller.RoleId == InitialRoles.Administrator.Id;
+    }
+
+    public async Task<RoleChangeResult> ChangeRoleAsync(UserSession actor, string userId, string roleId, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        await using var db = new IdentityDbContext(_options);
+        await using var transaction = await db.Database.BeginTransactionAsync(token).ConfigureAwait(false);
+        if (!await LockAndCheckAdministratorAsync(db, actor, token).ConfigureAwait(false)) return RoleChangeResult.Forbidden;
+        var user = await db.Users.FindAsync([userId], token).ConfigureAwait(false);
+        if (user is null || !await db.Roles.AnyAsync(r => r.Id == roleId, token).ConfigureAwait(false)) return RoleChangeResult.NotFound;
+        var adminId = InitialRoles.Administrator.Id;
+        var other = await db.Users.AnyAsync(u => u.Id != userId && u.RoleId == adminId, token).ConfigureAwait(false);
+        if (!RoleRules.CanReassign(user.RoleId == adminId ? RoleKind.Administrator : RoleKind.Editable,
+            roleId == adminId ? RoleKind.Administrator : RoleKind.Editable, other)) return RoleChangeResult.LastAdministrator;
+        await db.Users.Where(u => u.Id == userId).ExecuteUpdateAsync(change => change
+            .SetProperty(u => u.RoleId, roleId).SetProperty(u => u.Version, u => u.Version + 1), token).ConfigureAwait(false);
+        await transaction.CommitAsync(token).ConfigureAwait(false);
+        return RoleChangeResult.Changed;
     }
 
     public async Task<IReadOnlyList<UserDetails>> ListAsync(DateTimeOffset now, CancellationToken token)
@@ -90,11 +122,30 @@ public sealed class UserLoginStore
         await using var db = new IdentityDbContext(_options);
         var rows = await db.Users.AsNoTracking().Select(user => new
         {
-            user.Id, user.RoleId, user.MustChangePassword, user.LockedUntilTicks, user.LastLoginTicks,
+            user.Id, user.RoleId, user.MustChangePassword, user.LockedUntilTicks, user.LastLoginTicks, user.LockGeneration,
         }).ToListAsync(token).ConfigureAwait(false);
         return rows.Select(row => new UserDetails(row.Id, row.RoleId, row.MustChangePassword,
             row.LockedUntilTicks > now.UtcTicks ? new DateTimeOffset(row.LockedUntilTicks, TimeSpan.Zero) : null,
-            row.LastLoginTicks is long ticks ? new DateTimeOffset(ticks, TimeSpan.Zero) : null)).ToArray();
+            row.LastLoginTicks is long ticks ? new DateTimeOffset(ticks, TimeSpan.Zero) : null,
+            row.LockedUntilTicks > now.UtcTicks ? row.LockGeneration.ToString(CultureInfo.InvariantCulture) : null)).ToArray();
+    }
+
+    public async Task<UnlockResult> UnlockAsync(UserSession actor, string userId, string lockToken, DateTimeOffset now, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        await using var db = new IdentityDbContext(_options);
+        await using var transaction = await db.Database.BeginTransactionAsync(token).ConfigureAwait(false);
+        if (!await LockAndCheckAdministratorAsync(db, actor, token).ConfigureAwait(false)) return UnlockResult.Forbidden;
+        var target = db.Users.Where(u => u.Id == userId);
+        if (long.TryParse(lockToken, NumberStyles.None, CultureInfo.InvariantCulture, out var generation))
+        {
+            await target.Where(u => u.LockGeneration == generation && u.LockedUntilTicks > now.UtcTicks)
+                .ExecuteUpdateAsync(update => update.SetProperty(u => u.LockedUntilTicks, 0L)
+                    .SetProperty(u => u.Version, u => u.Version + 1), token).ConfigureAwait(false);
+        }
+        var until = await target.Select(u => (long?)u.LockedUntilTicks).SingleOrDefaultAsync(token).ConfigureAwait(false);
+        await transaction.CommitAsync(token).ConfigureAwait(false);
+        return until is null ? UnlockResult.NotFound : until > now.UtcTicks ? UnlockResult.LockChanged : UnlockResult.Unlocked;
     }
 
     public async Task<UserLoginResult> LoginAsync(string userId, string password, DateTimeOffset now, int limit,
@@ -121,6 +172,7 @@ public sealed class UserLoginStore
             {
                 user.Failures = next.Failures;
                 user.LockedUntilTicks = next.LockedUntilTicks;
+                if (result == SetupLoginResult.Locked) user.LockGeneration++;
                 user.Version++;
                 try { await db.SaveChangesAsync(token).ConfigureAwait(false); }
                 catch (DbUpdateConcurrencyException) { continue; }

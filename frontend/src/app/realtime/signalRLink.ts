@@ -1,4 +1,4 @@
-import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
+import { HttpTransportType, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { postCommand } from '../../shared/api/postCommand';
 import { COMMAND_TIMEOUT_MS, retryDelayMs, type ServerHandlers, type ServerLink } from './link';
 import { sendAgvCommand } from '../../features/fleet/api/agvCommands';
@@ -68,7 +68,7 @@ export function createSignalRLink(baseUrl = ''): ServerLink {
 
 function connect(baseUrl: string, handlers: ServerHandlers): () => void {
   const connection = new HubConnectionBuilder()
-    .withUrl(`${baseUrl}/hubs/screen`)
+    .withUrl(`${baseUrl}/hubs/screen`, { transport: HttpTransportType.LongPolling })
     .withAutomaticReconnect({ nextRetryDelayInMilliseconds: (context) => retryDelayMs(context.previousRetryCount) })
     .configureLogging(LogLevel.Warning)
     .build();

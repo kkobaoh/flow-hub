@@ -108,6 +108,9 @@ namespace FlowHub.Identity.Infrastructure.Migrations
                     b.Property<long?>("LastLoginTicks")
                         .HasColumnType("bigint");
 
+                    b.Property<long>("LockGeneration")
+                        .HasColumnType("bigint");
+
                     b.Property<long>("LockedUntilTicks")
                         .HasColumnType("bigint");
 

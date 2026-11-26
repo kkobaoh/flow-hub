@@ -24,5 +24,12 @@ public class IdentityDatabaseTests
         var changed = Assert.IsType<PasswordChangeResult.Changed>(await logins.ChangeInitialPasswordAsync(login.Session, "local-test-password", 8, token));
         Assert.True(await logins.IsCurrentAsync(changed.Session, token));
         Assert.False(await logins.IsCurrentAsync(login.Session, token));
+        var now = DateTimeOffset.UnixEpoch;
+        Assert.IsType<AddUserResult.Created>(await logins.AddAsync(changed.Session, "new-user", token));
+        Assert.IsType<UserLoginResult.Locked>(await logins.LoginAsync("new-user", "wrong", now, 1, TimeSpan.FromMinutes(15), token));
+        var locked = Assert.Single(await logins.ListAsync(now, token), user => user.Id == "new-user");
+        Assert.NotNull(locked.LockToken);
+        Assert.Equal(UnlockResult.Unlocked, await logins.UnlockAsync(changed.Session, locked.Id, locked.LockToken, now, token));
+        Assert.Null(Assert.Single(await logins.ListAsync(now, token), user => user.Id == locked.Id).LockedUntil);
     }
 }

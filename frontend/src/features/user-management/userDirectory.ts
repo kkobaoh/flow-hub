@@ -23,6 +23,7 @@ interface UserWire {
   lastLogin: string | null;
   mustChangePassword: boolean;
   lockedUntil: string | null;
+  lockToken: string | null;
 }
 
 export class DirectoryAccessError extends Error {}
@@ -55,7 +56,7 @@ export async function fetchUserDirectory(signal: AbortSignal): Promise<UserDirec
     ...(Number.isFinite(firstExpiry) && { refreshAfterMs: Math.max(1, firstExpiry - now) }),
     users: users.map(user => ({
       id: user.id, role: user.role, lastLogin: user.lastLogin ? new Date(user.lastLogin) : null,
-      state: user.lockedUntil ? { kind: 'locked', until: new Date(user.lockedUntil) }
+      state: user.lockedUntil ? { kind: 'locked', until: new Date(user.lockedUntil), ...(user.lockToken && { lockToken: user.lockToken }) }
         : { kind: user.mustChangePassword ? 'mustChangePassword' : 'active' },
     })),
     roles: roles.map(role => ({
@@ -65,15 +66,33 @@ export async function fetchUserDirectory(signal: AbortSignal): Promise<UserDirec
   };
 }
 
-export async function addUser(userId: string): Promise<string> {
+async function postDirectory(path: string, data: Record<string, string>): Promise<Response> {
   const form = await fetch('/identity/user/session', { cache: 'no-store' });
   if (!form.ok) throw new Error('ログイン状態を確認してください。');
   const { requestToken } = await form.json();
-  const response = await fetch('/identity/user/users', {
+  return fetch('/identity/user/' + path, {
     method: 'POST', cache: 'no-store',
     headers: { 'Content-Type': 'application/json', 'X-FlowHub-CSRF': requestToken },
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify(data),
   });
+}
+
+export async function changeUserRole(userId: string, roleId: string): Promise<void> {
+  const response = await postDirectory('users/role', { userId, roleId });
+  if (response.status === 409) throw new Error('最後の管理者のロールは変更できません。');
+  if (response.status === 403) throw new Error('ロールの変更には管理者権限が必要です。');
+  if (!response.ok) throw new Error('ロールの変更結果を確認できませんでした。一覧を確認してください。');
+}
+
+export async function unlockUser(userId: string, lockToken: string): Promise<void> {
+  const response = await postDirectory('users/unlock', { userId, lockToken });
+  if (response.status === 409) throw new Error('表示後に新しいロックがかかりました。一覧を確認してください。');
+  if (response.status === 403) throw new Error('ロックの解除には管理者権限が必要です。');
+  if (!response.ok) throw new Error('ロックの解除結果を確認できませんでした。');
+}
+
+export async function addUser(userId: string): Promise<string> {
+  const response = await postDirectory('users', { userId });
   if (response.status === 409) throw new Error('このユーザー ID はすでに登録されています。');
   if (response.status === 403) throw new Error('ユーザーを加えるには管理者ロールが必要です。');
   if (!response.ok) throw new Error('ユーザーの追加結果を確認できませんでした。一覧を確認してください。');

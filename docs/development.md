@@ -98,6 +98,51 @@ sequenceDiagram
     end
 ```
 
+ロール欄で選択したときの流れです。同時変更はサーバーが保存する順に反映します。
+
+```mermaid
+sequenceDiagram
+    actor Admin as 管理者
+    participant UI as 管理画面
+    participant API as 認証 API
+    participant DB as Identity DB
+    Admin->>UI: 対象ユーザーのロールを選ぶ
+    UI->>API: POST /identity/user/users/role（ユーザー ID、ロール ID、CSRF トークン）
+    API->>DB: トランザクションを開始し、固定管理者ロールの行をロック
+    API->>DB: 操作者の現在の権限、対象ユーザー、ロール、他の管理者を照合
+    alt 変更できる
+        API->>DB: ロールを更新してコミット
+        API-->>UI: 204
+    else 最後の管理者の降格
+        API-->>UI: 409
+    else 管理権限がない
+        API-->>UI: 403
+    end
+    UI->>API: 一覧と現在の権限を再取得
+```
+
+通常ログインの無操作期限は、認証 Cookie を受けたリクエストごとに現在のロールで判定します。画面は SignalR のロングポーリングを使います。更新データが届かないときもサーバーは最長15秒でポーリングを返し、クライアントが次の要求を送るため、接続維持も期限の延長に含まれます。
+
+管理者が「ロックを外す」を押したときの流れです。
+
+```mermaid
+sequenceDiagram
+    actor Admin as 管理者
+    participant UI as 管理画面
+    participant API as 認証 API
+    participant DB as Identity DB
+    Admin->>UI: ロックを外す
+    UI->>API: POST /identity/user/users/unlock（ユーザー ID、表示したロックの識別番号、CSRF トークン）
+    API->>DB: 管理権限を確認し、識別番号が一致する有効なロックだけ解除
+    alt 解除成功、解除済み、または期限切れ
+        API-->>UI: 204
+    else 別のロックが有効
+        API-->>UI: 409
+        UI-->>Admin: 新しいロックがかかったことを表示
+    end
+    UI->>API: 一覧を再取得
+```
+
 ## 新しい機能をどこに置くか
 
 新しい機能を、別のプロジェクト（コンテキスト）に分けるか、既存のプロジェクトに足すかは、次の指標で決めます。

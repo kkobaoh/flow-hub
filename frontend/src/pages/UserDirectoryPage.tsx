@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { addUser, fetchUserDirectory, DirectoryAccessError, type UserDirectory } from '../features/user-management/userDirectory';
+import { addUser, changeUserRole, unlockUser, fetchUserDirectory, DirectoryAccessError, type UserDirectory } from '../features/user-management/userDirectory';
 import { plainButton } from '../shared/components/forms';
 import { UsersPage } from './UsersPage';
 
@@ -8,6 +8,17 @@ type View = { kind: 'loading' | 'login' | 'failed' } | { kind: 'ready'; data: Us
 export function UserDirectoryPage({ load = fetchUserDirectory }: { readonly load?: typeof fetchUserDirectory }) {
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [errorMessage, setErrorMessage] = useState('');
+  async function update(operation: Promise<void>) {
+    setErrorMessage('');
+    try {
+      await operation;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '変更結果を確認できませんでした。');
+    } finally {
+      setAttempt(n => n + 1);
+    }
+  }
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -27,7 +38,12 @@ export function UserDirectoryPage({ load = fetchUserDirectory }: { readonly load
     case 'login': return <p>一覧を見るには通常ログインが必要です。<a className="underline" href="/login">ログイン画面へ</a></p>;
     case 'failed': return <div role="alert"><p>ユーザーとロールを読み込めませんでした。</p>
       <button className={plainButton} onClick={() => { setView({ kind: 'loading' }); setAttempt(n => n + 1); }}>読み直す</button></div>;
-    case 'ready': return <UsersPage readOnly {...view.data}
-      onAddUser={view.data.canAddUser ? addUser : undefined} onIssuedClosed={() => setAttempt(n => n + 1)} />;
+    case 'ready': return <>{errorMessage && <p role="alert">{errorMessage}</p>}<UsersPage readOnly {...view.data}
+      onChangeRole={view.data.canAddUser ? (user, role) => update(changeUserRole(user, role)) : undefined}
+      onUnlock={view.data.canAddUser ? user => {
+        const state = view.data.users.find(account => account.id === user)?.state;
+        if (state?.kind === 'locked' && state.lockToken) void update(unlockUser(user, state.lockToken));
+      } : undefined}
+      onAddUser={view.data.canAddUser ? addUser : undefined} onIssuedClosed={() => setAttempt(n => n + 1)} /></>;
   }
 }

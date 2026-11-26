@@ -24,6 +24,9 @@ internal static class UserLoginEndpoints
         public required string Password { get; init; }
     }
 
+    internal sealed record RoleChange(string UserId, string RoleId);
+    internal sealed record UnlockRequest(string UserId, string LockToken);
+
     internal static void AddServices(IServiceCollection services, DatabaseOptions database)
     {
         services.AddSingleton(IdentityDatabase.OpenUserLogins(builder => Databases.Configure(builder, database, IdentityDatabase.Schema)));
@@ -34,15 +37,24 @@ internal static class UserLoginEndpoints
             options.Cookie.HttpOnly = true;
             options.Cookie.SameSite = SameSiteMode.Strict;
             options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            options.SlidingExpiration = false;
             options.Events.OnValidatePrincipal = async context =>
             {
                 var session = ReadTicket(context.Principal);
-                if (session is null || !await context.HttpContext.RequestServices.GetRequiredService<UserLoginStore>()
-                        .IsCurrentAsync(session, context.HttpContext.RequestAborted).ConfigureAwait(false))
+                var store = context.HttpContext.RequestServices.GetRequiredService<UserLoginStore>();
+                var token = context.HttpContext.RequestAborted;
+                if (session is null || context.Properties.IssuedUtc is not { } last || !await store.IsCurrentAsync(session, token).ConfigureAwait(false))
                 {
                     context.RejectPrincipal();
                     return;
                 }
+                var lifetime = await LifetimeAsync(context.HttpContext, session, store, token).ConfigureAwait(false);
+                if (context.Options.TimeProvider!.GetUtcNow() - last >= lifetime)
+                {
+                    context.RejectPrincipal();
+                    return;
+                }
+                context.Properties.ExpiresUtc = last.Add(lifetime);
                 context.ShouldRenew = true;
             };
             options.Events.OnRedirectToLogin = context => Status(context, StatusCodes.Status401Unauthorized);
@@ -64,6 +76,13 @@ internal static class UserLoginEndpoints
         var duration = app.Configuration.GetValue("Identity:LockDuration", TimeSpan.FromMinutes(15));
         var minimum = app.Configuration.GetValue("Identity:MinimumPasswordLength", 8);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(minimum);
+        app.Use(async (context, next) =>
+        {
+            // 認可ポリシーを持たない自動取得や SignalR のポーリングでも、その端末の認証 Cookie を更新する。
+            if (context.Request.Cookies.ContainsKey(Scheme))
+                await context.AuthenticateAsync(Scheme).ConfigureAwait(false);
+            await next(context).ConfigureAwait(false);
+        });
         var group = app.MapGroup("/identity/user");
         group.MapGet("/form", (HttpContext context, IAntiforgery csrf) =>
             Results.Ok(new { requestToken = csrf.GetAndStoreTokens(context).RequestToken }));
@@ -116,6 +135,32 @@ internal static class UserLoginEndpoints
                 _ => throw new InvalidOperationException("未対応のユーザー追加結果です。"),
             };
         }).RequireAuthorization(Ready);
+        group.MapPost("/users/role", async (RoleChange request, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>
+        {
+            if (!await csrf.IsRequestValidAsync(context).ConfigureAwait(false)) return Results.BadRequest();
+            var result = await store.ChangeRoleAsync(ReadTicket(context.User)!, request.UserId, request.RoleId, token).ConfigureAwait(false);
+            return result switch
+            {
+                RoleChangeResult.Changed => Results.NoContent(),
+                RoleChangeResult.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
+                RoleChangeResult.NotFound => Results.NotFound(),
+                RoleChangeResult.LastAdministrator => Results.Conflict(),
+                _ => throw new InvalidOperationException("未対応のロール変更結果です。"),
+            };
+        }).RequireAuthorization(Ready);
+        group.MapPost("/users/unlock", async (UnlockRequest request, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>
+        {
+            if (!await csrf.IsRequestValidAsync(context).ConfigureAwait(false) || string.IsNullOrEmpty(request.LockToken)) return Results.BadRequest();
+            var result = await store.UnlockAsync(ReadTicket(context.User)!, request.UserId, request.LockToken, clock.GetUtcNow(), token).ConfigureAwait(false);
+            return result switch
+            {
+                UnlockResult.Unlocked => Results.NoContent(),
+                UnlockResult.LockChanged => Results.Conflict(),
+                UnlockResult.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
+                UnlockResult.NotFound => Results.NotFound(),
+                _ => throw new InvalidOperationException("未対応のロック解除結果です。"),
+            };
+        }).RequireAuthorization(Ready);
         group.MapPost("/logout", async (HttpContext context, IAntiforgery csrf) =>
         {
             if (!await csrf.IsRequestValidAsync(context).ConfigureAwait(false)) return Results.BadRequest();
@@ -136,14 +181,19 @@ internal static class UserLoginEndpoints
     {
         var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, session.UserId),
             new Claim("credential", session.CredentialStamp), new Claim("stage", session.MustChangePassword ? "temporary" : "ready")], Scheme);
-        var configured = context.RequestServices.GetRequiredService<IConfiguration>().GetValue<TimeSpan?>("Identity:Administrator:IdleTimeout");
-        var lifetime = await store.GetIdleTimeoutAsync(session.UserId, configured, token).ConfigureAwait(false);
+        var lifetime = await LifetimeAsync(context, session, store, token).ConfigureAwait(false);
         var now = clock.GetUtcNow();
         await context.SignInAsync(Scheme, new ClaimsPrincipal(identity), new AuthenticationProperties
         {
             IssuedUtc = now, ExpiresUtc = now.Add(lifetime),
         }).ConfigureAwait(false);
         return Results.Ok(new { session.UserId, session.MustChangePassword });
+    }
+
+    private static Task<TimeSpan> LifetimeAsync(HttpContext context, UserSession session, UserLoginStore store, CancellationToken token)
+    {
+        var configured = context.RequestServices.GetRequiredService<IConfiguration>().GetValue<TimeSpan?>("Identity:Administrator:IdleTimeout");
+        return store.GetIdleTimeoutAsync(session.UserId, configured, token);
     }
 
     private static Task Status(RedirectContext<CookieAuthenticationOptions> context, int status)

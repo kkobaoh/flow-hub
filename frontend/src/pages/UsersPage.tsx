@@ -53,6 +53,8 @@ const VIEW_ALL = 'すべての画面を見る';
 type DirectoryProps = Pick<UsersPageProps, 'users' | 'roles'> & {
   readonly readOnly: true;
   readonly onAddUser?: UsersPageProps['onAddUser'] | undefined;
+  readonly onChangeRole?: UsersPageProps['onChangeRole'] | undefined;
+  readonly onUnlock?: UsersPageProps['onUnlock'] | undefined;
   readonly onIssuedClosed?: () => void;
 };
 
@@ -63,7 +65,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [issuing, setIssuing] = useState(false);
   const blocked = actions ? userAdminBlockedReason(actions.permissions) : props.onAddUser
-    ? 'ユーザーを追加できます。ほかの編集操作は未接続です。' : 'ユーザーとロールの変更には管理者ロールが必要です。';
+    ? 'ユーザーの追加、ロールの付け替え、ロックの解除ができます。' : 'ユーザーとロールの変更には管理者ロールが必要です。';
   const allowed = blocked === null;
   const add = !actions || allowed ? props.onAddUser : undefined;
   const close = () => {
@@ -133,7 +135,9 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
                 {[...users]
                   .sort((a, b) => byIdNumber(a.id, b.id))
                   .map((u) => {
-                    const reason = actions ? roleChangeBlockedReason(u, users, roles, actions.permissions) : blocked;
+                    const rolePermissions = actions?.permissions ?? roles.find(r => r.fixed)?.permissions;
+                    const reason = props.onChangeRole && rolePermissions
+                      ? roleChangeBlockedReason(u, users, roles, rolePermissions) : blocked;
                     return (
                       <tr key={u.id} className="border-b border-disabled-border">
                         <td className={`${td} font-number text-[17px] font-bold`}>{u.id}</td>
@@ -142,7 +146,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
                             aria-label={`${u.id} のロール`}
                             value={u.role}
                             disabled={reason !== null}
-                            onChange={(e) => actions?.onChangeRole(u.id, e.target.value)}
+                            onChange={(e) => props.onChangeRole?.(u.id, e.target.value)}
                             className={`${field} disabled:bg-ground`}
                           >
                             {roles.map((r) => (
@@ -151,14 +155,14 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
                               </option>
                             ))}
                           </select>
-                          {reason !== null && allowed && <p className={`${note} mt-1`}>{reason}</p>}
+                          {reason !== null && (allowed || props.onChangeRole) && <p className={`${note} mt-1`}>{reason}</p>}
                         </td>
                         <td className={`${td} font-number text-base font-medium`}>{u.lastLogin === null ? '－' : dateTimeOf(u.lastLogin)}</td>
                         <td className={`${td} font-bold ${u.state.kind === 'active' ? 'text-running' : 'text-attention'}`}>{stateLabel(u.state)}</td>
                         <td className="px-3 py-1.5">
                           <RowActions reason={null}>
                             {u.state.kind === 'locked' && (
-                              <button type="button" disabled={!allowed} onClick={() => actions?.onUnlock(u.id)} className={darkButton}>
+                              <button type="button" disabled={!props.onUnlock || (!!actions && !allowed)} onClick={() => props.onUnlock?.(u.id)} className={darkButton}>
                                 ロックを外す
                               </button>
                             )}
