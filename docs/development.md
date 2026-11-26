@@ -51,7 +51,7 @@ CLAUDE.md から、ふだんは読まなくてよい、調べるときに見る�
 flowchart LR
     subgraph dev["開発（デバッグの「Api + 画面」）"]
         Edge["Edge"] -->|"http://localhost:5173"| Vite["Vite の開発用のサーバー<br/>（frontend）"]
-        Vite -->|"/hubs（SignalR）、/system、<br/>/transports、/agvs、/agv-types、<br/>/agv-registrations、/configuration、<br/>/map/、/devices、/consumables を渡す"| Api["FlowHub.Api<br/>http://localhost:5020<br/>（装置・ステーション・上位システムは<br/>中のシミュレーターが代わりをする）"]
+        Vite -->|"/hubs（SignalR）、/identity/、/system、<br/>/transports、/agvs、/agv-types、<br/>/agv-registrations、/configuration、<br/>/map/、/devices、/consumables を渡す"| Api["FlowHub.Api<br/>http://localhost:5020<br/>（装置・ステーション・上位システムは<br/>中のシミュレーターが代わりをする）"]
         AGV["AGV"] -->|"/agv/{agvId}/…（HTTP）"| Api
         Api --> Sqlite[("SQLite<br/>src/FlowHub.Api/data/<br/>コンテキストごとに1ファイル")]
     end
@@ -62,6 +62,14 @@ flowchart LR
         IntegrationTests["FlowHub.IntegrationTests"] --> Postgres[("ローカルの PostgreSQL<br/>接続文字列はユーザーシークレット")]
     end
 ```
+
+## 初回起動の設定
+
+初期設定が済んでいない環境では、API を起動する前に導入担当者が ASP.NET Core の設定 `Identity:SetupPassword`（環境変数名は `Identity__SetupPassword`）に設置先専用のパスワードを設定します。設定値はリポジトリに保存しません。
+
+画面の `/setup` を開きます（開発時は `http://localhost:5173/setup`）。初期設定 API のパスは `/identity/setup/` で始まります。本番の画面と API は HTTPS で提供します。
+
+作成した管理者は `/login` からログインします。通常ログインの API は `/identity/user/` です。初回変更で必要な文字数は `Identity:MinimumPasswordLength`（初期値8）、管理者の無操作期限は `Identity:Administrator:IdleTimeout`（初期値8時間）で設定できます。
 
 ## 新しい機能をどこに置くか
 
@@ -104,6 +112,7 @@ src/
   FlowHub.Routing/
   FlowHub.PathPlanning/
   FlowHub.Notifications/
+  FlowHub.Identity/
   FlowHub.Traffic/
   FlowHub.Dispatching/
   FlowHub.ToolPlanning/
@@ -117,6 +126,7 @@ tests/
   FlowHub.Routing.Tests/
   FlowHub.PathPlanning.Tests/
   FlowHub.Notifications.Tests/
+  FlowHub.Identity.Tests/
   FlowHub.Traffic.Tests/
   FlowHub.Dispatching.Tests/
   FlowHub.ToolPlanning.Tests/

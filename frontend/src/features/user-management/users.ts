@@ -73,6 +73,9 @@ export function userProblem(id: string, existing: readonly string[]): string | n
   if (i === '') {
     return 'ユーザー ID を入れてください。';
   }
+  if (i === 'setup') {
+    return 'setup は初期設定専用のユーザー ID です。';
+  }
   return existing.includes(i) ? `${i} は、もう使っています。` : null;
 }
 

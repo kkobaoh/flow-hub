@@ -7,6 +7,7 @@ using FlowHub.Consumables.Application;
 using FlowHub.Consumables.Infrastructure;
 using FlowHub.Dispatching.Application;
 using FlowHub.Dispatching.Infrastructure;
+using FlowHub.Identity.Infrastructure;
 using FlowHub.Map;
 using FlowHub.Map.Infrastructure;
 using FlowHub.Notifications;
@@ -35,6 +36,7 @@ namespace FlowHub.Api.Composition;
 internal sealed partial class FlowHubSystem : IDisposable
 {
     private readonly AgvEndpointOptions _agvEndpoints;
+    private readonly FirstAdministratorStore _firstAdministrator;
     private readonly TimeProvider _timeProvider;
     private readonly DbMapStore _map;
     private readonly MapValidationOptions _mapValidation;
@@ -52,7 +54,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         MapPublisher mapPublisher,
         FleetCatalog fleet,
         AgvEndpointOptions agvEndpoints,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider, FirstAdministratorStore firstAdministrator)
     {
         Fleet = fleet;
         Events = events;
@@ -66,6 +68,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         MapPublisher = mapPublisher;
         _agvEndpoints = agvEndpoints;
         _timeProvider = timeProvider;
+        _firstAdministrator = firstAdministrator;
     }
 
     public InProcessEventBus Events { get; }
@@ -101,12 +104,20 @@ internal sealed partial class FlowHubSystem : IDisposable
         void Configure(DbContextOptionsBuilder builder, string schema) => Databases.Configure(builder, database, schema);
         Task Initialize(DbContext context, CancellationToken token) => Databases.InitializeAsync(context, database, token);
 
+        var logger = loggerFactory.CreateLogger<FlowHubSystem>();
+        var firstAdministrator = await IdentityDatabase.OpenAsync(b => Configure(b, IdentityDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
+        var setupComplete = await firstAdministrator.IsSetupCompleteAsync(cancellationToken).ConfigureAwait(false);
+        if (!setupComplete && !settings.HasSetupPassword)
+        {
+            LogMissingSetupPassword(logger);
+            throw new InvalidOperationException(MissingSetupPassword);
+        }
+
         var map = await MapDatabase.OpenAsync(b => Configure(b, MapDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
         var trafficStore = await TrafficDatabase.OpenAsync(b => Configure(b, TrafficDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
         var dispatchingStore = await DispatchingDatabase.OpenAsync(b => Configure(b, DispatchingDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
         var consumablesStore = await ConsumablesDatabase.OpenAsync(b => Configure(b, ConsumablesDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
         var notices = await NotificationsDatabase.OpenAsync(b => Configure(b, NotificationsDatabase.Schema), Initialize, timeProvider, settings.NoticeCapacity, cancellationToken).ConfigureAwait(false);
-        var logger = loggerFactory.CreateLogger<FlowHubSystem>();
         if (settings.InitialDataPath is { } initialData)
         {
             await InitialDataSeeder.SeedIfEmptyAsync(initialData, map, trafficStore, dispatchingStore, consumablesStore, settings.MapValidation, logger, cancellationToken).ConfigureAwait(false);
@@ -132,7 +143,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         ApiSubscriptions.Register(subscriptions, loggerFactory, notices, fleet.ReloadAsync);
 
         var mapPublisher = new MapPublisher(map, settings.MapValidation, traffic, dispatching, consumables, notices, loggerFactory.CreateLogger<MapPublisher>());
-        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, map, settings.MapValidation, mapPublisher, fleet, settings.AgvEndpoints, timeProvider);
+        var system = new FlowHubSystem(events, traffic, dispatching, consumables, toolPlanning, notices, map, settings.MapValidation, mapPublisher, fleet, settings.AgvEndpoints, timeProvider, firstAdministrator);
 
         // シミュレーターの通知も、処理を終えたあとに後始末をする
         simulator.Attach(new ConsumablesSimulationTarget(consumables), system.AfterWorkAsync);
@@ -154,11 +165,13 @@ internal sealed partial class FlowHubSystem : IDisposable
     /// <summary>
     /// 画面とつなぐ SignalR のサービスを登録する（<c>app.Build()</c> の前に呼ぶ）。
     /// </summary>
-    public static void AddScreenServices(IServiceCollection services)
+    public static void AddScreenServices(IServiceCollection services, DatabaseOptions database)
     {
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddSignalR();
+        SetupEndpoints.AddServices(services);
+        UserLoginEndpoints.AddServices(services, database);
         services.AddSingleton<IScreenBroadcast, HubScreenBroadcast>();
         services.AddSingleton(provider => new ScreenFeed(
             provider.GetRequiredService<IScreenBroadcast>(),
@@ -265,6 +278,8 @@ internal sealed partial class FlowHubSystem : IDisposable
             await AfterWorkAsync(CancellationToken.None).ConfigureAwait(false);
         });
         app.MapHub<ScreenHub>("/hubs/screen");
+        SetupEndpoints.Map(app, _firstAdministrator, _timeProvider);
+        UserLoginEndpoints.Map(app, _timeProvider);
         app.MapAgvEndpoints(Traffic, _agvEndpoints, _timeProvider);
         app.MapSystemEndpoints(Dispatching);
         app.MapTransportEndpoints(Dispatching);
@@ -334,6 +349,11 @@ internal sealed partial class FlowHubSystem : IDisposable
             "AGV の登録が食い違っています",
             $"{agv} は{registeredIn}の側にだけ登録されているので、動かしていません。AGV と AGV の種類の登録の画面で、登録をそろえてください。",
             cancellationToken);
+
+    private const string MissingSetupPassword = "初期設定が完了していません。Identity:SetupPassword を設定してから起動してください。";
+
+    [LoggerMessage(Level = LogLevel.Error, Message = MissingSetupPassword)]
+    private static partial void LogMissingSetupPassword(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Agv} は {Missing} に登録されていないので、登録しませんでした。交通整理と配車の両方に登録してください。")]
     private static partial void LogMissingIn(ILogger logger, string agv, string missing);

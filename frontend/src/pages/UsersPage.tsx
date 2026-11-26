@@ -362,7 +362,7 @@ function PermissionMatrix({
                     <input
                       type="checkbox"
                       checked={has(r, p)}
-                      disabled={!allowed || r.fixed}
+                      disabled={!allowed || r.fixed || p === 'userAdmin'}
                       onChange={() => toggle(r.id, p)}
                       aria-label={`${r.name}：${label}`}
                       className="size-5 accent-graphite"

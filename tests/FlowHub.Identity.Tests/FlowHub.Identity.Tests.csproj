@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/FlowHub.Identity/FlowHub.Identity.csproj" />
+  </ItemGroup>
+</Project>

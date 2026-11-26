@@ -59,6 +59,10 @@ describe('userProblem と roleProblem（保存できない理由）', () => {
     expect(userProblem(' ', ['admin01'])).toBe('ユーザー ID を入れてください。');
     expect(userProblem('admin01', ['admin01'])).toBe('admin01 は、もう使っています。');
     expect(userProblem('ops03', ['admin01'])).toBeNull();
+    expect(userProblem('　setup ', [])).toBe('setup は初期設定専用のユーザー ID です。');
+    expect(userProblem(' Setup ', [])).toBeNull();
+    expect(userProblem(' Admin01 ', ['admin01'])).toBeNull();
+    expect(userProblem(' admin01 ', ['admin01'])).toBe('admin01 は、もう使っています。');
   });
 
   it('ロールは、名前と時間（1 以上の整数）を入れ、同じ名前は使えない', () => {

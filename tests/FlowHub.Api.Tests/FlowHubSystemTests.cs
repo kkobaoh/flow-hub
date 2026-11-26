@@ -15,6 +15,7 @@ using FlowHub.Routing;
 using FlowHub.Traffic;
 using FlowHub.Traffic.Infrastructure;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -103,18 +104,103 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         }
     }
 
+    [Fact]
+    public async Task 最初の管理者を作る前に初期パスワードがなければ理由を記録して起動を中止する()
+    {
+        var settings = new FlowHubSettings(Database, new TrafficPlanningOptions(), new AgvEndpointOptions(), new SimulatorOptions());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            FlowHubSystem.StartAsync(settings, TimeProvider.System, _loggerFactory, Token));
+        Assert.Contains(_logs.Entries, entry => entry.Level == LogLevel.Error && entry.Message.Contains("Identity:SetupPassword", StringComparison.Ordinal));
+        Assert.False(File.Exists(Path.Combine(_directory, "traffic.db")));
+    }
+
+    [Fact]
+    public async Task 初期設定の完了後は初期パスワードを外して再起動できる()
+    {
+        var configuration = new ConfigurationManager();
+        configuration["Database:Provider"] = "Sqlite";
+        configuration["Database:SqliteDirectory"] = _directory;
+        configuration["Identity:SetupPassword"] = "test-only-setup-password";
+        using (await FlowHubSystem.StartAsync(FlowHubSettings.Read(configuration, _directory), TimeProvider.System, _loggerFactory, Token))
+        {
+            // 最初の管理者の作成と一緒に保存する完了記録を用意する。
+            using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_directory, "identity.db")}");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO setup_completion (Id) VALUES (1)";
+            command.ExecuteNonQuery();
+        }
+
+        configuration["Identity:SetupPassword"] = null;
+        _system = await FlowHubSystem.StartAsync(FlowHubSettings.Read(configuration, _directory), TimeProvider.System, _loggerFactory, Token);
+        Assert.DoesNotContain(_logs.Entries, entry => entry.Message.Contains("test-only-setup-password", StringComparison.Ordinal));
+    }
+
     private async Task<FlowHubSystem> StartAsync(bool startOnLaunch = false)
     {
-        var settings = new FlowHubSettings(Database, new TrafficPlanningOptions(), new AgvEndpointOptions { CommandWait = TimeSpan.FromMilliseconds(300) }, new SimulatorOptions(), StartOnLaunch: startOnLaunch);
+        var settings = new FlowHubSettings(Database, new TrafficPlanningOptions(), new AgvEndpointOptions { CommandWait = TimeSpan.FromMilliseconds(300) }, new SimulatorOptions(), StartOnLaunch: startOnLaunch, HasSetupPassword: true);
         _system = await FlowHubSystem.StartAsync(settings, TimeProvider.System, _loggerFactory, Token);
         return _system;
     }
 
-    private async Task<HttpClient> ServeAsync(FlowHubSystem system)
+    [Fact]
+    public async Task 初期設定で認証されていない場合は管理者を作成できない()
     {
-        var builder = WebApplication.CreateSlimBuilder();
+        var client = await ServeAsync(await StartAsync());
+        using var body = new StringContent("""{"userId":"admin01"}""", Encoding.UTF8, "application/json");
+        using var response = await client.PostAsync(new Uri("/identity/setup/administrator", UriKind.Relative), body, Token);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 初期設定のログインから管理者を作り使用済みのセッションを断る()
+    {
+        var client = await ServeAsync(await StartAsync(), setupLogin: true);
+        async Task<string> FormToken(string path)
+        {
+            var json = JsonNode.Parse(await client.GetStringAsync(new Uri(path, UriKind.Relative), Token));
+            return json!["requestToken"]!.GetValue<string>();
+        }
+
+        async Task<HttpResponseMessage> Send(string path, string json, string csrf)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(path, UriKind.Relative));
+            request.Headers.Add("X-FlowHub-CSRF", csrf);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            return await client.SendAsync(request, Token);
+        }
+
+        var loginToken = await FormToken("/identity/setup/login-form");
+        using var login = await Send("/identity/setup/login", """{"password":"initial-password"}""", loginToken);
+        Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        var form = await FormToken("/identity/setup/form");
+        using var forbidden = await Send("/identity/setup/administrator", """{"userId":"first"}""", "invalid");
+        Assert.Equal(HttpStatusCode.BadRequest, forbidden.StatusCode);
+        using var created = await Send("/identity/setup/administrator", """{"userId":"first"}""", form);
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        Assert.NotEmpty(JsonNode.Parse(await created.Content.ReadAsStringAsync(Token))!["temporaryPassword"]!.GetValue<string>());
+        Assert.True(created.Headers.CacheControl?.NoStore);
+        using var again = await Send("/identity/setup/login", """{"password":"initial-password"}""", await FormToken("/identity/setup/login-form"));
+        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+        var temporary = JsonNode.Parse(await created.Content.ReadAsStringAsync(Token))!["temporaryPassword"]!.GetValue<string>();
+        var credentials = new JsonObject { ["userId"] = "first", ["password"] = temporary }.ToJsonString();
+        using var firstLogin = await Send("/identity/user/login", credentials, await FormToken("/identity/user/form"));
+        Assert.Equal(HttpStatusCode.OK, firstLogin.StatusCode);
+        Assert.True(JsonNode.Parse(await firstLogin.Content.ReadAsStringAsync(Token))!["mustChangePassword"]!.GetValue<bool>());
+        using var beforeChange = await client.GetAsync(new Uri("/identity/user/account", UriKind.Relative), Token);
+        Assert.Equal(HttpStatusCode.Forbidden, beforeChange.StatusCode);
+    }
+
+    private async Task<HttpClient> ServeAsync(FlowHubSystem system, bool setupLogin = false)
+    {
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = setupLogin ? "Development" : "Production",
+        });
+        if (setupLogin) builder.Configuration["Identity:SetupPassword"] = "initial-password";
         builder.WebHost.UseUrls("http://127.0.0.1:0");
-        FlowHubSystem.AddScreenServices(builder.Services);
+        FlowHubSystem.AddScreenServices(builder.Services, Database);
+        builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
         _app = builder.Build();
         system.MapEndpoints(_app);
         await _app.StartAsync(Token);

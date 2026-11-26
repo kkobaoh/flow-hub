@@ -76,7 +76,7 @@ public sealed class InitialDataTests : IDisposable
 
     private async Task<FlowHubSystem> StartAsync(string? initialData, TimeProvider? clock = null, bool startOnLaunch = false)
     {
-        var settings = new FlowHubSettings(Database, new TrafficPlanningOptions(), new AgvEndpointOptions(), new SimulatorOptions(), initialData, startOnLaunch);
+        var settings = new FlowHubSettings(Database, new TrafficPlanningOptions(), new AgvEndpointOptions(), new SimulatorOptions(), initialData, startOnLaunch, HasSetupPassword: true);
         var system = await FlowHubSystem.StartAsync(settings, clock ?? TimeProvider.System, _loggerFactory, Token);
         _systems.Add(system);
         return system;

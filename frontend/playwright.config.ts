@@ -36,6 +36,7 @@ export default defineConfig({
         ASPNETCORE_ENVIRONMENT: 'Development',
         ASPNETCORE_URLS: api,
         Database__SqliteDirectory: database,
+        Identity__SetupPassword: 'e2e-only-setup-password',
       },
     },
     {

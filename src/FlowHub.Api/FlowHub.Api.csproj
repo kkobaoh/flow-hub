@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FlowHub.BuildingBlocks\FlowHub.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\FlowHub.Identity\FlowHub.Identity.csproj" />
     <ProjectReference Include="..\FlowHub.Map\FlowHub.Map.csproj" />
     <ProjectReference Include="..\FlowHub.Routing\FlowHub.Routing.csproj" />
     <ProjectReference Include="..\FlowHub.Traffic\FlowHub.Traffic.csproj" />

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\FlowHub.Identity\FlowHub.Identity.csproj" />
     <ProjectReference Include="..\..\src\FlowHub.BuildingBlocks\FlowHub.BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\src\FlowHub.Map\FlowHub.Map.csproj" />
     <ProjectReference Include="..\..\src\FlowHub.Routing\FlowHub.Routing.csproj" />

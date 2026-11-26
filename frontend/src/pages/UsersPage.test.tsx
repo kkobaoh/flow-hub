@@ -121,6 +121,9 @@ describe('UsersPage（ユーザーとロールの管理）', () => {
     const box = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
     const save = byText(container, 'パーミッションを保存する');
     expect(box('管理者：マニュアル操作').disabled).toBe(true);
+    expect(box('管理者：ユーザーとロールの管理').checked).toBe(true);
+    expect(box('夜勤：ユーザーとロールの管理').checked).toBe(false);
+    expect(box('夜勤：ユーザーとロールの管理').disabled).toBe(true);
     expect(box('夜勤：すべての画面を見る').disabled).toBe(true);
     expect(box('夜勤：すべての画面を見る').checked).toBe(true);
     expect(save.disabled).toBe(true);

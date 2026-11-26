@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
     server: {
       // 画面とサーバーの通信（SignalR のハブと HTTP の窓口）は、開発用のサーバーを通して Api へ渡す
       proxy: {
+        '/identity/': { target: api },
         '/hubs': { target: api, ws: true },
         '/system': { target: api },
         '/transports': { target: api },
