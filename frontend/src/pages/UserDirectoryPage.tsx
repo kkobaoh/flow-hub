@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchUserDirectory, DirectoryAccessError, type UserDirectory } from '../features/user-management/userDirectory';
+import { addUser, fetchUserDirectory, DirectoryAccessError, type UserDirectory } from '../features/user-management/userDirectory';
 import { plainButton } from '../shared/components/forms';
 import { UsersPage } from './UsersPage';
 
@@ -27,6 +27,7 @@ export function UserDirectoryPage({ load = fetchUserDirectory }: { readonly load
     case 'login': return <p>一覧を見るには通常ログインが必要です。<a className="underline" href="/login">ログイン画面へ</a></p>;
     case 'failed': return <div role="alert"><p>ユーザーとロールを読み込めませんでした。</p>
       <button className={plainButton} onClick={() => { setView({ kind: 'loading' }); setAttempt(n => n + 1); }}>読み直す</button></div>;
-    case 'ready': return <UsersPage readOnly {...view.data} />;
+    case 'ready': return <UsersPage readOnly {...view.data}
+      onAddUser={view.data.canAddUser ? addUser : undefined} onIssuedClosed={() => setAttempt(n => n + 1)} />;
   }
 }

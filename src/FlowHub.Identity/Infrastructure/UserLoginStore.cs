@@ -11,6 +11,18 @@ public sealed record UserSession(string UserId, string CredentialStamp, bool Mus
 
 public sealed record UserDetails(string Id, string Role, bool MustChangePassword, DateTimeOffset? LockedUntil, DateTimeOffset? LastLogin);
 
+public abstract class AddUserResult
+{
+    private AddUserResult() { }
+    public sealed class Created(string temporaryPassword) : AddUserResult
+    {
+        public string TemporaryPassword { get; } = temporaryPassword;
+    }
+    public sealed class Forbidden : AddUserResult;
+    public sealed class Duplicate : AddUserResult;
+    public sealed class InvalidId : AddUserResult;
+}
+
 public abstract record PasswordChangeResult
 {
     private PasswordChangeResult() { }
@@ -34,6 +46,44 @@ public sealed class UserLoginStore
     private readonly PasswordHasher<UserRow> _hasher = new();
 
     internal UserLoginStore(DbContextOptions<IdentityDbContext> options) => _options = options;
+
+    public async Task<TimeSpan> GetIdleTimeoutAsync(string userId, TimeSpan? administratorOverride, CancellationToken token)
+    {
+        await using var db = new IdentityDbContext(_options);
+        var role = await (from user in db.Users
+                          join r in db.Roles on user.RoleId equals r.Id
+                          where user.Id == userId
+                          select new { r.Id, r.IdleTimeoutTicks }).SingleAsync(token).ConfigureAwait(false);
+        return role.Id == InitialRoles.Administrator.Id && administratorOverride.HasValue
+            ? administratorOverride.Value : TimeSpan.FromTicks(role.IdleTimeoutTicks);
+    }
+
+    public async Task<AddUserResult> AddAsync(UserSession actor, string userId, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        await using var db = new IdentityDbContext(_options);
+        var caller = await db.Users.FindAsync([actor.UserId], token).ConfigureAwait(false);
+        if (actor.MustChangePassword || caller is null || Session(caller) != actor || caller.RoleId != InitialRoles.Administrator.Id)
+            return new AddUserResult.Forbidden();
+
+        UserId id;
+        try { id = new UserId(userId); }
+        catch (ArgumentException) { return new AddUserResult.InvalidId(); }
+        if (await db.Users.AnyAsync(u => u.Id == id.Value, token).ConfigureAwait(false)) return new AddUserResult.Duplicate();
+        var roleId = await db.Roles.Where(r => r.IsDefault && r.Id != InitialRoles.Administrator.Id)
+            .Select(r => r.Id).SingleAsync(token).ConfigureAwait(false);
+        db.Users.Add(UserRow.Create(id, roleId, out var password));
+        try
+        {
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
+        }
+        catch (DbUpdateException)
+        {
+            if (await db.Users.AnyAsync(u => u.Id == id.Value, token).ConfigureAwait(false)) return new AddUserResult.Duplicate();
+            throw;
+        }
+        return new AddUserResult.Created(password);
+    }
 
     public async Task<IReadOnlyList<UserDetails>> ListAsync(DateTimeOffset now, CancellationToken token)
     {

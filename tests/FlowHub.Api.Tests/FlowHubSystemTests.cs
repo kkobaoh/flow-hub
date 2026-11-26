@@ -203,6 +203,34 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal("first", first["id"]!.GetValue<string>());
         Assert.Equal("admin", first["role"]!.GetValue<string>());
         Assert.DoesNotContain("passwordHash", first.ToJsonString(), StringComparison.OrdinalIgnoreCase);
+        const string addPath = "/identity/user/users";
+        var csrf = await FormToken("/identity/user/session");
+        using var noToken = await Send(addPath, """{"userId":"new-user"}""", "invalid");
+        Assert.Equal(HttpStatusCode.BadRequest, noToken.StatusCode);
+        using var added = await Send(addPath, """{"userId":" new-user "}""", csrf);
+        Assert.Equal(HttpStatusCode.OK, added.StatusCode);
+        Assert.True(added.Headers.CacheControl?.NoStore);
+        var issued = JsonNode.Parse(await added.Content.ReadAsStringAsync(Token))!["temporaryPassword"]!.GetValue<string>();
+        using var duplicate = await Send(addPath, """{"userId":"new-user"}""", csrf);
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        using var reserved = await Send(addPath, """{"userId":"setup"}""", csrf);
+        Assert.Equal(HttpStatusCode.BadRequest, reserved.StatusCode);
+        var updated = JsonNode.Parse(await client.GetStringAsync(new Uri(addPath, UriKind.Relative), Token))!.AsArray();
+        var newUser = Assert.Single(updated, row => row!["id"]!.GetValue<string>() == "new-user")!;
+        Assert.Equal("viewer", newUser["role"]!.GetValue<string>());
+        Assert.True(newUser["mustChangePassword"]!.GetValue<bool>());
+        using var logout = await Send("/identity/user/logout", "{}", csrf);
+        var viewerCredentials = new JsonObject { ["userId"] = "new-user", ["password"] = issued }.ToJsonString();
+        using var viewerLogin = await Send("/identity/user/login", viewerCredentials, await FormToken("/identity/user/form"));
+        Assert.Equal(HttpStatusCode.OK, viewerLogin.StatusCode);
+        using var viewerReady = await Send("/identity/user/initial-password", """{"password":"viewer-test-password"}""", await FormToken("/identity/user/session"));
+        Assert.Equal(HttpStatusCode.OK, viewerReady.StatusCode);
+        var cookie = viewerReady.Headers.GetValues("Set-Cookie").Single(value => value.StartsWith("FlowHub.User=", StringComparison.Ordinal));
+        var options = _app!.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>>().Get("FlowHub.User");
+        var ticket = options.TicketDataFormat.Unprotect(cookie["FlowHub.User=".Length..cookie.IndexOf(';', StringComparison.Ordinal)])!;
+        Assert.Equal(TimeSpan.FromDays(7), ticket.Properties.ExpiresUtc - ticket.Properties.IssuedUtc);
+        using var denied = await Send(addPath, """{"userId":"another"}""", await FormToken("/identity/user/session"));
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
     }
 
     private async Task<HttpClient> ServeAsync(FlowHubSystem system, bool setupLogin = false)

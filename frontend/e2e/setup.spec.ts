@@ -46,6 +46,16 @@ test('初期設定は一度だけ完了でき、もう一つのセッション�
     await expect(page.getByRole('cell', { name: 'admin01', exact: true })).toHaveCount(0);
     await page.getByRole('tab', { name: 'ロール' }).click();
     await expect(page.getByRole('checkbox', { name: '管理者：ユーザーとロールの管理' })).toBeChecked();
+    await page.getByRole('tab', { name: 'ユーザー', exact: true }).click();
+    await page.getByRole('button', { name: 'ユーザーを加える' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('ユーザー ID').fill('operator02');
+    await dialog.getByRole('button', { name: 'ユーザーを加える' }).click();
+    await expect(dialog).toContainText('operator02 の仮のパスワード');
+    await dialog.getByRole('button', { name: '閉じる' }).click();
+    await expect(page.getByRole('cell', { name: 'operator02', exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByLabel('operator02 のロール')).toHaveValue('viewer');
   } finally {
     await other.close();
   }

@@ -73,7 +73,7 @@ internal static class UserLoginEndpoints
             var result = await store.LoginAsync(input.UserId, input.Password, clock.GetUtcNow(), limit, duration, token).ConfigureAwait(false);
             return result switch
             {
-                UserLoginResult.Accepted accepted => await SignInAsync(context, accepted.Session).ConfigureAwait(false),
+                UserLoginResult.Accepted accepted => await SignInAsync(context, accepted.Session, store, clock, token).ConfigureAwait(false),
                 UserLoginResult.Denied => Results.Unauthorized(),
                 UserLoginResult.Locked => Results.StatusCode(StatusCodes.Status429TooManyRequests),
                 _ => throw new InvalidOperationException("未対応のログイン結果です。"),
@@ -90,7 +90,7 @@ internal static class UserLoginEndpoints
             var result = await store.ChangeInitialPasswordAsync(ReadTicket(context.User)!, input.Password, minimum, token).ConfigureAwait(false);
             return result switch
             {
-                PasswordChangeResult.Changed changed => await SignInAsync(context, changed.Session).ConfigureAwait(false),
+                PasswordChangeResult.Changed changed => await SignInAsync(context, changed.Session, store, clock, token).ConfigureAwait(false),
                 PasswordChangeResult.Expired => Results.Unauthorized(),
                 PasswordChangeResult.Unchanged => Results.BadRequest(new { reason = "unchanged" }),
                 PasswordChangeResult.TooShort => Results.BadRequest(new { reason = "tooShort", minimumLength = minimum }),
@@ -103,6 +103,19 @@ internal static class UserLoginEndpoints
             .RequireAuthorization(Ready);
         group.MapGet("/users", (UserLoginStore store, CancellationToken token) => store.ListAsync(clock.GetUtcNow(), token))
             .RequireAuthorization(Ready);
+        group.MapPost("/users", async (SetupEndpoints.CreateRequest request, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>
+        {
+            if (!await csrf.IsRequestValidAsync(context).ConfigureAwait(false)) return Results.BadRequest();
+            var result = await store.AddAsync(ReadTicket(context.User)!, request.UserId, token).ConfigureAwait(false);
+            return result switch
+            {
+                AddUserResult.Created created => Results.Ok(new { created.TemporaryPassword }),
+                AddUserResult.Duplicate => Results.Conflict(),
+                AddUserResult.InvalidId => Results.BadRequest(),
+                AddUserResult.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
+                _ => throw new InvalidOperationException("未対応のユーザー追加結果です。"),
+            };
+        }).RequireAuthorization(Ready);
         group.MapPost("/logout", async (HttpContext context, IAntiforgery csrf) =>
         {
             if (!await csrf.IsRequestValidAsync(context).ConfigureAwait(false)) return Results.BadRequest();
@@ -119,11 +132,17 @@ internal static class UserLoginEndpoints
         return id is null || stamp is null || stage is not ("ready" or "temporary") ? null : new(id, stamp, stage == "temporary");
     }
 
-    private static async Task<IResult> SignInAsync(HttpContext context, UserSession session)
+    private static async Task<IResult> SignInAsync(HttpContext context, UserSession session, UserLoginStore store, TimeProvider clock, CancellationToken token)
     {
         var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, session.UserId),
             new Claim("credential", session.CredentialStamp), new Claim("stage", session.MustChangePassword ? "temporary" : "ready")], Scheme);
-        await context.SignInAsync(Scheme, new ClaimsPrincipal(identity)).ConfigureAwait(false);
+        var configured = context.RequestServices.GetRequiredService<IConfiguration>().GetValue<TimeSpan?>("Identity:Administrator:IdleTimeout");
+        var lifetime = await store.GetIdleTimeoutAsync(session.UserId, configured, token).ConfigureAwait(false);
+        var now = clock.GetUtcNow();
+        await context.SignInAsync(Scheme, new ClaimsPrincipal(identity), new AuthenticationProperties
+        {
+            IssuedUtc = now, ExpiresUtc = now.Add(lifetime),
+        }).ConfigureAwait(false);
         return Results.Ok(new { session.UserId, session.MustChangePassword });
     }
 

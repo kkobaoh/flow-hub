@@ -73,6 +73,31 @@ flowchart LR
 
 通常ログイン後、メニューの「ユーザーとロールの管理」（`/#/users`）を開くと、画面が `GET /identity/user/users` と `GET /identity/user/roles` から一覧を読みます。
 
+管理者が「ユーザーを加える」を選んだときの流れです。
+
+```mermaid
+sequenceDiagram
+    actor Admin as 管理者
+    participant UI as 管理画面
+    participant API as 認証 API
+    participant DB as Identity DB
+    Admin->>UI: ユーザー ID を入力して追加
+    UI->>API: GET /identity/user/session
+    API-->>UI: CSRF トークン
+    UI->>API: POST /identity/user/users（ID、Cookie、CSRF トークン）
+    API->>DB: 管理者の権限、ID、デフォルトのロールを確認
+    alt 登録成功
+        API->>DB: ユーザー、ロール、仮パスワードのハッシュを保存
+        API-->>UI: 仮パスワード
+        UI-->>Admin: 仮パスワードを一度だけ表示
+        Admin->>UI: 閉じる
+        UI->>API: 一覧を再取得
+    else 登録を拒否
+        API-->>UI: エラー
+        UI-->>Admin: 追加できなかったことを表示
+    end
+```
+
 ## 新しい機能をどこに置くか
 
 新しい機能を、別のプロジェクト（コンテキスト）に分けるか、既存のプロジェクトに足すかは、次の指標で決めます。

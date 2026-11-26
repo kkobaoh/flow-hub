@@ -15,6 +15,14 @@ internal sealed class UserRow
     public int Failures { get; set; }
     public long LockedUntilTicks { get; set; }
     public long Version { get; set; }
+
+    public static UserRow Create(UserId id, string roleId, out string temporaryPassword)
+    {
+        temporaryPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
+        var user = new UserRow { Id = id.Value, RoleId = roleId, MustChangePassword = true };
+        user.PasswordHash = new PasswordHasher<UserRow>().HashPassword(user, temporaryPassword);
+        return user;
+    }
 }
 
 public abstract class FirstAdministratorResult
@@ -82,10 +90,7 @@ public sealed class FirstAdministratorStore
             return new FirstAdministratorResult.AlreadyCompleted();
         }
 
-        var temporaryPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
-        var user = new UserRow { Id = id.Value, RoleId = InitialRoles.Administrator.Id, MustChangePassword = true };
-        user.PasswordHash = new PasswordHasher<UserRow>().HashPassword(user, temporaryPassword);
-        db.Users.Add(user);
+        db.Users.Add(UserRow.Create(id, InitialRoles.Administrator.Id, out var temporaryPassword));
         // 固定の主キーで競合を検出する。2行は SaveChanges の同じトランザクションで保存する。
         db.SetupCompletions.Add(new SetupCompletion { Id = 1 });
         try

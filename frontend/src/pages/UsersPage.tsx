@@ -43,29 +43,44 @@ type Dialog =
   | { readonly kind: 'addUser' }
   | { readonly kind: 'reset'; readonly user: string }
   | { readonly kind: 'password'; readonly user: string; readonly password: string }
-  | { readonly kind: 'failed'; readonly user: string }
+  | { readonly kind: 'failed'; readonly message: string }
   | { readonly kind: 'role'; readonly target: Role | null }
   | { readonly kind: 'deleteRole'; readonly target: Role };
 
 const VIEW_ALL = 'すべての画面を見る';
 
 /** ユーザーとロールの管理（docs/screens.md の「9 ユーザーとロールの管理」）。 */
-type DirectoryProps = Pick<UsersPageProps, 'users' | 'roles'> & { readonly readOnly: true };
+type DirectoryProps = Pick<UsersPageProps, 'users' | 'roles'> & {
+  readonly readOnly: true;
+  readonly onAddUser?: UsersPageProps['onAddUser'] | undefined;
+  readonly onIssuedClosed?: () => void;
+};
 
 export function UsersPage(props: UsersPageProps | DirectoryProps) {
   const { users, roles } = props;
   const actions = 'readOnly' in props ? undefined : props;
   const [tab, setTab] = useState<'users' | 'roles'>('users');
   const [dialog, setDialog] = useState<Dialog | null>(null);
-  const blocked = actions ? userAdminBlockedReason(actions.permissions) : '現在はユーザーとロールの一覧を閲覧できます。変更操作は未接続です。';
+  const [issuing, setIssuing] = useState(false);
+  const blocked = actions ? userAdminBlockedReason(actions.permissions) : props.onAddUser
+    ? 'ユーザーを追加できます。ほかの編集操作は未接続です。' : 'ユーザーとロールの変更には管理者ロールが必要です。';
   const allowed = blocked === null;
-  const close = () => setDialog(null);
+  const add = !actions || allowed ? props.onAddUser : undefined;
+  const close = () => {
+    if ('readOnly' in props && (dialog?.kind === 'password' || dialog?.kind === 'failed')) props.onIssuedClosed?.();
+    setDialog(null);
+  };
   const defaultRole = roles.find((r) => r.isDefault);
-  const showPassword = (user: string, made: Promise<string>) =>
-    made.then(
-      (password) => setDialog({ kind: 'password', user, password }),
-      () => setDialog({ kind: 'failed', user }),
-    );
+  const showPassword = async (user: string, made: Promise<string>) => {
+    setIssuing(true);
+    try {
+      setDialog({ kind: 'password', user, password: await made });
+    } catch (error) {
+      setDialog({ kind: 'failed', message: error instanceof Error ? error.message : '仮のパスワードを取得できませんでした。' });
+    } finally {
+      setIssuing(false);
+    }
+  };
 
   return (
     <>
@@ -96,7 +111,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
             <p className="m-0 max-w-[70ch] text-sm text-ink-muted">
               新しいユーザーには、デフォルトのロール（{defaultRole?.name ?? '－'}）を付けます。パスワードを忘れた人には、仮のパスワードを設定します（次のログインで変更を求めます）。
             </p>
-            <button type="button" disabled={!allowed} onClick={() => setDialog({ kind: 'addUser' })} className={plainButton}>
+            <button type="button" disabled={!add || issuing} onClick={() => setDialog({ kind: 'addUser' })} className={plainButton}>
               ユーザーを加える
             </button>
           </div>
@@ -219,13 +234,13 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
         </>
       )}
 
-      {actions && dialog?.kind === 'addUser' && (
+      {add && dialog?.kind === 'addUser' && (
         <AddUserDialog
           existing={users.map((u) => u.id)}
           defaultRole={defaultRole?.name ?? '－'}
           onSave={(id) => {
             close();
-            void showPassword(id, actions.onAddUser(id));
+            void showPassword(id, add(id));
           }}
           onCancel={close}
         />
@@ -257,7 +272,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
       )}
       {dialog?.kind === 'failed' && (
         <FormDialog title="仮のパスワードを作れませんでした" onCancel={close}>
-          <p className="m-0 text-[15px]">{dialog.user} の仮のパスワードを作れませんでした。サーバーとつながっているかを確かめて、もう一度試してください。</p>
+          <p className="m-0 text-[15px]">{dialog.message}</p>
           <div className="flex justify-end">
             <button type="button" onClick={close} className={plainButton}>
               閉じる

@@ -5,6 +5,7 @@ export interface UserDirectory {
   readonly users: readonly UserAccount[];
   readonly roles: readonly Role[];
   readonly refreshAfterMs?: number;
+  readonly canAddUser: boolean;
 }
 
 interface RoleWire {
@@ -45,9 +46,12 @@ export async function fetchUserDirectory(signal: AbortSignal): Promise<UserDirec
   const readAt = performance.now();
   const users: UserWire[] = await response.json();
   const roles: RoleWire[] = await (await read('roles', signal)).json();
+  const account: { userId: string } = await (await read('account', signal)).json();
+  const currentRole = users.find(user => user.id === account.userId)?.role;
   const firstExpiry = users.reduce((first, user) => user.lockedUntil ? Math.min(first, Date.parse(user.lockedUntil)) : first, Infinity);
   const now = Number.isFinite(serverTime) ? serverTime + (performance.now() - readAt) : Date.now();
   return {
+    canAddUser: roles.some(role => role.id === currentRole && role.fixed),
     ...(Number.isFinite(firstExpiry) && { refreshAfterMs: Math.max(1, firstExpiry - now) }),
     users: users.map(user => ({
       id: user.id, role: user.role, lastLogin: user.lastLogin ? new Date(user.lastLogin) : null,
@@ -59,4 +63,19 @@ export async function fetchUserDirectory(signal: AbortSignal): Promise<UserDirec
       timeout: duration(role.idleTimeoutMinutes), permissions: new Set(role.permissions),
     })),
   };
+}
+
+export async function addUser(userId: string): Promise<string> {
+  const form = await fetch('/identity/user/session', { cache: 'no-store' });
+  if (!form.ok) throw new Error('ログイン状態を確認してください。');
+  const { requestToken } = await form.json();
+  const response = await fetch('/identity/user/users', {
+    method: 'POST', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', 'X-FlowHub-CSRF': requestToken },
+    body: JSON.stringify({ userId }),
+  });
+  if (response.status === 409) throw new Error('このユーザー ID はすでに登録されています。');
+  if (response.status === 403) throw new Error('ユーザーを加えるには管理者ロールが必要です。');
+  if (!response.ok) throw new Error('ユーザーの追加結果を確認できませんでした。一覧を確認してください。');
+  return (await response.json()).temporaryPassword;
 }
