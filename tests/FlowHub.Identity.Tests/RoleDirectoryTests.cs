@@ -8,6 +8,35 @@ namespace FlowHub.Identity.Tests;
 public class RoleDirectoryTests
 {
     [Fact]
+    public async Task デフォルトの切り替えは既存ユーザーを変えず新規ユーザーだけに反映する()
+    {
+        var token = TestContext.Current.CancellationToken;
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<IdentityDbContext>().UseSqlite(connection)
+            .ConfigureWarnings(warnings => warnings.Ignore(SqliteEventId.SchemaConfiguredWarning)).Options;
+        await using var db = new IdentityDbContext(options);
+        await db.Database.EnsureCreatedAsync(token);
+        await RoleDirectory.InitializeAsync(db, token);
+        var first = Assert.IsType<FirstAdministratorResult.Created>(await new FirstAdministratorStore(options).CreateAsync("first", token));
+        var users = new UserLoginStore(options);
+        var now = DateTimeOffset.UnixEpoch;
+        var initial = Assert.IsType<UserLoginResult.Accepted>(await users.LoginAsync("first", first.TemporaryPassword, now, 5, TimeSpan.FromMinutes(15), token));
+        var admin = Assert.IsType<PasswordChangeResult.Changed>(await users.ChangeInitialPasswordAsync(initial.Session, "permanent", 8, token));
+        Assert.IsType<AddUserResult.Created>(await users.AddAsync(admin.Session, "before", token));
+        Assert.Equal(DefaultRoleResult.Administrator, await RoleDirectory.SetDefaultAsync(db, "admin", token));
+        Assert.Equal(DefaultRoleResult.NotFound, await RoleDirectory.SetDefaultAsync(db, "unknown", token));
+        Assert.Equal("viewer", Assert.Single(await new RoleDirectory(options).ListAsync(token), r => r.IsDefault).Id);
+        Assert.Equal(DefaultRoleResult.Changed, await RoleDirectory.SetDefaultAsync(db, "operator", token));
+        Assert.IsType<AddUserResult.Created>(await users.AddAsync(admin.Session, "after", token));
+        var roles = await new RoleDirectory(options).ListAsync(token);
+        Assert.Equal("operator", Assert.Single(roles, r => r.IsDefault).Id);
+        var directory = await users.ListAsync(now, token);
+        Assert.Equal("viewer", Assert.Single(directory, u => u.Id == "before").Role);
+        Assert.Equal("operator", Assert.Single(directory, u => u.Id == "after").Role);
+    }
+
+    [Fact]
     public async Task 既存DBに初期ロールを用意し再起動時に保存済みの設定を上書きしない()
     {
         var token = TestContext.Current.CancellationToken;

@@ -79,6 +79,13 @@ async function postDirectory(path: string, data: Record<string, string>): Promis
   });
 }
 
+export async function setDefaultRole(roleId: string): Promise<void> {
+  const response = await postDirectory('roles/default', { roleId });
+  if (response.status === 403) throw new Error('デフォルトロールの変更には管理者権限が必要です。');
+  if (response.status === 404) throw new Error('指定したロールが見つかりません。一覧を確認してください。');
+  if (!response.ok) throw new Error('デフォルトロールの変更結果を確認できませんでした。');
+}
+
 export async function changeUserRole(userId: string, roleId: string): Promise<void> {
   const response = await postDirectory('users/role', { userId, roleId });
   if (response.status === 409) throw new Error('最後の管理者のロールは変更できません。');

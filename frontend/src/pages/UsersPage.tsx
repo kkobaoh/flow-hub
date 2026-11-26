@@ -56,6 +56,7 @@ type DirectoryProps = Pick<UsersPageProps, 'users' | 'roles'> & {
   readonly onAddUser?: UsersPageProps['onAddUser'] | undefined;
   readonly onChangeRole?: UsersPageProps['onChangeRole'] | undefined;
   readonly onUnlock?: UsersPageProps['onUnlock'] | undefined;
+  readonly onMakeDefault?: UsersPageProps['onMakeDefault'] | undefined;
   readonly onResetPassword?: UsersPageProps['onResetPassword'] | undefined;
   readonly onIssuedClosed?: () => void;
 };
@@ -218,7 +219,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
                         <td className="px-3 py-1.5">
                           <RowActions reason={allowed && !r.fixed && !r.isDefault ? reason : null}>
                             {!r.isDefault && !r.fixed && (
-                              <button type="button" disabled={!allowed} onClick={() => actions?.onMakeDefault(r.id)} className={plainButton}>
+                              <button type="button" disabled={!props.onMakeDefault || (!!actions && !allowed)} onClick={() => props.onMakeDefault?.(r.id)} className={plainButton}>
                                 デフォルトにする
                               </button>
                             )}

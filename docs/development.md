@@ -190,6 +190,25 @@ sequenceDiagram
     end
 ```
 
+ロール一覧から新規ユーザーのデフォルトを変更する流れです。
+
+```mermaid
+sequenceDiagram
+    participant A as 管理者Aの画面
+    participant B as 管理者Bの画面
+    participant API as 認証 API
+    participant DB as Identity DB
+    Note over A,B: 両者が「閲覧のみ」がデフォルトの一覧を開く
+    A->>API: POST /identity/user/roles/default（運用、CSRFトークン）
+    API->>DB: 管理権限を確認し、デフォルトを「運用」に変更してコミット
+    API-->>A: 204。画面が一覧を再取得
+    B->>API: 同じ一覧から「保守」を指定
+    API->>DB: 管理権限を確認し、デフォルトを「保守」に変更してコミット
+    API-->>B: 204。画面が一覧を再取得
+    B->>API: ユーザーを追加
+    API->>DB: 現在のデフォルト「保守」で登録
+```
+
 ## 新しい機能をどこに置くか
 
 新しい機能を、別のプロジェクト（コンテキスト）に分けるか、既存のプロジェクトに足すかは、次の指標で決めます。

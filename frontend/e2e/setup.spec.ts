@@ -128,6 +128,24 @@ test('初期設定は一度だけ完了でき、もう一つのセッション�
     await restoredAdmin.selectOption('admin');
     await expect(second.getByLabel('operator02 のロール')).toBeEnabled();
 
+    await page.reload();
+    for (const tab of [page, second]) {
+      await tab.getByRole('tab', { name: 'ロール' }).click();
+      await expect(tab.getByRole('row', { name: /閲覧のみ/ }).getByRole('cell', { name: 'デフォルト', exact: true })).toBeVisible();
+    }
+    const operations = page.getByRole('row').filter({ has: page.getByRole('cell', { name: '運用', exact: true }) });
+    await operations.getByRole('button', { name: 'デフォルトにする' }).click();
+    await expect(operations.getByRole('cell', { name: 'デフォルト', exact: true })).toBeVisible();
+    const maintenance = second.getByRole('row').filter({ has: second.getByRole('cell', { name: '保守', exact: true }) });
+    await maintenance.getByRole('button', { name: 'デフォルトにする' }).click();
+    await expect(maintenance.getByRole('cell', { name: 'デフォルト', exact: true })).toBeVisible();
+    await page.reload();
+    await page.getByRole('button', { name: 'ユーザーを加える' }).click();
+    await dialog.getByLabel('ユーザー ID').fill('after-default-change');
+    await dialog.getByRole('button', { name: 'ユーザーを加える' }).click();
+    await dialog.getByRole('button', { name: '閉じる' }).click();
+    await expect(page.getByLabel('after-default-change のロール')).toHaveValue('maintainer');
+
     // 別々の管理者が同時に自分を降格させても、DB には必ず管理者が残る。
     const attempts = await Promise.all(([ [page, 'first-admin'], [second, 'operator02'] ] as const)
       .map(async ([tab, userId]) => {

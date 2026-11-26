@@ -205,6 +205,16 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.DoesNotContain("passwordHash", first.ToJsonString(), StringComparison.OrdinalIgnoreCase);
         const string addPath = "/identity/user/users";
         var csrf = await FormToken("/identity/user/session");
+        const string defaultPath = "/identity/user/roles/default";
+        const string chooseOperator = """{"roleId":"operator"}""";
+        using var invalidDefaultToken = await Send(defaultPath, chooseOperator, "invalid");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidDefaultToken.StatusCode);
+        using var fixedRole = await Send(defaultPath, """{"roleId":"admin"}""", csrf);
+        Assert.Equal(HttpStatusCode.BadRequest, fixedRole.StatusCode);
+        using var setOperator = await Send(defaultPath, chooseOperator, csrf);
+        Assert.Equal(HttpStatusCode.NoContent, setOperator.StatusCode);
+        using var setViewer = await Send(defaultPath, """{"roleId":"viewer"}""", csrf);
+        Assert.Equal(HttpStatusCode.NoContent, setViewer.StatusCode);
         using var noToken = await Send(addPath, """{"userId":"new-user"}""", "invalid");
         Assert.Equal(HttpStatusCode.BadRequest, noToken.StatusCode);
         using var added = await Send(addPath, """{"userId":" new-user "}""", csrf);
@@ -254,6 +264,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.BadRequest, invalidUnlock.StatusCode);
         using var viewerUnlock = await Send(unlockPath, unlockBody, await FormToken("/identity/user/session"));
         Assert.Equal(HttpStatusCode.Forbidden, viewerUnlock.StatusCode);
+        using var deniedDefault = await Send(defaultPath, chooseOperator, await FormToken("/identity/user/session"));
+        Assert.Equal(HttpStatusCode.Forbidden, deniedDefault.StatusCode);
     }
 
     private async Task<HttpClient> ServeAsync(FlowHubSystem system, bool setupLogin = false)

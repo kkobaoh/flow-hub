@@ -37,6 +37,17 @@ const row = (c: HTMLElement, first: string) => [...c.querySelectorAll('tbody tr'
 const flush = () => act(() => Promise.resolve());
 
 describe('UsersPage（ユーザーとロールの管理）', () => {
+  it('保存済みの一覧から、選んだロールを新規ユーザーのデフォルトとして指定する', () => {
+    const choose = vi.fn();
+    const view = render(<UsersPage readOnly users={users} roles={roles} onMakeDefault={choose} />);
+    click(tab(view.container, 'ロール'));
+    expect(byText(row(view.container, '管理者'), 'デフォルトにする')).toBeUndefined();
+    expect(byText(row(view.container, '閲覧のみ'), 'デフォルトにする')).toBeUndefined();
+    const button = byText(row(view.container, '運用'), 'デフォルトにする');
+    expect(button.disabled).toBe(false);
+    click(button);
+    expect(choose).toHaveBeenCalledWith('ops');
+  });
   it('ユーザーのロールを付け替える。最後の管理者は付け替えられない', () => {
     const { container, onChangeRole } = setup();
 

@@ -112,6 +112,17 @@ public sealed class UserLoginStore
         return !actor.MustChangePassword && caller is not null && Session(caller) == actor && caller.RoleId == InitialRoles.Administrator.Id;
     }
 
+    public async Task<DefaultRoleResult> SetDefaultRoleAsync(UserSession actor, string roleId, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        await using var db = new IdentityDbContext(_options);
+        await using var transaction = await db.Database.BeginTransactionAsync(token).ConfigureAwait(false);
+        if (!await LockAndCheckAdministratorAsync(db, actor, token).ConfigureAwait(false)) return DefaultRoleResult.Forbidden;
+        var result = await RoleDirectory.SetDefaultAsync(db, roleId, token).ConfigureAwait(false);
+        await transaction.CommitAsync(token).ConfigureAwait(false);
+        return result;
+    }
+
     public async Task<RoleChangeResult> ChangeRoleAsync(UserSession actor, string userId, string roleId, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(actor);
