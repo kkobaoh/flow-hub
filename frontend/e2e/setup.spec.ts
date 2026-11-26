@@ -146,13 +146,35 @@ test('初期設定は一度だけ完了でき、もう一つのセッション�
     await dialog.getByRole('button', { name: '閉じる' }).click();
     await expect(page.getByLabel('after-default-change のロール')).toHaveValue('maintainer');
 
+    // 削除の確認中に対象がユーザーに割り当てられた場合は、現在の割り当てを守る。
+    const secondOperations = second.getByRole('row').filter({ has: second.getByRole('cell', { name: '運用', exact: true }) });
+    await secondOperations.getByRole('button', { name: '消す' }).click();
+    const assignment = page.getByLabel('after-default-change のロール');
+    await assignment.selectOption('operator');
+    await expect(assignment).toHaveValue('operator');
+    await second.getByRole('alertdialog').getByRole('button', { name: 'ロールを消す' }).click();
+    await expect(secondOperations.getByRole('button', { name: '消す' })).toBeDisabled();
+    await expect(second.getByRole('alert')).toBeVisible();
+
+    // 両者が確認画面を開き、同じ未使用ロールを順に削除する。
+    await page.getByRole('tab', { name: 'ロール' }).click();
+    for (const tab of [page, second]) {
+      await tab.getByRole('row').filter({ has: tab.getByRole('cell', { name: '閲覧のみ', exact: true }) })
+        .getByRole('button', { name: '消す' }).click();
+    }
+    for (const tab of [page, second]) {
+      await tab.getByRole('alertdialog').getByRole('button', { name: 'ロールを消す' }).click();
+      await expect(tab.getByRole('cell', { name: '閲覧のみ', exact: true })).toHaveCount(0);
+      await expect(tab.getByRole('alert')).toHaveCount(0);
+    }
+
     // 別々の管理者が同時に自分を降格させても、DB には必ず管理者が残る。
     const attempts = await Promise.all(([ [page, 'first-admin'], [second, 'operator02'] ] as const)
       .map(async ([tab, userId]) => {
         const form = await tab.request.get('/identity/user/session');
         const { requestToken } = await form.json();
         const response = await tab.request.post('/identity/user/users/role', {
-          data: { userId, roleId: 'viewer' }, headers: { 'X-FlowHub-CSRF': requestToken },
+          data: { userId, roleId: 'operator' }, headers: { 'X-FlowHub-CSRF': requestToken },
         });
         return response.status();
       }));

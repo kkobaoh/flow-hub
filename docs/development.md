@@ -209,6 +209,28 @@ sequenceDiagram
     API->>DB: 現在のデフォルト「保守」で登録
 ```
 
+ロールを削除するときは、確認画面を開いてから変わる可能性がある条件をサーバーでも調べます。
+
+```mermaid
+sequenceDiagram
+    actor Admin as 管理者
+    participant UI as 管理画面
+    participant API as 認証 API
+    participant DB as Identity DB
+    Admin->>UI: ロール名を確認して削除を確定
+    UI->>API: POST /identity/user/roles/delete（ロール ID、CSRF トークン）
+    API->>DB: 管理権限を確認し、ユーザー追加・ロール変更と削除を直列に処理
+    alt 未使用で、固定でもデフォルトでもない
+        API->>DB: ロールと対応するパーミッションを削除してコミット
+        API-->>UI: 204
+    else 削除条件を満たさない
+        API-->>UI: 409
+    else 対象がすでに存在しない
+        API-->>UI: 204（削除済み）
+    end
+    UI->>API: 一覧を再取得
+```
+
 ## 新しい機能をどこに置くか
 
 新しい機能を、別のプロジェクト（コンテキスト）に分けるか、既存のプロジェクトに足すかは、次の指標で決めます。

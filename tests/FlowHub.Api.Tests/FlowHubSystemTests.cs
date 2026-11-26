@@ -205,6 +205,18 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.DoesNotContain("passwordHash", first.ToJsonString(), StringComparison.OrdinalIgnoreCase);
         const string addPath = "/identity/user/users";
         var csrf = await FormToken("/identity/user/session");
+        const string deleteRolePath = "/identity/user/roles/delete";
+        const string deleteMaintenance = """{"roleId":"maintainer"}""";
+        using var invalidDeletion = await Send(deleteRolePath, deleteMaintenance, "invalid");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidDeletion.StatusCode);
+        using var protectedDeletion = await Send(deleteRolePath, """{"roleId":"viewer"}""", csrf);
+        Assert.Equal(HttpStatusCode.Conflict, protectedDeletion.StatusCode);
+        using var deletion = await Send(deleteRolePath, deleteMaintenance, csrf);
+        Assert.True(deletion.IsSuccessStatusCode);
+        using var repeatDeletion = await Send(deleteRolePath, deleteMaintenance, csrf);
+        Assert.Equal(HttpStatusCode.NoContent, repeatDeletion.StatusCode);
+        var remainingRoles = JsonNode.Parse(await client.GetStringAsync(rolesPath, Token))!.AsArray();
+        Assert.DoesNotContain(remainingRoles, r => r!["id"]!.GetValue<string>() == "maintainer");
         const string defaultPath = "/identity/user/roles/default";
         const string chooseOperator = """{"roleId":"operator"}""";
         using var invalidDefaultToken = await Send(defaultPath, chooseOperator, "invalid");
@@ -266,6 +278,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Forbidden, viewerUnlock.StatusCode);
         using var deniedDefault = await Send(defaultPath, chooseOperator, await FormToken("/identity/user/session"));
         Assert.Equal(HttpStatusCode.Forbidden, deniedDefault.StatusCode);
+        using var viewerDeletion = await Send(deleteRolePath, chooseOperator, await FormToken("/identity/user/session"));
+        Assert.Equal(HttpStatusCode.Forbidden, viewerDeletion.StatusCode);
     }
 
     private async Task<HttpClient> ServeAsync(FlowHubSystem system, bool setupLogin = false)

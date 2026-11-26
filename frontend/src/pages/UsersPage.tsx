@@ -57,6 +57,7 @@ type DirectoryProps = Pick<UsersPageProps, 'users' | 'roles'> & {
   readonly onChangeRole?: UsersPageProps['onChangeRole'] | undefined;
   readonly onUnlock?: UsersPageProps['onUnlock'] | undefined;
   readonly onMakeDefault?: UsersPageProps['onMakeDefault'] | undefined;
+  readonly onDeleteRole?: UsersPageProps['onDeleteRole'] | undefined;
   readonly onResetPassword?: UsersPageProps['onResetPassword'] | undefined;
   readonly onIssuedClosed?: () => void;
 };
@@ -70,6 +71,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
   const blocked = actions ? userAdminBlockedReason(actions.permissions) : props.onAddUser
     ? 'ユーザーの追加、ロールの付け替え、ロックの解除ができます。' : 'ユーザーとロールの変更には管理者ロールが必要です。';
   const allowed = blocked === null;
+  const deleteRole = !actions || allowed ? props.onDeleteRole : undefined;
   const add = !actions || allowed ? props.onAddUser : undefined;
   const resetPassword = !actions || allowed ? props.onResetPassword : undefined;
   const close = () => {
@@ -217,7 +219,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
                         <td className={td}>{durationLabel(r.timeout)}</td>
                         <td className={td}>{[r.isDefault ? 'デフォルト' : '', r.fixed ? '固定' : ''].filter((m) => m !== '').join('、')}</td>
                         <td className="px-3 py-1.5">
-                          <RowActions reason={allowed && !r.fixed && !r.isDefault ? reason : null}>
+                          <RowActions reason={deleteRole && !r.fixed && !r.isDefault ? reason : null}>
                             {!r.isDefault && !r.fixed && (
                               <button type="button" disabled={!props.onMakeDefault || (!!actions && !allowed)} onClick={() => props.onMakeDefault?.(r.id)} className={plainButton}>
                                 デフォルトにする
@@ -226,7 +228,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
                             <button type="button" disabled={!allowed} onClick={() => setDialog({ kind: 'role', target: r })} className={plainButton}>
                               変える
                             </button>
-                            <button type="button" disabled={!allowed || reason !== null} onClick={() => setDialog({ kind: 'deleteRole', target: r })} className={plainButton}>
+                            <button type="button" disabled={!deleteRole || reason !== null} onClick={() => setDialog({ kind: 'deleteRole', target: r })} className={plainButton}>
                               消す
                             </button>
                           </RowActions>
@@ -306,7 +308,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
           confirmLabel="ロールを消す"
           tone="danger"
           onConfirm={() => {
-            actions?.onDeleteRole(dialog.target.id);
+            deleteRole?.(dialog.target.id);
             close();
           }}
           onCancel={close}

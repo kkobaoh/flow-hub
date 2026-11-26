@@ -37,6 +37,20 @@ const row = (c: HTMLElement, first: string) => [...c.querySelectorAll('tbody tr'
 const flush = () => act(() => Promise.resolve());
 
 describe('UsersPage（ユーザーとロールの管理）', () => {
+  it('保存済みの一覧から未使用ロールを削除するときは確認してから操作を渡す', () => {
+    const remove = vi.fn();
+    const { container } = render(<UsersPage readOnly users={users} roles={roles} onDeleteRole={remove} />);
+    click(tab(container, 'ロール'));
+    for (const name of ['管理者', '閲覧のみ', '運用']) expect(byText(row(container, name), '消す').disabled).toBe(true);
+    const button = byText(row(container, '夜勤'), '消す');
+    expect(button.disabled).toBe(false);
+    click(button);
+    click(byText(container.querySelector('[role="alertdialog"]')!, 'やめる'));
+    expect(remove).not.toHaveBeenCalled();
+    click(button);
+    click(byText(container.querySelector('[role="alertdialog"]')!, 'ロールを消す'));
+    expect(remove).toHaveBeenCalledExactlyOnceWith('night');
+  });
   it('保存済みの一覧から、選んだロールを新規ユーザーのデフォルトとして指定する', () => {
     const choose = vi.fn();
     const view = render(<UsersPage readOnly users={users} roles={roles} onMakeDefault={choose} />);

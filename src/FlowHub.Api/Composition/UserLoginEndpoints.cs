@@ -25,7 +25,7 @@ internal static class UserLoginEndpoints
     }
 
     internal sealed record RoleChange(string UserId, string RoleId);
-    internal sealed record DefaultRole(string RoleId);
+    internal sealed record RoleRequest(string RoleId);
     internal sealed record OwnPassword(string CurrentPassword, string Password);
     internal sealed record UnlockRequest(string UserId, string LockToken);
 
@@ -166,7 +166,19 @@ internal static class UserLoginEndpoints
                 _ => throw new InvalidOperationException("未対応の仮パスワード再発行結果です。"),
             };
         }).RequireAuthorization(Ready);
-        group.MapPost("/roles/default", async (DefaultRole request, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>
+        group.MapPost("/roles/delete", async (RoleRequest request, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>
+        {
+            if (!await csrf.IsRequestValidAsync(context).ConfigureAwait(false)) return Results.BadRequest();
+            var result = await store.DeleteRoleAsync(ReadTicket(context.User)!, request.RoleId, token).ConfigureAwait(false);
+            return result switch
+            {
+                DeleteRoleResult.Deleted or DeleteRoleResult.NotFound => Results.NoContent(),
+                DeleteRoleResult.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
+                DeleteRoleResult.Protected => Results.Conflict(),
+                _ => throw new InvalidOperationException("未対応のロール削除結果です。"),
+            };
+        }).RequireAuthorization(Ready);
+        group.MapPost("/roles/default", async (RoleRequest request, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>
         {
             if (!await csrf.IsRequestValidAsync(context).ConfigureAwait(false)) return Results.BadRequest();
             var result = await store.SetDefaultRoleAsync(ReadTicket(context.User)!, request.RoleId, token).ConfigureAwait(false);

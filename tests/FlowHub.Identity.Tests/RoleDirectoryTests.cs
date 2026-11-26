@@ -8,6 +8,36 @@ namespace FlowHub.Identity.Tests;
 public class RoleDirectoryTests
 {
     [Fact]
+    public async Task ロール削除は管理権限と現在の割り当てを確認し未使用のロールだけ消す()
+    {
+        var token = TestContext.Current.CancellationToken;
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<IdentityDbContext>().UseSqlite(connection)
+            .ConfigureWarnings(warnings => warnings.Ignore(SqliteEventId.SchemaConfiguredWarning)).Options;
+        await using var db = new IdentityDbContext(options);
+        await db.Database.EnsureCreatedAsync(token);
+        await RoleDirectory.InitializeAsync(db, token);
+        var first = Assert.IsType<FirstAdministratorResult.Created>(await new FirstAdministratorStore(options).CreateAsync("first", token));
+        var users = new UserLoginStore(options);
+        var initial = Assert.IsType<UserLoginResult.Accepted>(await users.LoginAsync("first", first.TemporaryPassword,
+            DateTimeOffset.UnixEpoch, 5, TimeSpan.FromMinutes(15), token));
+        var admin = Assert.IsType<PasswordChangeResult.Changed>(await users.ChangeInitialPasswordAsync(initial.Session, "permanent", 8, token));
+        Task<DeleteRoleResult> Delete(string role) => users.DeleteRoleAsync(admin.Session, role, token);
+        Assert.Equal(DeleteRoleResult.Forbidden, await users.DeleteRoleAsync(initial.Session, "operator", token));
+        Assert.Equal(DeleteRoleResult.Protected, await Delete("admin"));
+        Assert.Equal(DeleteRoleResult.Protected, await Delete("viewer"));
+        Assert.IsType<AddUserResult.Created>(await users.AddAsync(admin.Session, "target", token));
+        Assert.Equal(RoleChangeResult.Changed, await users.ChangeRoleAsync(admin.Session, "target", "operator", token));
+        Assert.Equal(DeleteRoleResult.Protected, await Delete("operator"));
+        Assert.Equal(RoleChangeResult.Changed, await users.ChangeRoleAsync(admin.Session, "target", "viewer", token));
+        Assert.Equal(DeleteRoleResult.Deleted, await Delete("operator"));
+        Assert.False(await db.Set<RolePermissionRow>().AnyAsync(p => p.RoleId == "operator", token));
+        await RoleDirectory.InitializeAsync(db, token);
+        Assert.DoesNotContain(await new RoleDirectory(options).ListAsync(token), r => r.Id == "operator");
+    }
+
+    [Fact]
     public async Task デフォルトの切り替えは既存ユーザーを変えず新規ユーザーだけに反映する()
     {
         var token = TestContext.Current.CancellationToken;

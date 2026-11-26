@@ -112,6 +112,21 @@ public sealed class UserLoginStore
         return !actor.MustChangePassword && caller is not null && Session(caller) == actor && caller.RoleId == InitialRoles.Administrator.Id;
     }
 
+    public async Task<DeleteRoleResult> DeleteRoleAsync(UserSession actor, string roleId, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        await using var db = new IdentityDbContext(_options);
+        await using var transaction = await db.Database.BeginTransactionAsync(token).ConfigureAwait(false);
+        if (!await LockAndCheckAdministratorAsync(db, actor, token).ConfigureAwait(false)) return DeleteRoleResult.Forbidden;
+        var target = db.Roles.Where(role => role.Id == roleId);
+        var deleted = await target.Where(role => role.Id != InitialRoles.Administrator.Id && !role.IsDefault
+            && !db.Users.Any(user => user.RoleId == role.Id)).ExecuteDeleteAsync(token).ConfigureAwait(false);
+        if (deleted == 0)
+            return await target.AnyAsync(token).ConfigureAwait(false) ? DeleteRoleResult.Protected : DeleteRoleResult.NotFound;
+        await transaction.CommitAsync(token).ConfigureAwait(false);
+        return DeleteRoleResult.Deleted;
+    }
+
     public async Task<DefaultRoleResult> SetDefaultRoleAsync(UserSession actor, string roleId, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(actor);

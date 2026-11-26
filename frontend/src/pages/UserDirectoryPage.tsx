@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { addUser, changeUserRole, resetUserPassword, setDefaultRole, unlockUser, fetchUserDirectory, DirectoryAccessError, type UserDirectory } from '../features/user-management/userDirectory';
+import { addUser, changeUserRole, deleteRole, resetUserPassword, setDefaultRole, unlockUser, fetchUserDirectory, DirectoryAccessError, type UserDirectory } from '../features/user-management/userDirectory';
 import { plainButton } from '../shared/components/forms';
 import { UsersPage } from './UsersPage';
 
@@ -41,6 +41,7 @@ export function UserDirectoryPage({ load = fetchUserDirectory }: { readonly load
     case 'ready': return <>{errorMessage && <p role="alert">{errorMessage}</p>}<UsersPage readOnly {...view.data}
       onResetPassword={view.data.canAddUser ? resetUserPassword : undefined}
       onMakeDefault={view.data.canAddUser ? role => update(setDefaultRole(role)) : undefined}
+      onDeleteRole={view.data.canAddUser ? role => update(deleteRole(role)) : undefined}
       onChangeRole={view.data.canAddUser ? (user, role) => update(changeUserRole(user, role)) : undefined}
       onUnlock={view.data.canAddUser ? user => {
         const state = view.data.users.find(account => account.id === user)?.state;

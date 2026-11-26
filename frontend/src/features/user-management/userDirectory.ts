@@ -79,6 +79,13 @@ async function postDirectory(path: string, data: Record<string, string>): Promis
   });
 }
 
+export async function deleteRole(roleId: string): Promise<void> {
+  const response = await postDirectory('roles/delete', { roleId });
+  if (response.status === 409) throw new Error('固定・デフォルト・ユーザーに割り当て済みのロールは削除できません。一覧を確認してください。');
+  if (response.status === 403) throw new Error('ロールの削除には管理者権限が必要です。');
+  if (!response.ok) throw new Error('ロールの削除結果を確認できませんでした。');
+}
+
 export async function setDefaultRole(roleId: string): Promise<void> {
   const response = await postDirectory('roles/default', { roleId });
   if (response.status === 403) throw new Error('デフォルトロールの変更には管理者権限が必要です。');

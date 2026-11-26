@@ -26,6 +26,8 @@ public sealed record RoleDetails(string Id, string Name, bool Fixed, bool IsDefa
 
 public enum DefaultRoleResult { Changed, Administrator, NotFound, Forbidden }
 
+public enum DeleteRoleResult { Deleted, NotFound, Protected, Forbidden }
+
 public sealed class RoleDirectory
 {
     private readonly DbContextOptions<IdentityDbContext> _options;
