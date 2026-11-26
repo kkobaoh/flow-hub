@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { addUser, changeUserRole, unlockUser, fetchUserDirectory, DirectoryAccessError, type UserDirectory } from '../features/user-management/userDirectory';
+import { addUser, changeUserRole, resetUserPassword, unlockUser, fetchUserDirectory, DirectoryAccessError, type UserDirectory } from '../features/user-management/userDirectory';
 import { plainButton } from '../shared/components/forms';
 import { UsersPage } from './UsersPage';
 
@@ -39,6 +39,7 @@ export function UserDirectoryPage({ load = fetchUserDirectory }: { readonly load
     case 'failed': return <div role="alert"><p>ユーザーとロールを読み込めませんでした。</p>
       <button className={plainButton} onClick={() => { setView({ kind: 'loading' }); setAttempt(n => n + 1); }}>読み直す</button></div>;
     case 'ready': return <>{errorMessage && <p role="alert">{errorMessage}</p>}<UsersPage readOnly {...view.data}
+      onResetPassword={view.data.canAddUser ? resetUserPassword : undefined}
       onChangeRole={view.data.canAddUser ? (user, role) => update(changeUserRole(user, role)) : undefined}
       onUnlock={view.data.canAddUser ? user => {
         const state = view.data.users.find(account => account.id === user)?.state;

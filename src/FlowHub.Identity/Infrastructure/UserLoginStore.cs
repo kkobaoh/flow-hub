@@ -27,11 +27,24 @@ public abstract class AddUserResult
     public sealed class InvalidId : AddUserResult;
 }
 
+public abstract class PasswordResetResult
+{
+    private PasswordResetResult() { }
+    public sealed class Issued(string temporaryPassword) : PasswordResetResult
+    {
+        public string TemporaryPassword { get; } = temporaryPassword;
+    }
+    public sealed class Forbidden : PasswordResetResult;
+    public sealed class NotFound : PasswordResetResult;
+}
+
 public abstract record PasswordChangeResult
 {
     private PasswordChangeResult() { }
     public sealed record TooShort : PasswordChangeResult;
     public sealed record Unchanged : PasswordChangeResult;
+    public sealed record Incorrect : PasswordChangeResult;
+    public sealed record Locked : PasswordChangeResult;
     public sealed record Expired : PasswordChangeResult;
     public sealed record Changed(UserSession Session) : PasswordChangeResult;
 }
@@ -117,6 +130,24 @@ public sealed class UserLoginStore
         return RoleChangeResult.Changed;
     }
 
+    public async Task<PasswordResetResult> ResetPasswordAsync(UserSession actor, string userId, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        await using var db = new IdentityDbContext(_options);
+        await using var transaction = await db.Database.BeginTransactionAsync(token).ConfigureAwait(false);
+        if (!await LockAndCheckAdministratorAsync(db, actor, token).ConfigureAwait(false) || actor.UserId == userId)
+            return new PasswordResetResult.Forbidden();
+        var target = await db.Users.AsNoTracking().SingleOrDefaultAsync(user => user.Id == userId, token).ConfigureAwait(false);
+        if (target is null) return new PasswordResetResult.NotFound();
+        var password = target.IssueTemporaryPassword();
+        await db.Users.Where(user => user.Id == userId).ExecuteUpdateAsync(change => change
+            .SetProperty(user => user.PasswordHash, target.PasswordHash)
+            .SetProperty(user => user.MustChangePassword, true)
+            .SetProperty(user => user.Version, user => user.Version + 1), token).ConfigureAwait(false);
+        await transaction.CommitAsync(token).ConfigureAwait(false);
+        return new PasswordResetResult.Issued(password);
+    }
+
     public async Task<IReadOnlyList<UserDetails>> ListAsync(DateTimeOffset now, CancellationToken token)
     {
         await using var db = new IdentityDbContext(_options);
@@ -170,9 +201,7 @@ public sealed class UserLoginStore
             if (recordLogin) user.LastLoginTicks = now.UtcTicks;
             if (recordLogin || state != next)
             {
-                user.Failures = next.Failures;
-                user.LockedUntilTicks = next.LockedUntilTicks;
-                if (result == SetupLoginResult.Locked) user.LockGeneration++;
+                ApplyLoginState(user, next, result);
                 user.Version++;
                 try { await db.SaveChangesAsync(token).ConfigureAwait(false); }
                 catch (DbUpdateConcurrencyException) { continue; }
@@ -194,6 +223,54 @@ public sealed class UserLoginStore
         await using var db = new IdentityDbContext(_options);
         var user = await db.Users.FindAsync([session.UserId], token).ConfigureAwait(false);
         return user is not null && Session(user) == session;
+    }
+
+    private static void ApplyLoginState(UserRow user, SetupLoginState next, SetupLoginResult result)
+    {
+        user.Failures = next.Failures;
+        user.LockedUntilTicks = next.LockedUntilTicks;
+        if (result == SetupLoginResult.Locked) user.LockGeneration++;
+    }
+
+    public async Task<PasswordChangeResult> ChangeOwnPasswordAsync(UserSession session, string current, string password,
+        int minimumLength, DateTimeOffset now, int limit, TimeSpan lockDuration, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(password);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(minimumLength);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lockDuration, TimeSpan.Zero);
+        while (true)
+        {
+            await using var db = new IdentityDbContext(_options);
+            var user = await db.Users.FindAsync([session.UserId], token).ConfigureAwait(false);
+            if (user is null || user.MustChangePassword || Session(user) != session) return new PasswordChangeResult.Expired();
+            if (now.UtcTicks < user.LockedUntilTicks) return new PasswordChangeResult.Locked();
+            var matches = _hasher.VerifyHashedPassword(user, user.PasswordHash, current) != PasswordVerificationResult.Failed;
+            var (result, next) = new SetupLoginState(user.Failures, user.LockedUntilTicks).Check(matches, now, limit, lockDuration);
+            ApplyLoginState(user, next, result);
+            PasswordChangeResult outcome;
+            switch (result)
+            {
+                case SetupLoginResult.Locked: outcome = new PasswordChangeResult.Locked(); break;
+                case SetupLoginResult.Denied: outcome = new PasswordChangeResult.Incorrect(); break;
+                case SetupLoginResult.Allowed:
+                    if (current == password) outcome = new PasswordChangeResult.Unchanged();
+                    else if (new StringInfo(password).LengthInTextElements < minimumLength) outcome = new PasswordChangeResult.TooShort();
+                    else
+                    {
+                        user.PasswordHash = _hasher.HashPassword(user, password);
+                        outcome = new PasswordChangeResult.Changed(Session(user));
+                    }
+                    break;
+                default: throw new InvalidOperationException("未対応のパスワード照合結果です。");
+            }
+            user.Version++;
+            try { await db.SaveChangesAsync(token).ConfigureAwait(false); }
+            catch (DbUpdateConcurrencyException) { continue; }
+            return outcome;
+        }
     }
 
     public async Task<PasswordChangeResult> ChangeInitialPasswordAsync(UserSession session, string password, int minimumLength, CancellationToken token)

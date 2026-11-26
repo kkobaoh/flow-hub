@@ -19,10 +19,17 @@ internal sealed class UserRow
 
     public static UserRow Create(UserId id, string roleId, out string temporaryPassword)
     {
-        temporaryPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
-        var user = new UserRow { Id = id.Value, RoleId = roleId, MustChangePassword = true };
-        user.PasswordHash = new PasswordHasher<UserRow>().HashPassword(user, temporaryPassword);
+        var user = new UserRow { Id = id.Value, RoleId = roleId };
+        temporaryPassword = user.IssueTemporaryPassword();
         return user;
+    }
+
+    internal string IssueTemporaryPassword()
+    {
+        var password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
+        PasswordHash = new PasswordHasher<UserRow>().HashPassword(this, password);
+        MustChangePassword = true;
+        return password;
     }
 }
 

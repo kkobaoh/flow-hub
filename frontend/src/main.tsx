@@ -15,7 +15,7 @@ if (!root) {
 function currentPage() {
   switch (window.location.pathname) {
     case '/setup': return <SetupPage />;
-    case '/login': return <UserLoginPage />;
+    case '/login': return <UserLoginPage changeOwn={new URLSearchParams(window.location.search).has('change-password')} />;
     default: return <App link={createSignalRLink()} />;
   }
 }

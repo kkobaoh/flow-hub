@@ -233,7 +233,7 @@ export function App({ link }: AppProps) {
     messages,
     onMarkAllSeen: markAllSeen,
     onNavigate: go,
-    onChangePassword: () => {},
+    onChangePassword: () => window.location.assign('/login?change-password'),
     onLogout: () => {},
   };
 

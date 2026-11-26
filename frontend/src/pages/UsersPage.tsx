@@ -51,10 +51,12 @@ const VIEW_ALL = 'すべての画面を見る';
 
 /** ユーザーとロールの管理（docs/screens.md の「9 ユーザーとロールの管理」）。 */
 type DirectoryProps = Pick<UsersPageProps, 'users' | 'roles'> & {
+  readonly currentUserId?: string;
   readonly readOnly: true;
   readonly onAddUser?: UsersPageProps['onAddUser'] | undefined;
   readonly onChangeRole?: UsersPageProps['onChangeRole'] | undefined;
   readonly onUnlock?: UsersPageProps['onUnlock'] | undefined;
+  readonly onResetPassword?: UsersPageProps['onResetPassword'] | undefined;
   readonly onIssuedClosed?: () => void;
 };
 
@@ -68,6 +70,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
     ? 'ユーザーの追加、ロールの付け替え、ロックの解除ができます。' : 'ユーザーとロールの変更には管理者ロールが必要です。';
   const allowed = blocked === null;
   const add = !actions || allowed ? props.onAddUser : undefined;
+  const resetPassword = !actions || allowed ? props.onResetPassword : undefined;
   const close = () => {
     if ('readOnly' in props && (dialog?.kind === 'password' || dialog?.kind === 'failed')) props.onIssuedClosed?.();
     setDialog(null);
@@ -166,7 +169,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
                                 ロックを外す
                               </button>
                             )}
-                            <button type="button" disabled={!allowed} onClick={() => setDialog({ kind: 'reset', user: u.id })} className={plainButton}>
+                            <button type="button" disabled={!resetPassword || issuing || ('currentUserId' in props && props.currentUserId === u.id)} onClick={() => setDialog({ kind: 'reset', user: u.id })} className={plainButton}>
                               仮のパスワードにする
                             </button>
                           </RowActions>
@@ -249,16 +252,16 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
           onCancel={close}
         />
       )}
-      {actions && dialog?.kind === 'reset' && (
+      {resetPassword && dialog?.kind === 'reset' && (
         <ConfirmDialog
           title={`${dialog.user} を仮のパスワードにしますか？`}
-          body="いまのパスワードは使えなくなります。システムが仮のパスワードを作って、この画面で一度だけ見せます。次のログインで、パスワードの変更を求めます。"
+          body="現在のパスワードは使えなくなり、すべての端末で再ログインが必要になります。新しい仮パスワードは一度だけ表示します。ログインの失敗回数とロックは引き継ぎます。"
           confirmLabel="仮のパスワードにする"
           tone="danger"
           onConfirm={() => {
             const user = dialog.user;
             close();
-            void showPassword(user, actions.onResetPassword(user));
+            void showPassword(user, resetPassword(user));
           }}
           onCancel={close}
         />

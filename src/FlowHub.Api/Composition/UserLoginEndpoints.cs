@@ -25,6 +25,7 @@ internal static class UserLoginEndpoints
     }
 
     internal sealed record RoleChange(string UserId, string RoleId);
+    internal sealed record OwnPassword(string CurrentPassword, string Password);
     internal sealed record UnlockRequest(string UserId, string LockToken);
 
     internal static void AddServices(IServiceCollection services, DatabaseOptions database)
@@ -116,6 +117,23 @@ internal static class UserLoginEndpoints
                 _ => throw new InvalidOperationException("未対応のパスワード変更結果です。"),
             };
         }).RequireAuthorization(SignedIn);
+        group.MapPost("/password", async (OwnPassword input, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>
+        {
+            if (input.CurrentPassword is null || input.Password is null || !await csrf.IsRequestValidAsync(context).ConfigureAwait(false))
+                return Results.BadRequest();
+            var result = await store.ChangeOwnPasswordAsync(ReadTicket(context.User)!, input.CurrentPassword, input.Password,
+                minimum, clock.GetUtcNow(), limit, duration, token).ConfigureAwait(false);
+            return result switch
+            {
+                PasswordChangeResult.Changed changed => await SignInAsync(context, changed.Session, store, clock, token).ConfigureAwait(false),
+                PasswordChangeResult.Expired => Results.Unauthorized(),
+                PasswordChangeResult.Incorrect => Results.BadRequest(new { reason = "incorrect" }),
+                PasswordChangeResult.Unchanged => Results.BadRequest(new { reason = "unchanged" }),
+                PasswordChangeResult.TooShort => Results.BadRequest(new { reason = "tooShort", minimumLength = minimum }),
+                PasswordChangeResult.Locked => Results.StatusCode(StatusCodes.Status429TooManyRequests),
+                _ => throw new InvalidOperationException("未対応のパスワード変更結果です。"),
+            };
+        }).RequireAuthorization(Ready);
         group.MapGet("/account", (ClaimsPrincipal user) => Results.Ok(new { userId = user.FindFirstValue(ClaimTypes.NameIdentifier) }))
             .RequireAuthorization(Ready);
         group.MapGet("/roles", (RoleDirectory directory, CancellationToken token) => directory.ListAsync(token))
@@ -133,6 +151,18 @@ internal static class UserLoginEndpoints
                 AddUserResult.InvalidId => Results.BadRequest(),
                 AddUserResult.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
                 _ => throw new InvalidOperationException("未対応のユーザー追加結果です。"),
+            };
+        }).RequireAuthorization(Ready);
+        group.MapPost("/users/temporary-password", async (SetupEndpoints.CreateRequest request, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>
+        {
+            if (!await csrf.IsRequestValidAsync(context).ConfigureAwait(false)) return Results.BadRequest();
+            var result = await store.ResetPasswordAsync(ReadTicket(context.User)!, request.UserId, token).ConfigureAwait(false);
+            return result switch
+            {
+                PasswordResetResult.Issued issued => Results.Ok(new { issued.TemporaryPassword }),
+                PasswordResetResult.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
+                PasswordResetResult.NotFound => Results.NotFound(),
+                _ => throw new InvalidOperationException("未対応の仮パスワード再発行結果です。"),
             };
         }).RequireAuthorization(Ready);
         group.MapPost("/users/role", async (RoleChange request, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>

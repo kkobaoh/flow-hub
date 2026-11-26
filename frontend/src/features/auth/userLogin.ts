@@ -15,6 +15,19 @@ async function post(path: string, input: object, token: string) {
   });
 }
 
+export async function changeOwnPassword(currentPassword: string, password: string, token: string) {
+  const response = await post('password', { currentPassword, password }, token);
+  if (response.status === 401) throw new SessionExpired('もう一度ログインしてください。');
+  if (response.status === 429) throw new Error('ログインがロックされています。時間をおいてやり直してください。');
+  if (response.status === 400) {
+    const problem = await response.json().catch(() => ({}));
+    if (problem.reason === 'incorrect') throw new Error('現在のパスワードが一致しません。');
+    if (problem.reason === 'unchanged') throw new Error('現在と異なるパスワードを入力してください。');
+    if (problem.reason === 'tooShort') throw new Error(`新しいパスワードは${problem.minimumLength}文字以上で入力してください。`);
+  }
+  if (!response.ok) throw new Error('パスワードの変更結果を確認できませんでした。');
+}
+
 export const userLogin = {
   async session(): Promise<LoginSession | null> {
     const response = await fetch('/identity/user/session', { cache: 'no-store' });

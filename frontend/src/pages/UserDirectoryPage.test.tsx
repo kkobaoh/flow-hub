@@ -6,6 +6,7 @@ import { UserDirectoryPage } from './UserDirectoryPage';
 it('保存済みのユーザーとロールを表示し、未接続の変更操作は実行させない', async () => {
   const load = vi.fn(async () => ({
     canAddUser: false,
+    currentUserId: 'first-admin',
     users: [{ id: 'first-admin', role: 'admin', state: { kind: 'active' as const }, lastLogin: null }],
     roles: [{ id: 'admin', name: '現場管理者', isDefault: false, fixed: true, timeout: { amount: 8, unit: 'hours' as const }, permissions: new Set<'userAdmin'>(['userAdmin']) }],
   }));

@@ -143,6 +143,53 @@ sequenceDiagram
     UI->>API: 一覧を再取得
 ```
 
+他のユーザーの仮パスワードを再発行するときの流れです。
+
+```mermaid
+sequenceDiagram
+    actor Admin as 管理者
+    participant UI as 管理画面
+    participant API as 認証 API
+    participant DB as Identity DB
+    participant Client as 対象ユーザーの端末
+    Admin->>UI: 対象ユーザーを選び、確認画面で再発行を確定
+    UI->>API: POST /identity/user/users/temporary-password（対象 ID、CSRF トークン）
+    API->>DB: 現在の管理権限と対象ユーザーを確認
+    alt 管理者が他のユーザーを指定
+        API->>DB: 新しいハッシュと変更必須状態を保存。失敗回数とロックは保持
+        API-->>UI: 仮パスワード
+        UI-->>Admin: 一度だけ表示
+        Client->>API: 旧 Cookie で認証が必要な操作
+        API-->>Client: 401（再ログイン）
+    else 自分自身への再発行または権限不足
+        API-->>UI: 403
+    end
+```
+
+本人がメニューからパスワードを変えるときは、通常ログインの変更画面（`/login?change-password`）を開きます。
+
+```mermaid
+sequenceDiagram
+    actor User as 本人
+    participant UI as 変更した端末
+    participant API as 認証 API
+    participant DB as Identity DB
+    participant Other as 別の端末
+    User->>UI: 現在のパスワードと新しいパスワードを入力
+    UI->>API: POST /identity/user/password（認証 Cookie、CSRF トークン）
+    API->>DB: セッションとロックを確認し、現在のパスワードを照合
+    alt ロック中または照合失敗
+        API-->>UI: ロック中なら429。照合失敗はログインと共通の回数に記録
+    else 新しい値が同じか短い
+        API-->>UI: 400（入力し直す理由）
+    else 変更成功
+        API->>DB: 新しいパスワードのハッシュを保存
+        API-->>UI: 新しい認証 Cookie
+        Other->>API: 古い Cookie で認証を必要とする操作
+        API-->>Other: 401（再ログイン）
+    end
+```
+
 ## 新しい機能をどこに置くか
 
 新しい機能を、別のプロジェクト（コンテキスト）に分けるか、既存のプロジェクトに足すかは、次の指標で決めます。

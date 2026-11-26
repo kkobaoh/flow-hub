@@ -81,6 +81,25 @@ describe('UsersPage（ユーザーとロールの管理）', () => {
     expect(container.textContent).not.toContain('Temp-Pass-1234');
   });
 
+  it('保存済み一覧の仮パスワード再発行は確認してから実行し、閉じたときに一覧を更新する', async () => {
+    const reset = vi.fn().mockResolvedValue('one-time-value');
+    const closed = vi.fn();
+    const { container } = render(<UsersPage readOnly users={users} roles={roles} onResetPassword={reset} onIssuedClosed={closed} />);
+    const open = () => click(byText(row(container, 'ops01'), '仮のパスワードにする'));
+    open();
+    click(byText(container.querySelector('[role="alertdialog"]')!, 'やめる'));
+    expect(reset).not.toHaveBeenCalled();
+    open();
+    click(byText(container.querySelector('[role="alertdialog"]')!, '仮のパスワードにする'));
+    await flush();
+    expect(reset).toHaveBeenCalledExactlyOnceWith('ops01');
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('one-time-value');
+    expect(closed).not.toHaveBeenCalled();
+    click(byText(container.querySelector('[role="dialog"]')!, '閉じる'));
+    expect(container.textContent).not.toContain('one-time-value');
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
   it('ユーザーを加えると、デフォルトのロールを付け、仮のパスワードを見せる', async () => {
     const { container, onAddUser } = setup();
 

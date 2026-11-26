@@ -8,6 +8,78 @@ namespace FlowHub.Identity.Tests;
 public class UserLoginTests
 {
     [Fact]
+    public async Task 本人変更はログインとロックを共有し成功後は新しいセッションだけが有効になる()
+    {
+        var token = TestContext.Current.CancellationToken;
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<IdentityDbContext>().UseSqlite(connection)
+            .ConfigureWarnings(warnings => warnings.Ignore(SqliteEventId.SchemaConfiguredWarning)).Options;
+        await using var db = new IdentityDbContext(options);
+        await db.Database.EnsureCreatedAsync(token);
+        var store = new UserLoginStore(options);
+        var now = DateTimeOffset.UnixEpoch;
+        var duration = TimeSpan.FromMinutes(15);
+        Task<UserLoginResult> Login(string password) => store.LoginAsync("Admin", password, now, 5, duration, token);
+        var first = Assert.IsType<FirstAdministratorResult.Created>(await new FirstAdministratorStore(options).CreateAsync("Admin", token));
+        var initial = Assert.IsType<UserLoginResult.Accepted>(await Login(first.TemporaryPassword));
+        var admin = Assert.IsType<PasswordChangeResult.Changed>(await store.ChangeInitialPasswordAsync(initial.Session, "password1", 8, token));
+        Task<PasswordChangeResult> Change(string current, string next) =>
+            store.ChangeOwnPasswordAsync(admin.Session, current, next, 8, now, 5, duration, token);
+        Assert.IsType<PasswordChangeResult.Unchanged>(await Change("password1", "password1"));
+        Assert.IsType<PasswordChangeResult.TooShort>(await Change("password1", "123456👩‍💻"));
+        for (var i = 0; i < 3; i++) Assert.IsType<UserLoginResult.Denied>(await Login("wrong"));
+        Assert.IsType<PasswordChangeResult.Incorrect>(await Change("wrong", "newpassword"));
+        Assert.IsType<PasswordChangeResult.Locked>(await Change("wrong", "newpassword"));
+        Assert.IsType<UserLoginResult.Locked>(await Login("password1"));
+        Assert.IsType<PasswordChangeResult.Locked>(await Change("password1", "newpassword"));
+        now += duration;
+        const string chosen = " 123456👩‍💻";
+        var changed = Assert.IsType<PasswordChangeResult.Changed>(await Change("password1", chosen));
+        Assert.False(await store.IsCurrentAsync(admin.Session, token));
+        Assert.True(await store.IsCurrentAsync(changed.Session, token));
+        Assert.IsType<PasswordChangeResult.Expired>(await Change("password1", "another-password"));
+        Assert.IsType<UserLoginResult.Denied>(await Login("password1"));
+        Assert.IsType<UserLoginResult.Accepted>(await Login(chosen));
+    }
+
+    [Fact]
+    public async Task 再発行は自分を対象にできず既存のセッションを失効させ失敗回数とロックを維持する()
+    {
+        var token = TestContext.Current.CancellationToken;
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<IdentityDbContext>().UseSqlite(connection)
+            .ConfigureWarnings(warnings => warnings.Ignore(SqliteEventId.SchemaConfiguredWarning)).Options;
+        await using var db = new IdentityDbContext(options);
+        await db.Database.EnsureCreatedAsync(token);
+        await RoleDirectory.InitializeAsync(db, token);
+        var store = new UserLoginStore(options);
+        var now = DateTimeOffset.UnixEpoch;
+        Task<UserLoginResult> Login(string id, string password) => store.LoginAsync(id, password, now, 2, TimeSpan.FromMinutes(15), token);
+        var first = Assert.IsType<FirstAdministratorResult.Created>(await new FirstAdministratorStore(options).CreateAsync("Admin", token));
+        var temporary = Assert.IsType<UserLoginResult.Accepted>(await Login("Admin", first.TemporaryPassword));
+        var admin = Assert.IsType<PasswordChangeResult.Changed>(await store.ChangeInitialPasswordAsync(temporary.Session, "permanent", 8, token));
+        var added = Assert.IsType<AddUserResult.Created>(await store.AddAsync(admin.Session, "operator", token));
+        var initial = Assert.IsType<UserLoginResult.Accepted>(await Login("operator", added.TemporaryPassword));
+        var ready = Assert.IsType<PasswordChangeResult.Changed>(await store.ChangeInitialPasswordAsync(initial.Session, "old-password", 8, token));
+        var other = Assert.IsType<UserLoginResult.Accepted>(await Login("operator", "old-password"));
+        Assert.IsType<PasswordResetResult.Forbidden>(await store.ResetPasswordAsync(ready.Session, "Admin", token));
+        Assert.IsType<PasswordResetResult.Forbidden>(await store.ResetPasswordAsync(admin.Session, "Admin", token));
+        Assert.IsType<UserLoginResult.Denied>(await Login("operator", "wrong"));
+        var reset = Assert.IsType<PasswordResetResult.Issued>(await store.ResetPasswordAsync(admin.Session, "operator", token));
+        Assert.False(await store.IsCurrentAsync(ready.Session, token));
+        Assert.False(await store.IsCurrentAsync(other.Session, token));
+        Assert.IsType<UserLoginResult.Locked>(await Login("operator", "old-password"));
+        var locked = Assert.Single(await store.ListAsync(now, token), u => u.Id == "operator");
+        var again = Assert.IsType<PasswordResetResult.Issued>(await store.ResetPasswordAsync(admin.Session, "operator", token));
+        Assert.IsType<UserLoginResult.Locked>(await Login("operator", again.TemporaryPassword));
+        Assert.Equal(UnlockResult.Unlocked, await store.UnlockAsync(admin.Session, "operator", locked.LockToken!, now, token));
+        Assert.IsType<UserLoginResult.Denied>(await Login("operator", reset.TemporaryPassword));
+        Assert.True(Assert.IsType<UserLoginResult.Accepted>(await Login("operator", again.TemporaryPassword)).Session.MustChangePassword);
+    }
+
+    [Fact]
     public async Task 古い解除要求は同じ期限でも新しいロックを解除しない()
     {
         var token = TestContext.Current.CancellationToken;

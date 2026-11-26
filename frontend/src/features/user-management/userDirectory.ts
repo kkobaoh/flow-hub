@@ -2,6 +2,7 @@ import type { Permission } from '../auth/permissions';
 import type { Duration, Role, UserAccount } from './users';
 
 export interface UserDirectory {
+  readonly currentUserId: string;
   readonly users: readonly UserAccount[];
   readonly roles: readonly Role[];
   readonly refreshAfterMs?: number;
@@ -52,6 +53,7 @@ export async function fetchUserDirectory(signal: AbortSignal): Promise<UserDirec
   const firstExpiry = users.reduce((first, user) => user.lockedUntil ? Math.min(first, Date.parse(user.lockedUntil)) : first, Infinity);
   const now = Number.isFinite(serverTime) ? serverTime + (performance.now() - readAt) : Date.now();
   return {
+    currentUserId: account.userId,
     canAddUser: roles.some(role => role.id === currentRole && role.fixed),
     ...(Number.isFinite(firstExpiry) && { refreshAfterMs: Math.max(1, firstExpiry - now) }),
     users: users.map(user => ({
@@ -96,5 +98,12 @@ export async function addUser(userId: string): Promise<string> {
   if (response.status === 409) throw new Error('このユーザー ID はすでに登録されています。');
   if (response.status === 403) throw new Error('ユーザーを加えるには管理者ロールが必要です。');
   if (!response.ok) throw new Error('ユーザーの追加結果を確認できませんでした。一覧を確認してください。');
+  return (await response.json()).temporaryPassword;
+}
+
+export async function resetUserPassword(userId: string): Promise<string> {
+  const response = await postDirectory('users/temporary-password', { userId });
+  if (response.status === 403) throw new Error('このユーザーの仮パスワードを再発行する権限がありません。');
+  if (!response.ok) throw new Error('仮パスワードの再発行結果を確認できませんでした。');
   return (await response.json()).temporaryPassword;
 }
