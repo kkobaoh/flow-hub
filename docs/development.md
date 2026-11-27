@@ -211,6 +211,25 @@ sequenceDiagram
     end
 ```
 
+パーミッション表の保存では、各チェックの変更先の値をサーバーに渡します。
+
+```mermaid
+sequenceDiagram
+    participant UI as 管理者の画面
+    participant API as 認証 API
+    participant DB as 認証 DB
+    UI->>API: POST /identity/user/roles/permissions（変更したチェックと CSRF トークン）
+    API->>DB: 管理者ロール行をロックし、操作者・変更内容・対象ロールを確認
+    alt すべての対象が存在する
+        API->>DB: 指定されたチェックだけを更新し、一括でコミット
+        API-->>UI: 保存成功
+    else 変更対象のロールが削除済み
+        API-->>UI: 404（全件取り消し）
+        UI->>UI: 保存できなかった理由を表示
+    end
+    UI->>API: 最新の一覧を取得
+```
+
 ロール一覧から新規ユーザーのデフォルトを変更する流れです。
 
 ```mermaid

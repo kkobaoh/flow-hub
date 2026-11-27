@@ -173,6 +173,19 @@ internal static class UserLoginEndpoints
                 _ => throw new InvalidOperationException("未対応の仮パスワード再発行結果です。"),
             };
         }).RequireAuthorization(Ready);
+        group.MapPost("/roles/permissions", async ([Microsoft.AspNetCore.Mvc.FromBody] PermissionChange[] changes, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>
+        {
+            if (!await csrf.IsRequestValidAsync(context).ConfigureAwait(false)) return Results.BadRequest();
+            var result = await store.SavePermissionsAsync(ReadTicket(context.User)!, changes, token).ConfigureAwait(false);
+            return result switch
+            {
+                SavePermissionsResult.Saved => Results.NoContent(),
+                SavePermissionsResult.Forbidden => Results.StatusCode(StatusCodes.Status403Forbidden),
+                SavePermissionsResult.Invalid => Results.BadRequest(),
+                SavePermissionsResult.NotFound => Results.NotFound(),
+                _ => throw new InvalidOperationException("未対応のパーミッション保存結果です。"),
+            };
+        }).RequireAuthorization(Ready);
         group.MapPost("/roles/save", async (RoleSave request, HttpContext context, IAntiforgery csrf, UserLoginStore store, CancellationToken token) =>
         {
             if (!await csrf.IsRequestValidAsync(context).ConfigureAwait(false)) return Results.BadRequest();

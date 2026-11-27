@@ -71,6 +71,29 @@ test('初期設定は一度だけ完了でき、もう一つのセッション�
     await roleDialog.getByLabel('ログインしておける時間').fill('2');
     await roleDialog.getByRole('button', { name: 'ロールを保存する' }).click();
     await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: '夜間運用', exact: true }) }).first()).toContainText('2時間');
+    const manual = page.getByRole('checkbox', { name: '夜間運用：マニュアル操作', exact: true });
+    await manual.check();
+    const saved = page.waitForResponse(response => response.url().endsWith('/identity/user/roles/permissions'));
+    await page.getByRole('button', { name: 'パーミッションを保存する' }).click();
+    expect((await saved).status()).toBe(204);
+    await page.reload();
+    await page.getByRole('tab', { name: 'ロール' }).click();
+    await expect(manual).toBeChecked();
+    const viewerManual = page.getByRole('checkbox', { name: '閲覧のみ：マニュアル操作', exact: true });
+    await viewerManual.check();
+    await manual.uncheck();
+    const rolesResponse = await page.request.get('/identity/user/roles');
+    const roleList: { id: string; name: string }[] = await rolesResponse.json();
+    const token = await page.request.get('/identity/user/session');
+    const removed = await page.request.post('/identity/user/roles/delete', {
+      headers: { 'X-FlowHub-CSRF': (await token.json()).requestToken },
+      data: { roleId: roleList.find(role => role.name === '夜間運用')!.id },
+    });
+    expect(removed.status()).toBe(204);
+    await page.getByRole('button', { name: 'パーミッションを保存する' }).click();
+    await expect(page.getByRole('alert')).toContainText('対象のロールが削除された');
+    await expect(manual).toHaveCount(0);
+    await expect(viewerManual).not.toBeChecked();
     await page.getByRole('tab', { name: 'ユーザー', exact: true }).click();
     await page.getByRole('button', { name: 'ユーザーを加える' }).click();
     const dialog = page.getByRole('dialog');

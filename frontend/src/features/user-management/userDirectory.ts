@@ -1,5 +1,5 @@
 import type { Permission } from '../auth/permissions';
-import type { Duration, Role, UserAccount } from './users';
+import type { Duration, PermissionChange, Role, UserAccount } from './users';
 
 export interface UserDirectory {
   readonly currentUserId: string;
@@ -68,7 +68,7 @@ export async function fetchUserDirectory(signal: AbortSignal): Promise<UserDirec
   };
 }
 
-async function postDirectory(path: string, data: Record<string, string>): Promise<Response> {
+async function postDirectory(path: string, data: Record<string, string> | readonly PermissionChange[]): Promise<Response> {
   const form = await fetch('/identity/user/session', { cache: 'no-store' });
   if (!form.ok) throw new Error('ログイン状態を確認してください。');
   const { requestToken } = await form.json();
@@ -87,6 +87,13 @@ export async function saveRole(id: string | null, role: { name: string; timeout:
   if (response.status === 403) throw new Error('ロールの保存には管理者権限が必要です。');
   if (response.status === 404) throw new Error('対象のロールが見つかりません。');
   if (!response.ok) throw new Error('ロールの保存結果を確認できませんでした。');
+}
+
+export async function savePermissions(changes: readonly PermissionChange[]): Promise<void> {
+  const response = await postDirectory('roles/permissions', changes);
+  if (response.status === 404) throw new Error('対象のロールが削除されたため、変更をすべて取り消しました。一覧を読み直します。');
+  if (response.status === 403) throw new Error('パーミッションの保存には管理者権限が必要です。');
+  if (!response.ok) throw new Error('パーミッションの保存結果を確認できませんでした。一覧を読み直します。');
 }
 
 export async function deleteRole(roleId: string): Promise<void> {

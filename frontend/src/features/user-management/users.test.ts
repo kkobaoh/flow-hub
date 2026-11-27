@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { initialRoles } from '../auth/permissions';
 import {
   durationLabel,
-  permissionsChanged,
   roleChangeBlockedReason,
   roleDeleteBlockedReason,
   roleProblem,
@@ -85,13 +84,5 @@ describe('表示', () => {
     expect(stateLabel({ kind: 'active' })).toBe('使える');
     expect(stateLabel({ kind: 'locked', until: new Date('2026-11-22T10:15:00') })).toBe('ロック中（ログインの失敗が続いたため。10:15 まで）');
     expect(stateLabel({ kind: 'mustChangePassword' })).toBe('仮のパスワード（次のログインで変更を求める）');
-  });
-});
-
-describe('permissionsChanged', () => {
-  it('どれかのロールのパーミッションが変わったか', () => {
-    const before = new Map([['ops', new Set(['operation'] as const)]]);
-    expect(permissionsChanged(before, new Map([['ops', new Set(['operation'] as const)]]))).toBe(false);
-    expect(permissionsChanged(before, new Map([['ops', new Set(['operation', 'manual'] as const)]]))).toBe(true);
   });
 });

@@ -29,10 +29,17 @@ public enum DefaultRoleResult { Changed, Administrator, NotFound, Forbidden }
 
 public enum SaveRoleResult { Saved, InvalidName, InvalidTimeout, Duplicate, NotFound, Forbidden }
 
+public sealed record PermissionChange(string RoleId, string Permission, [property: System.Text.Json.Serialization.JsonRequired] bool Enabled);
+public enum SavePermissionsResult { Saved, Invalid, NotFound, Forbidden }
+
 public enum DeleteRoleResult { Deleted, NotFound, Protected, Forbidden }
 
 public sealed class RoleDirectory
 {
+    internal static readonly IReadOnlySet<string> EditablePermissions = Enum.GetValues<Permission>()
+        .Where(p => p != Permission.UserAdmin).Select(PermissionName).ToHashSet(StringComparer.Ordinal);
+
+    private static string PermissionName(Permission permission) => JsonNamingPolicy.CamelCase.ConvertName(permission.ToString());
     private readonly DbContextOptions<IdentityDbContext> _options;
     internal RoleDirectory(DbContextOptions<IdentityDbContext> options) => _options = options;
 
@@ -63,7 +70,7 @@ public sealed class RoleDirectory
             var row = new RoleRow { Id = role.Id, Name = role.Name, IsDefault = role.IsDefault, IdleTimeoutTicks = role.IdleTimeout.Ticks };
             foreach (var permission in role.Permissions)
             {
-                row.Permissions.Add(new RolePermissionRow { RoleId = role.Id, Permission = JsonNamingPolicy.CamelCase.ConvertName(permission.ToString()) });
+                row.Permissions.Add(new RolePermissionRow { RoleId = role.Id, Permission = PermissionName(permission) });
             }
             db.Roles.Add(row);
         }

@@ -7,7 +7,7 @@ import { dateTimeOf } from '../shared/utils/dateTime';
 import {
   durationLabel,
   durationUnitLabel,
-  permissionsChanged,
+  type PermissionChange,
   roleChangeBlockedReason,
   roleDeleteBlockedReason,
   roleProblem,
@@ -59,6 +59,7 @@ type DirectoryProps = Pick<UsersPageProps, 'users' | 'roles'> & {
   readonly onMakeDefault?: UsersPageProps['onMakeDefault'] | undefined;
   readonly onDeleteRole?: UsersPageProps['onDeleteRole'] | undefined;
   readonly onSaveRole?: UsersPageProps['onSaveRole'] | undefined;
+  readonly onSavePermissionChanges?: ((changes: readonly PermissionChange[]) => Promise<void> | void) | undefined;
   readonly onResetPassword?: UsersPageProps['onResetPassword'] | undefined;
   readonly onIssuedClosed?: () => void;
 };
@@ -74,6 +75,15 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
   const allowed = blocked === null;
   const deleteRole = !actions || allowed ? props.onDeleteRole : undefined;
   const saveRole = !actions || allowed ? props.onSaveRole : undefined;
+  const savePermissions = 'readOnly' in props ? props.onSavePermissionChanges : allowed ? (changes: readonly PermissionChange[]) => {
+    const draft = new Map(roles.filter(role => !role.fixed).map(role => [role.id, new Set(role.permissions)]));
+    for (const change of changes) {
+      const permissions = draft.get(change.roleId)!;
+      if (change.enabled) permissions.add(change.permission);
+      else permissions.delete(change.permission);
+    }
+    props.onSavePermissions(draft);
+  } : undefined;
   const add = !actions || allowed ? props.onAddUser : undefined;
   const resetPassword = !actions || allowed ? props.onResetPassword : undefined;
   const close = () => {
@@ -242,7 +252,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
               </table>
             </div>
           </section>
-          <PermissionMatrix key={roles.map((r) => r.id).join()} roles={roles} allowed={allowed} onSave={actions?.onSavePermissions} />
+          <PermissionMatrix roles={roles} allowed={!!savePermissions} onSave={savePermissions} />
         </>
       )}
 
@@ -324,25 +334,27 @@ function PermissionMatrix({
 }: {
   readonly roles: readonly Role[];
   readonly allowed: boolean;
-  readonly onSave: UsersPageProps['onSavePermissions'] | undefined;
+  readonly onSave: DirectoryProps['onSavePermissionChanges'];
 }) {
-  const editable = roles.filter((r) => !r.fixed);
-  const initial = new Map(editable.map((r) => [r.id, new Set(r.permissions)] as const));
-  const [draft, setDraft] = useState<ReadonlyMap<string, ReadonlySet<Permission>>>(initial);
-  const changed = permissionsChanged(initial, draft);
-  const toggle = (role: string, p: Permission) =>
-    setDraft((d) => {
-      const next = new Map(d);
-      const set = new Set(d.get(role));
-      if (set.has(p)) {
-        set.delete(p);
-      } else {
-        set.add(p);
-      }
-      next.set(role, set);
-      return next;
+  const [changes, setChanges] = useState<readonly PermissionChange[]>([]);
+  const [saving, setSaving] = useState(false);
+  const has = (role: Role, permission: Permission) =>
+    changes.find(c => c.roleId === role.id && c.permission === permission)?.enabled ?? role.permissions.has(permission);
+  function toggle(role: Role, permission: Permission, enabled: boolean) {
+    setChanges(previous => {
+      const other = previous.filter(c => c.roleId !== role.id || c.permission !== permission);
+      return enabled === role.permissions.has(permission) ? other : [...other, { roleId: role.id, permission, enabled }];
     });
-  const has = (r: Role, p: Permission) => (r.fixed ? r.permissions.has(p) : (draft.get(r.id)?.has(p) ?? false));
+  }
+  async function save() {
+    setSaving(true);
+    try {
+      await onSave?.(changes);
+      setChanges([]);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <section aria-labelledby="perm-title" className={section}>
@@ -350,7 +362,7 @@ function PermissionMatrix({
         <h2 id="perm-title" className="m-0 text-lg font-bold">
           ロールごとのパーミッション
         </h2>
-        <button type="button" disabled={!allowed || !changed} onClick={() => onSave?.(draft)} className={darkButton}>
+        <button type="button" disabled={!allowed || saving || changes.length === 0} onClick={save} className={darkButton}>
           パーミッションを保存する
         </button>
       </div>
@@ -389,8 +401,8 @@ function PermissionMatrix({
                     <input
                       type="checkbox"
                       checked={has(r, p)}
-                      disabled={!allowed || r.fixed || p === 'userAdmin'}
-                      onChange={() => toggle(r.id, p)}
+                      disabled={!allowed || saving || r.fixed || p === 'userAdmin'}
+                      onChange={event => toggle(r, p, event.target.checked)}
                       aria-label={`${r.name}：${label}`}
                       className="size-5 accent-graphite"
                     />

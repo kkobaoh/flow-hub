@@ -3,6 +3,12 @@ import { clockOf } from '../../shared/utils/dateTime';
 
 export type DurationUnit = 'minutes' | 'hours' | 'days';
 
+export interface PermissionChange {
+  readonly roleId: string;
+  readonly permission: Permission;
+  readonly enabled: boolean;
+}
+
 export const durationUnitLabel: Record<DurationUnit, string> = { minutes: '分', hours: '時間', days: '日' };
 
 /** 操作がないままログインしておける時間。 */
@@ -107,15 +113,4 @@ export function stateLabel(state: UserState): string {
     case 'mustChangePassword':
       return '仮のパスワード（次のログインで変更を求める）';
   }
-}
-
-/** どれかのロールのパーミッションが変わったか。 */
-export function permissionsChanged(before: ReadonlyMap<string, ReadonlySet<Permission>>, after: ReadonlyMap<string, ReadonlySet<Permission>>): boolean {
-  for (const [id, set] of after) {
-    const old = before.get(id);
-    if (old === undefined || old.size !== set.size || [...set].some((p) => !old.has(p))) {
-      return true;
-    }
-  }
-  return false;
 }

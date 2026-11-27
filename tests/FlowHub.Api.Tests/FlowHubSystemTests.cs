@@ -237,6 +237,26 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         using var blankName = await Send(savePath, """{"name":"  ","minutes":"1"}""", csrf);
         Assert.Equal(HttpStatusCode.BadRequest, blankName.StatusCode);
         using var renameAdmin = await Send(savePath, """{"roleId":"admin","name":"changed","minutes":"30"}""", csrf);
+        const string permissionsPath = "/identity/user/roles/permissions";
+        const string manual = """[{"roleId":"viewer","permission":"manual","enabled":true}]""";
+        async Task CheckPermissions(string body, HttpStatusCode expected, string requestToken)
+        {
+            using var response = await Send(permissionsPath, body, requestToken);
+            Assert.Equal(expected, response.StatusCode);
+        }
+        await CheckPermissions(manual, HttpStatusCode.BadRequest, "invalid");
+        await CheckPermissions(manual, HttpStatusCode.NoContent, csrf);
+        const string otherCheck = """[{"roleId":"viewer","permission":"configure","enabled":true}]""";
+        await CheckPermissions(otherCheck, HttpStatusCode.NoContent, csrf);
+        await CheckPermissions(manual, HttpStatusCode.NoContent, csrf);
+        const string undo = """[{"roleId":"viewer","permission":"manual","enabled":false}]""";
+        await CheckPermissions(undo, HttpStatusCode.NoContent, csrf);
+        await CheckPermissions("""[{"roleId":"viewer","permission":"configure","enabled":false},{"roleId":"gone","permission":"manual","enabled":true}]""", HttpStatusCode.NotFound, csrf);
+        await CheckPermissions("""[{"roleId":"viewer","permission":"userAdmin","enabled":true}]""", HttpStatusCode.BadRequest, csrf);
+        await CheckPermissions("""[{"roleId":"admin","permission":"manual","enabled":false}]""", HttpStatusCode.BadRequest, csrf);
+        var permissionRoles = JsonNode.Parse(await client.GetStringAsync(rolesPath, Token))!.AsArray();
+        var viewerPermissions = Assert.Single(permissionRoles, r => r!["id"]!.GetValue<string>() == "viewer")!["permissions"]!.AsArray();
+        Assert.Equal("configure", Assert.Single(viewerPermissions)!.GetValue<string>());
         Assert.Equal(HttpStatusCode.BadRequest, renameAdmin.StatusCode);
         var adminEdit = new JsonObject { ["roleId"] = "admin", ["name"] = Assert.Single(roles, r => r!["fixed"]!.GetValue<bool>())!["name"]!.GetValue<string>(), ["minutes"] = "23" };
         using var changeAdminTimeout = await Send(savePath, adminEdit.ToJsonString(), csrf);
@@ -322,6 +342,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Forbidden, deniedDefault.StatusCode);
         using var viewerDeletion = await Send(deleteRolePath, chooseOperator, await FormToken("/identity/user/session"));
         using var viewerSave = await Send(savePath, newRole, await FormToken("/identity/user/session"));
+        await CheckPermissions(manual, HttpStatusCode.Forbidden, await FormToken("/identity/user/session"));
         Assert.Equal(HttpStatusCode.Forbidden, viewerSave.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, viewerDeletion.StatusCode);
     }

@@ -134,6 +134,37 @@ public sealed class UserLoginStore
         return SaveRoleResult.Saved;
     }
 
+    public async Task<SavePermissionsResult> SavePermissionsAsync(UserSession actor, IReadOnlyList<PermissionChange> changes, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(changes);
+        await using var db = new IdentityDbContext(_options);
+        await using var transaction = await db.Database.BeginTransactionAsync(token).ConfigureAwait(false);
+        if (!await LockAndCheckAdministratorAsync(db, actor, token).ConfigureAwait(false)) return SavePermissionsResult.Forbidden;
+        var cells = new HashSet<(string, string)>();
+        foreach (var change in changes)
+        {
+            if (change is null || string.IsNullOrEmpty(change.RoleId) || change.RoleId == InitialRoles.Administrator.Id
+                || !RoleDirectory.EditablePermissions.Contains(change.Permission) || !cells.Add((change.RoleId, change.Permission)))
+                return SavePermissionsResult.Invalid;
+        }
+        var ids = changes.Select(change => change.RoleId).Distinct().ToArray();
+        var roles = await db.Roles.Where(role => ids.Contains(role.Id)).Include(role => role.Permissions)
+            .ToDictionaryAsync(role => role.Id, token).ConfigureAwait(false);
+        if (roles.Count != ids.Length) return SavePermissionsResult.NotFound;
+        foreach (var change in changes)
+        {
+            var permissions = roles[change.RoleId].Permissions;
+            var row = permissions.Find(p => p.Permission == change.Permission);
+            if (change.Enabled && row is null)
+                permissions.Add(new RolePermissionRow { RoleId = change.RoleId, Permission = change.Permission });
+            else if (!change.Enabled && row is not null)
+                db.Remove(row);
+        }
+        await db.SaveChangesAsync(token).ConfigureAwait(false);
+        await transaction.CommitAsync(token).ConfigureAwait(false);
+        return SavePermissionsResult.Saved;
+    }
+
     public async Task<DeleteRoleResult> DeleteRoleAsync(UserSession actor, string roleId, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(actor);

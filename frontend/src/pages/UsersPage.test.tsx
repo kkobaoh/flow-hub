@@ -211,4 +211,21 @@ describe('UsersPage（ユーザーとロールの管理）', () => {
     expect(byText(container, 'ユーザーを加える').disabled).toBe(true);
     expect(container.textContent).toContain('管理者のロールで使えます');
   });
+
+  it('一覧の再取得でほかの管理者の変更を表示し、自分が変更したチェックだけを保存する', async () => {
+    const onSavePermissions = vi.fn();
+    const show = (data: Role[]) => <UsersPage readOnly users={users} roles={data} onSavePermissionChanges={onSavePermissions} />;
+    const { container, rerender } = render(show(roles));
+    click(tab(container, 'ロール'));
+    const manual = container.querySelector<HTMLInputElement>('input[aria-label="夜勤：マニュアル操作"]')!;
+    expect(manual.disabled).toBe(false);
+    click(manual);
+    click(manual);
+    expect(byText(container, 'パーミッションを保存する').disabled).toBe(true);
+    click(manual);
+    rerender(show(roles.map(role => role.id === 'night' ? { ...role, permissions: new Set(['operation']) } : role)));
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="夜勤：運転状態のスタート・停止"]')!.checked).toBe(true);
+    await act(async () => click(byText(container, 'パーミッションを保存する')));
+    expect(onSavePermissions).toHaveBeenCalledWith([{ roleId: 'night', permission: 'manual', enabled: true }]);
+  });
 });
