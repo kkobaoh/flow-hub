@@ -9,6 +9,7 @@ using FlowHub.Consumables;
 using FlowHub.Consumables.Infrastructure;
 using FlowHub.Dispatching;
 using FlowHub.Dispatching.Infrastructure;
+using FlowHub.Identity.Infrastructure;
 using FlowHub.Map;
 using FlowHub.Map.Infrastructure;
 using FlowHub.Routing;
@@ -156,11 +157,17 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     [Fact]
     public async Task 初期設定のログインから管理者を作り使用済みのセッションを断る()
     {
+        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         var client = await ServeAsync(await StartAsync(), setupLogin: true);
 
         var hubUri = new Uri("/hubs/screen/negotiate?negotiateVersion=1", UriKind.Relative);
         using var anonymousHub = await client.PostAsync(hubUri, null, Token);
         Assert.Equal(HttpStatusCode.Unauthorized, anonymousHub.StatusCode);
+        var statusUri = new Uri("/system/status", UriKind.Relative);
+        using var anonymousStatus = await client.GetAsync(statusUri, Token);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousStatus.StatusCode);
+        using var anonymousStart = await Send("/system/start", "{}", "invalid");
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousStart.StatusCode);
         var loginToken = await FormToken("/identity/setup/login-form");
         using var login = await Send("/identity/setup/login", """{"password":"initial-password"}""", loginToken);
         Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
@@ -182,6 +189,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.True(JsonNode.Parse(await firstLogin.Content.ReadAsStringAsync(Token))!["mustChangePassword"]!.GetValue<bool>());
         using var beforeChange = await client.GetAsync(new Uri("/identity/user/account", UriKind.Relative), Token);
         Assert.Equal(HttpStatusCode.Forbidden, beforeChange.StatusCode);
+        using var temporaryStatus = await client.GetAsync(statusUri, Token);
+        Assert.Equal(HttpStatusCode.Forbidden, temporaryStatus.StatusCode);
         using var temporaryHub = await client.PostAsync(hubUri, null, Token);
         Assert.Equal(HttpStatusCode.Forbidden, temporaryHub.StatusCode);
         var rolesPath = new Uri("/identity/user/roles", UriKind.Relative);
@@ -319,6 +328,36 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var currentAccount = JsonNode.Parse(await client.GetStringAsync(accountUri, Token))!;
         Assert.Equal("new-user", currentAccount["userId"]!.GetValue<string>());
         Assert.Equal("configure", Assert.Single(currentAccount["permissions"]!.AsArray())!.GetValue<string>());
+        var viewerToken = await FormToken("/identity/user/session");
+        using var forbiddenStart = await Send("/system/start", "{}", viewerToken);
+        using var forbiddenStop = await Send("/system/stop", "{}", viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenStart.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenStop.StatusCode);
+        Assert.Equal("stopped", await StatusAsync(client));
+        var logins = _app!.Services.GetRequiredService<UserLoginStore>();
+        var adminLogin = Assert.IsType<UserLoginResult.Accepted>(
+            await logins.LoginAsync("first", "permanent-test-password", TimeProvider.System.GetUtcNow(), 5, TimeSpan.FromMinutes(15), Token));
+        var enableOperation = new PermissionChange("viewer", "operation", true);
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [enableOperation], Token));
+        using var allowedStart = await Send("/system/start", "{}", viewerToken);
+        Assert.Equal(HttpStatusCode.NoContent, allowedStart.StatusCode);
+        var order = new TransportOrder("test", ["C-1"], S, "station-1", D, "device-1", CarrierX, DateTimeOffset.MaxValue);
+        var transportId = await _system!.Dispatching.RequestTransportAsync(order, Token);
+        var cancelPath = $"/transports/{transportId.Value}/cancel";
+        using var deniedCancel = await Send(cancelPath, "{}", viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedCancel.StatusCode);
+        var cancelPermission = new PermissionChange("viewer", "transportCancel", true);
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [cancelPermission], Token));
+        using var allowedCancel = await Send(cancelPath, "{}", viewerToken);
+        Assert.Equal(HttpStatusCode.OK, allowedCancel.StatusCode);
+        Assert.Equal("canceled", (string?)JsonNode.Parse(await allowedCancel.Content.ReadAsStringAsync(Token))!["result"]);
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [cancelPermission with { Enabled = false }], Token));
+        using var revokedCancel = await Send(cancelPath, "{}", viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, revokedCancel.StatusCode);
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [enableOperation with { Enabled = false }], Token));
+        using var revokedStop = await Send("/system/stop", "{}", viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, revokedStop.StatusCode);
+        Assert.Equal("started", await StatusAsync(client));
         using var automatic = await client.GetAsync(new Uri("/system/status", UriKind.Relative), Token);
         Assert.Contains(automatic.Headers.GetValues("Set-Cookie"), value => value.StartsWith("FlowHub.User=", StringComparison.Ordinal));
         using var negotiate = await client.PostAsync(hubUri, null, Token);
@@ -507,12 +546,16 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
 
         var initial = await StatusAsync(client);
-        using var started = await client.PostAsync(new Uri("/system/start", UriKind.Relative), null, Token);
+        using var invalid = await Send("/system/start", "{}", "invalid");
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Equal("stopped", await StatusAsync(client));
+        var token = await FormToken("/identity/user/session");
+        using var started = await Send("/system/start", "{}", token);
         var afterStart = await StatusAsync(client);
-        using var stopped = await client.PostAsync(new Uri("/system/stop", UriKind.Relative), null, Token);
+        using var stopped = await Send("/system/stop", "{}", token);
         var afterStop = await StatusAsync(client);
 
         Assert.Equal("stopped", initial);
@@ -527,11 +570,18 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
         var id = await system.Dispatching.RequestTransportAsync(new TransportOrder("test", ["C-1"], S, "station-1", D, "device-1", CarrierX, DateTimeOffset.MaxValue), Token);
 
-        using var canceled = await client.PostAsync(new Uri($"/transports/{id.Value}/cancel", UriKind.Relative), null, Token);
-        using var unknown = await client.PostAsync(new Uri("/transports/999/cancel", UriKind.Relative), null, Token);
+        var cancel = $"/transports/{id.Value}/cancel";
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        using var denied = await anonymous.PostAsync(new Uri(cancel, UriKind.Relative), null, Token);
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        using var invalid = await Send(cancel, "{}", "invalid");
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        var csrf = await FormToken("/identity/user/session");
+        using var canceled = await Send(cancel, "{}", csrf);
+        using var unknown = await Send("/transports/999/cancel", "{}", csrf);
 
         Assert.Equal(HttpStatusCode.OK, canceled.StatusCode);
         Assert.Equal("canceled", (string?)JsonNode.Parse(await canceled.Content.ReadAsStringAsync(Token))!["result"]);
@@ -887,15 +937,14 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         await SeedConsumablesAsync(); // 装置 DEV-1 は D、ステーション ST-1 は S
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
         var published = (await GetJsonAsync(client, "/map/draft"))["draft"]!.ToJsonString();
         var withoutD = published.Replace("\"D\"", "\"D9\"", StringComparison.Ordinal);
 
         var validated = await PostJsonAsync(client, "/map/draft/validate", $$"""{ "draft": {{withoutD}} }""");
         var refused = await PostJsonAsync(client, "/map/draft/publish", $$"""{ "revision": 0, "draft": {{withoutD}} }""");
-        using (await client.PostAsync(new Uri("/system/start", UriKind.Relative), null, Token))
-        {
-        }
+        using var started = await Send("/system/start", "{}", await FormToken("/identity/user/session"));
+        started.EnsureSuccessStatusCode();
 
         var running = await PostJsonAsync(client, "/map/draft/publish", $$"""{ "revision": 0, "draft": {{published}} }""");
 
@@ -1127,7 +1176,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var first = await receivedA.NextAsync();
         await receivedB.NextAsync();
 
-        using var stopped = await client.PostAsync(new Uri("/system/stop", UriKind.Relative), null, Token);
+        using var stopped = await Send("/system/stop", "{}", await FormToken("/identity/user/session"));
         var changedA = await receivedA.NextAsync();
         var changedB = await receivedB.NextAsync();
 

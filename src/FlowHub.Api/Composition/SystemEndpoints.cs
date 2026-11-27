@@ -16,13 +16,15 @@ internal static class SystemEndpoints
         ArgumentNullException.ThrowIfNull(dispatching);
 
         var group = endpoints.MapGroup("/system");
-        group.MapGet("/status", () => Results.Json(new { state = dispatching.IsRunning ? "started" : "stopped" }));
-        group.MapPost("/start", async (CancellationToken cancellationToken) =>
+        group.MapGet("/status", () => Results.Json(new { state = dispatching.IsRunning ? "started" : "stopped" }))
+            .RequireAuthorization(UserLoginEndpoints.Ready);
+        var commands = group.MapGroup("").RequireScreenCommand("operation");
+        commands.MapPost("/start", async (CancellationToken cancellationToken) =>
         {
             await dispatching.StartAsync(cancellationToken).ConfigureAwait(false);
             return Results.NoContent();
         });
-        group.MapPost("/stop", async (CancellationToken cancellationToken) =>
+        commands.MapPost("/stop", async (CancellationToken cancellationToken) =>
         {
             await dispatching.StopAsync(cancellationToken).ConfigureAwait(false);
             return Results.NoContent();

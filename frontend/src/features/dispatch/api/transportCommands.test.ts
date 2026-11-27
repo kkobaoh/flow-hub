@@ -8,18 +8,25 @@ describe('sendCancelTransport', () => {
   });
 
   it('搬送の取りやめの窓口へ送り、サーバーが返した結果を返す', async () => {
-    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ result: 'canceling' }), { status: 200 }));
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(Response.json({ result: 'canceling' }));
     vi.stubGlobal('fetch', fetch);
 
     await expect(sendCancelTransport('http://api', 12, 10_000)).resolves.toBe('canceling');
-    expect(fetch).toHaveBeenCalledWith('http://api/transports/12/cancel', expect.objectContaining({ method: 'POST' }));
+    expect(fetch).toHaveBeenCalledWith('http://api/transports/12/cancel', expect.objectContaining({
+      method: 'POST', headers: expect.objectContaining({ 'X-FlowHub-CSRF': 'csrf' }),
+    }));
   });
 
   it('知らない搬送（404）や応答がないときは failed（やり直さない）', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' })).mockResolvedValueOnce(new Response(null, { status: 404 })));
 
     await expect(sendCancelTransport('', 12, 10_000)).resolves.toBe('failed');
+  });
+  it('取りやめの権限が失われた場合は理由を表示する', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' })).mockResolvedValueOnce(new Response(null, { status: 403 })));
+    expect(cancelNotice(await sendCancelTransport('', 12, 10_000))).toBe('搬送を取りやめる権限がありません。');
   });
 });
 

@@ -79,6 +79,22 @@ internal static class UserLoginEndpoints
             .AddPolicy(Ready, p => p.AddAuthenticationSchemes(Scheme).RequireAuthenticatedUser().RequireClaim("stage", "ready"));
     }
 
+    internal static RouteGroupBuilder RequireScreenCommand(this RouteGroupBuilder group, string permission)
+    {
+        group.RequireAuthorization(Ready);
+        return group.AddEndpointFilter(async (invocation, next) =>
+        {
+            var http = invocation.HttpContext;
+            var store = http.RequestServices.GetRequiredService<UserLoginStore>();
+            var account = await store.GetCurrentAccountAsync(ReadTicket(http.User)!, http.RequestAborted).ConfigureAwait(false);
+            if (account is null) return Results.Unauthorized();
+            if (!account.Permissions.Contains(permission)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            var csrf = http.RequestServices.GetRequiredService<IAntiforgery>();
+            if (!await csrf.IsRequestValidAsync(http).ConfigureAwait(false)) return Results.BadRequest();
+            return await next(invocation).ConfigureAwait(false);
+        });
+    }
+
     internal static void Map(WebApplication app, TimeProvider clock)
     {
         var limit = app.Configuration.GetValue("Identity:LoginFailureLimit", 5);

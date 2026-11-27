@@ -242,6 +242,44 @@ sequenceDiagram
     UI->>UI: /login に移動
 ```
 
+運転状態の取得（`GET /system/status`）には通常ログインが必要です。スタートと停止は次の順番で受け付けます。
+
+```mermaid
+sequenceDiagram
+    participant UI as 業務画面
+    participant API as 運転状態 API
+    participant DB as 認証 DB
+    participant D as 配車
+    UI->>API: セッションから CSRF トークンを取得
+    UI->>API: POST /system/start または /system/stop（Cookie・トークン付き）
+    API->>DB: 現在のユーザー・ロールの operation 権限を照合
+    alt 通常ログイン済み・操作権限あり・トークン有効
+        API->>D: スタートまたは停止
+        API-->>UI: 204
+    else 受け付け条件を満たさない
+        API-->>UI: 未認証は 401、変更待ち・権限不足は 403、トークン不正は 400
+    end
+```
+
+搬送の取りやめでは、サーバーが現在の権限を確認してから搬送番号を配車へ渡します。
+
+```mermaid
+sequenceDiagram
+    participant UI as 搬送一覧
+    participant API as 搬送 API
+    participant D as 配車
+    UI->>API: POST /transports/{id}/cancel（Cookie・CSRF トークン付き）
+    API->>API: 通常ログイン、現在の transportCancel 権限、トークンを照合
+    alt すべて有効
+        API->>D: 指定した搬送を取りやめる
+        D-->>API: 搬送の段階に応じた結果
+        API-->>UI: 取りやめ結果（未知の搬送番号は 404）
+    else 権限不足
+        API-->>UI: 403
+        UI->>UI: 取りやめる権限がない旨を表示
+    end
+```
+
 パーミッション表の保存では、各チェックの変更先の値をサーバーに渡します。
 
 ```mermaid

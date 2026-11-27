@@ -16,7 +16,7 @@ internal static class TransportEndpoints
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(dispatching);
 
-        var group = endpoints.MapGroup("/transports");
+        var group = endpoints.MapGroup("/transports").RequireScreenCommand("transportCancel");
 
         // 搬送を取りやめる（割り当てたあとでも、AGV へのコマンドの単位で取りやめる）
         group.MapPost("/{id:long}/cancel", async (long id, CancellationToken cancellationToken) =>

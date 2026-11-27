@@ -128,7 +128,7 @@ test('初期設定は一度だけ完了でき、もう一つのセッション�
     const self = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'first-admin', exact: true }) });
     await expect(self.getByRole('button', { name: '仮のパスワードにする' })).toBeDisabled();
     const resetPath = '/identity/user/users/temporary-password';
-    const adminSession = await page.request.get('/identity/user/session');
+    const adminSession = await page.request.get('/identity/user/session', { maxRetries: 1 });
     const adminToken = (await adminSession.json()).requestToken;
     expect((await page.request.post(resetPath, { data: { userId: 'operator02' } })).status()).toBe(400);
     expect((await page.request.post(resetPath, {
