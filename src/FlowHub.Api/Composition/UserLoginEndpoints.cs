@@ -11,7 +11,7 @@ internal static class UserLoginEndpoints
 {
     private const string Scheme = "FlowHub.User";
     private const string SignedIn = "UserSignedIn";
-    private const string Ready = "UserPasswordChanged";
+    internal const string Ready = "UserPasswordChanged";
 
     internal sealed class Credentials
     {
@@ -142,8 +142,11 @@ internal static class UserLoginEndpoints
                 _ => throw new InvalidOperationException("未対応のパスワード変更結果です。"),
             };
         }).RequireAuthorization(Ready);
-        group.MapGet("/account", (ClaimsPrincipal user) => Results.Ok(new { userId = user.FindFirstValue(ClaimTypes.NameIdentifier) }))
-            .RequireAuthorization(Ready);
+        group.MapGet("/account", async (ClaimsPrincipal user, UserLoginStore store, CancellationToken token) =>
+        {
+            var account = await store.GetCurrentAccountAsync(ReadTicket(user)!, token).ConfigureAwait(false);
+            return account is null ? Results.Unauthorized() : Results.Ok(account);
+        }).RequireAuthorization(Ready);
         group.MapGet("/roles", (RoleDirectory directory, CancellationToken token) => directory.ListAsync(token))
             .RequireAuthorization(Ready);
         group.MapGet("/users", (UserLoginStore store, CancellationToken token) => store.ListAsync(clock.GetUtcNow(), token))

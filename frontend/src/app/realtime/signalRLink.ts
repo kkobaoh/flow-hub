@@ -1,4 +1,5 @@
-import { HttpTransportType, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
+import { DefaultHttpClient, HttpError, type HttpRequest, HttpTransportType, HubConnectionBuilder, LogLevel, NullLogger } from '@microsoft/signalr';
+import { observeScreenStatus } from '../../shared/api/screenSession';
 import { postCommand } from '../../shared/api/postCommand';
 import { COMMAND_TIMEOUT_MS, retryDelayMs, type ServerHandlers, type ServerLink } from './link';
 import { sendAgvCommand } from '../../features/fleet/api/agvCommands';
@@ -66,9 +67,21 @@ export function createSignalRLink(baseUrl = ''): ServerLink {
   };
 }
 
+// ネゴシエーションだけでなく、接続済みのロングポーリングの応答でも失効を検出する。
+class ScreenHubHttpClient extends DefaultHttpClient {
+  override async send(request: HttpRequest) {
+    try {
+      return await super.send(request);
+    } catch (error) {
+      if (error instanceof HttpError) observeScreenStatus(error.statusCode);
+      throw error;
+    }
+  }
+}
+
 function connect(baseUrl: string, handlers: ServerHandlers): () => void {
   const connection = new HubConnectionBuilder()
-    .withUrl(`${baseUrl}/hubs/screen`, { transport: HttpTransportType.LongPolling })
+    .withUrl(`${baseUrl}/hubs/screen`, { transport: HttpTransportType.LongPolling, httpClient: new ScreenHubHttpClient(NullLogger.instance) })
     .withAutomaticReconnect({ nextRetryDelayInMilliseconds: (context) => retryDelayMs(context.previousRetryCount) })
     .configureLogging(LogLevel.Warning)
     .build();

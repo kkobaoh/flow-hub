@@ -6,8 +6,9 @@ export function collectErrors(page: Page): string[] {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => {
     if (m.type() === 'error') {
-      // 未ログインで管理画面を開くテストでは、この応答でログインへのリンクを出す。
-      if (m.location().url.endsWith('/identity/user/users') && m.text().includes('401 (Unauthorized)')) return;
+      // 未ログインで管理画面を開くと、この応答を受けてログイン画面へ移る。
+      if (['/identity/user/users', '/identity/user/session'].some(path => m.location().url.endsWith(path))
+        && m.text().includes('401 (Unauthorized)')) return;
       errors.push(m.text());
     }
   });

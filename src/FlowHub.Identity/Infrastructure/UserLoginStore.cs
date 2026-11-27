@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 namespace FlowHub.Identity.Infrastructure;
 
 public sealed record UserSession(string UserId, string CredentialStamp, bool MustChangePassword);
+public sealed record CurrentAccount(string UserId, IReadOnlyList<string> Permissions);
 
 public enum RoleChangeResult { Changed, Forbidden, NotFound, LastAdministrator }
 
@@ -63,6 +64,19 @@ public sealed class UserLoginStore
     private readonly PasswordHasher<UserRow> _hasher = new();
 
     internal UserLoginStore(DbContextOptions<IdentityDbContext> options) => _options = options;
+
+    public async Task<CurrentAccount?> GetCurrentAccountAsync(UserSession session, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        await using var db = new IdentityDbContext(_options);
+        var account = await (from user in db.Users.AsNoTracking()
+                             join role in db.Roles on user.RoleId equals role.Id
+                             where user.Id == session.UserId && !user.MustChangePassword
+                             select new { User = user, Permissions = role.Permissions.Select(p => p.Permission).ToList() })
+            .SingleOrDefaultAsync(token).ConfigureAwait(false);
+        return account is not null && Session(account.User) == session
+            ? new CurrentAccount(session.UserId, account.Permissions) : null;
+    }
 
     public async Task<TimeSpan> GetIdleTimeoutAsync(string userId, CancellationToken token)
     {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { collectErrors, openMenu } from './errors';
+import { collectErrors } from './errors';
 
 /** スマートフォンの幅（playwright.config.ts の phone）で流す。 */
 
@@ -75,7 +75,9 @@ test('マップ：メニューから、ほかの画面へ移れる', async ({ pa
   const errors = collectErrors(page);
   await page.goto('/');
 
-  await openMenu(page, 'station');
+  await expect(page.locator('[data-agv="AGV-1"]')).toBeVisible();
+  await page.getByRole('button', { name: 'メニュー' }).tap();
+  await page.locator('[data-screen="station"]').tap();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('ステーションの在庫');
   expect(errors).toEqual([]);
 });

@@ -17,8 +17,9 @@ it('変更待ちでもロック中を優先し、ロックのない変更待ち�
   const until = '2026-11-26T08:00:00Z';
   const user = { id: 'first', role: 'admin', mustChangePassword: true, lockedUntil: until, lastLogin: null };
   vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json([user, { ...user, lockedUntil: null, lastLogin: until }]))
-    .mockResolvedValueOnce(Response.json([])).mockResolvedValueOnce(Response.json({ userId: 'first' })));
-  const { users } = await fetchUserDirectory(new AbortController().signal);
+    .mockResolvedValueOnce(Response.json([])).mockResolvedValueOnce(Response.json({ userId: 'first', permissions: [] })));
+  const { users, canAddUser } = await fetchUserDirectory(new AbortController().signal);
+  expect(canAddUser).toBe(false);
   expect(users[0]?.state).toEqual({ kind: 'locked', until: new Date(until) });
   expect(users[0]?.lastLogin).toBeNull();
   expect(users[1]?.state).toEqual({ kind: 'mustChangePassword' });
@@ -36,9 +37,10 @@ it('ロールの無操作時間と権限を既存の表示形式に変換する'
   const fetch = vi.fn().mockResolvedValueOnce(Response.json([])).mockResolvedValueOnce(Response.json([
     { id: 'viewer', name: '閲覧のみ', isDefault: true, fixed: false, idleTimeoutMinutes: 10080, permissions: [] },
     { id: 'admin', name: '管理者', isDefault: false, fixed: true, idleTimeoutMinutes: 480, permissions: ['userAdmin'] },
-  ])).mockResolvedValueOnce(Response.json({ userId: 'first' }));
+  ])).mockResolvedValueOnce(Response.json({ userId: 'first', permissions: ['userAdmin'] }));
   vi.stubGlobal('fetch', fetch);
-  const { roles } = await fetchUserDirectory(new AbortController().signal);
+  const { roles, canAddUser } = await fetchUserDirectory(new AbortController().signal);
+  expect(canAddUser).toBe(true);
   expect(roles[0]?.timeout).toEqual({ amount: 7, unit: 'days' });
   expect(roles[1]?.timeout).toEqual({ amount: 8, unit: 'hours' });
   expect(roles[1]?.permissions.has('userAdmin')).toBe(true);

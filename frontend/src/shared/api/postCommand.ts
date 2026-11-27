@@ -1,10 +1,11 @@
+import { screenFetch } from './screenSession';
 /** 画面からの操作の結果。応答がない・断られたときは failed（やり直さない）。 */
 export type CommandResult = 'ok' | 'failed';
 
 /** HTTP の窓口へ POST で送る。応答がない（timeoutMs を過ぎた）・つながらない・断られたときは failed にして、やり直さない。 */
 export async function postCommand(baseUrl: string, path: string, timeoutMs: number): Promise<CommandResult> {
   try {
-    const response = await fetch(`${baseUrl}${path}`, { method: 'POST', signal: AbortSignal.timeout(timeoutMs) });
+    const response = await screenFetch(`${baseUrl}${path}`, { method: 'POST', signal: AbortSignal.timeout(timeoutMs) });
     return response.ok ? 'ok' : 'failed';
   } catch (error) {
     console.warn(`${path} を送れませんでした。`, error);
@@ -25,7 +26,7 @@ export async function postOperation<T extends string>(
   results: ReadonlySet<T>,
 ): Promise<T | 'refused' | 'failed'> {
   try {
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await screenFetch(`${baseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

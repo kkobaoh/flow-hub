@@ -5,6 +5,7 @@ const port = 5190;
 const apiPort = 5199;
 /** E2E で起こす Api（テストから AGV の役をするときにも使う）。 */
 export const api = `http://localhost:${apiPort}`;
+export const screenSessionFile = 'test-results/.auth/screen.json';
 
 /** E2E 用の DB（SQLite）のフォルダー（Api のフォルダーから見た場所）。開発用の DB とは分ける。空なら、開発用の初期データが入る。 */
 const database = '../../frontend/.e2e-data';
@@ -20,8 +21,9 @@ export default defineConfig({
   reporter: 'list',
   use: { baseURL: `http://localhost:${port}`, trace: 'off' },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /phone\.spec\.ts/ },
-    { name: 'phone', use: { ...devices['Pixel 7'] }, testMatch: /phone\.spec\.ts/ },
+    { name: 'setup', use: { ...devices['Desktop Chrome'] }, testMatch: /setup\.spec\.ts/ },
+    { name: 'chromium', dependencies: ['setup'], use: { ...devices['Desktop Chrome'], storageState: screenSessionFile }, testIgnore: /(?:phone|setup)\.spec\.ts/ },
+    { name: 'phone', dependencies: ['setup'], use: { ...devices['Pixel 7'], storageState: screenSessionFile }, testMatch: /phone\.spec\.ts/ },
   ],
   webServer: [
     {

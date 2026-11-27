@@ -1,3 +1,4 @@
+import { screenFetch } from '../../../shared/api/screenSession';
 import type { Rect } from '../drawing';
 import type { MapDraft } from '../mapEdit';
 import { heading, panelId, type Connection, type Panel, type PanelType } from '../model';
@@ -85,7 +86,7 @@ function parseHeight(value: Record<string, unknown>): CarrierHeight {
 /** キャリアの高さを入れる（null で設定なしにする。すぐ使う）。応答がなければ failed（やり直さない）。 */
 export async function saveCarrierHeight(baseUrl: string, panel: string, heightMm: number | null, timeoutMs: number): Promise<CarrierHeightOutcome> {
   try {
-    const response = await fetch(`${baseUrl}/map/carrier-heights/${encodeURIComponent(panel)}`, {
+    const response = await screenFetch(`${baseUrl}/map/carrier-heights/${encodeURIComponent(panel)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ heightMm }),
@@ -193,7 +194,7 @@ export function toWireDraft(draft: MapDraft): Record<string, unknown> {
 /** 下書きを読む。timeoutMs を過ぎても応答がないか、形が正しくなければ failed（やり直さない）。 */
 export async function loadMapDraft(baseUrl: string, timeoutMs: number): Promise<MapDraftLoad | 'failed'> {
   try {
-    const response = await fetch(`${baseUrl}/map/draft`, { signal: AbortSignal.timeout(timeoutMs) });
+    const response = await screenFetch(`${baseUrl}/map/draft`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) {
       console.warn(`マップの下書きを読めませんでした（${response.status}）。`);
       return 'failed';
@@ -210,7 +211,7 @@ const SAVE_RESULTS: ReadonlySet<'saved' | 'stale'> = new Set(['saved', 'stale'] 
 /** 下書きを保存する（読んだときの番号を渡す）。応答がなければ failed（やり直さない）。 */
 export async function saveMapDraft(baseUrl: string, revision: number, draft: MapDraft, timeoutMs: number): Promise<MapDraftSaveOutcome> {
   try {
-    const response = await fetch(`${baseUrl}/map/draft`, {
+    const response = await screenFetch(`${baseUrl}/map/draft`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ revision, draft: toWireDraft(draft) }),
@@ -234,7 +235,7 @@ export const VALIDATION_FAILED = '検証できませんでした。サーバー�
 /** 下書きをサーバーで検証し、見つかった問題を返す（保存はしない）。検証できなければ、そのことを問題として返す（やり直さない）。 */
 export async function validateMapDraft(baseUrl: string, draft: MapDraft, timeoutMs: number): Promise<readonly string[]> {
   try {
-    const response = await fetch(`${baseUrl}/map/draft/validate`, {
+    const response = await screenFetch(`${baseUrl}/map/draft/validate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ draft: toWireDraft(draft) }),
@@ -269,7 +270,7 @@ const strings = (value: unknown): value is string[] => Array.isArray(value) && v
 /** 下書きを公開する（読んだときの番号を渡す）。応答がなければ failed（やり直さない）。 */
 export async function publishMapDraft(baseUrl: string, revision: number, draft: MapDraft, timeoutMs: number): Promise<MapPublishOutcome> {
   try {
-    const response = await fetch(`${baseUrl}/map/draft/publish`, {
+    const response = await screenFetch(`${baseUrl}/map/draft/publish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ revision, draft: toWireDraft(draft) }),

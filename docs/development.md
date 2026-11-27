@@ -211,6 +211,37 @@ sequenceDiagram
     end
 ```
 
+管理画面は `GET /identity/user/account` の `userId` と `permissions` で、操作中のユーザーと管理権限を確認します。サーバーは要求ごとにユーザーと現在のロールを照合し、そのロールのパーミッションを返します。
+
+```mermaid
+sequenceDiagram
+    participant UI as ログイン中の管理画面
+    participant API as 認証 API
+    participant DB as 認証 DB
+    UI->>API: GET /identity/user/account（ログイン時の Cookie）
+    API->>DB: セッションを照合し、現在のロールとパーミッションを取得
+    API-->>UI: ユーザー ID と現在のパーミッション
+    UI->>UI: ユーザー管理の操作が可能かを判定
+```
+
+業務画面では操作の HTTP 応答、SignalR の接続交渉とロングポーリングの応答で認証失効を検出します。
+
+画面用ハブ `/hubs/screen` は通常のユーザー Cookie と初回パスワード変更済みの状態を要求します。接続交渉と各ポーリング要求で同じ認可ポリシーを使います。サーバーが提供する転送方式はロングポーリングです。未認証または初期設定専用の Cookie だけの場合は 401、仮パスワードの変更待ちは 403 です。
+
+```mermaid
+sequenceDiagram
+    participant UI as 業務画面
+    participant API as サーバー
+    UI->>API: ログイン後に画面用ハブの接続を交渉
+    API-->>UI: 通常ログインを確認し接続を許可
+    UI->>API: ロングポーリング
+    API-->>UI: Cookie を検証し、画面の状態を返す
+    UI->>API: 業務 HTTP または SignalR の通信
+    API-->>UI: 401 未認証
+    UI->>UI: 操作を止め、再接続タイマーと SignalR 接続を終了
+    UI->>UI: /login に移動
+```
+
 パーミッション表の保存では、各チェックの変更先の値をサーバーに渡します。
 
 ```mermaid

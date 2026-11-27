@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { screenSessionFile } from '../playwright.config';
 
 test('初期設定は一度だけ完了でき、もう一つのセッションからは管理者を増やせない', async ({ page, browser, baseURL }) => {
   const other = await browser.newContext({ baseURL });
   try {
     const second = await other.newPage();
     await second.goto('/#/users');
-    await expect(second.getByRole('link', { name: 'ログイン画面へ' })).toBeVisible();
+    await expect(second).toHaveURL(/\/login$/);
     for (const tab of [page, second]) {
       await tab.goto('/setup');
       await tab.getByLabel('設置先のパスワード').fill('e2e-only-setup-password');
@@ -149,8 +150,11 @@ test('初期設定は一度だけ完了でき、もう一つのセッション�
     const firstAdminRole = page.getByLabel('first-admin のロール');
     const operatorRole = page.getByLabel('operator02 のロール');
     await expect(firstAdminRole).toBeDisabled();
+    const readPermissions = async () => (await (await second.request.get('/identity/user/account')).json()).permissions as string[];
+    expect(await readPermissions()).not.toContain('userAdmin');
     await operatorRole.selectOption('admin');
     await expect(firstAdminRole).toBeEnabled();
+    expect(await readPermissions()).toContain('userAdmin');
     await page.reload();
     await expect(operatorRole).toHaveValue('admin');
     await firstAdminRole.selectOption('viewer');
@@ -212,10 +216,12 @@ test('初期設定は一度だけ完了でき、もう一つのセッション�
         });
         return response.status();
       }));
-    expect(attempts.sort()).toEqual([204, 409]);
+    expect([...attempts].sort()).toEqual([204, 409]);
     const directory = await second.request.get('/identity/user/users');
     const accounts: { role: string }[] = await directory.json();
     expect(accounts.filter(user => user.role === 'admin')).toHaveLength(1);
+    const adminContext = attempts[0] === 409 ? page.context() : other;
+    await adminContext.storageState({ path: screenSessionFile });
   } finally {
     await other.close();
   }

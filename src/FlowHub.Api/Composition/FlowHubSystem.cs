@@ -277,7 +277,11 @@ internal sealed partial class FlowHubSystem : IDisposable
             // リクエストが途中で切れても、受け付けた処理のイベントは届け、画面へ様子を送る
             await AfterWorkAsync(CancellationToken.None).ConfigureAwait(false);
         });
-        app.MapHub<ScreenHub>("/hubs/screen", options => options.LongPolling.PollTimeout = TimeSpan.FromSeconds(15));
+        app.MapHub<ScreenHub>("/hubs/screen", options =>
+        {
+            options.Transports = Microsoft.AspNetCore.Http.Connections.HttpTransportType.LongPolling;
+            options.LongPolling.PollTimeout = TimeSpan.FromSeconds(15);
+        }).RequireAuthorization(UserLoginEndpoints.Ready);
         SetupEndpoints.Map(app, _firstAdministrator, _timeProvider);
         UserLoginEndpoints.Map(app, _timeProvider);
         app.MapAgvEndpoints(Traffic, _agvEndpoints, _timeProvider);

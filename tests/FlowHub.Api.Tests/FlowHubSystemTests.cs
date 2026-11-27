@@ -45,6 +45,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     private FlowHubSystem? _system;
     private WebApplication? _app;
     private HttpClient? _client;
+    private readonly CookieContainer _cookies = new();
 
     public FlowHubSystemTests() => _loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(_logs));
 
@@ -156,23 +157,15 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     public async Task 初期設定のログインから管理者を作り使用済みのセッションを断る()
     {
         var client = await ServeAsync(await StartAsync(), setupLogin: true);
-        async Task<string> FormToken(string path)
-        {
-            var json = JsonNode.Parse(await client.GetStringAsync(new Uri(path, UriKind.Relative), Token));
-            return json!["requestToken"]!.GetValue<string>();
-        }
 
-        async Task<HttpResponseMessage> Send(string path, string json, string csrf)
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(path, UriKind.Relative));
-            request.Headers.Add("X-FlowHub-CSRF", csrf);
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-            return await client.SendAsync(request, Token);
-        }
-
+        var hubUri = new Uri("/hubs/screen/negotiate?negotiateVersion=1", UriKind.Relative);
+        using var anonymousHub = await client.PostAsync(hubUri, null, Token);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousHub.StatusCode);
         var loginToken = await FormToken("/identity/setup/login-form");
         using var login = await Send("/identity/setup/login", """{"password":"initial-password"}""", loginToken);
         Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        using var setupHub = await client.PostAsync(hubUri, null, Token);
+        Assert.Equal(HttpStatusCode.Unauthorized, setupHub.StatusCode);
         var form = await FormToken("/identity/setup/form");
         using var forbidden = await Send("/identity/setup/administrator", """{"userId":"first"}""", "invalid");
         Assert.Equal(HttpStatusCode.BadRequest, forbidden.StatusCode);
@@ -189,6 +182,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.True(JsonNode.Parse(await firstLogin.Content.ReadAsStringAsync(Token))!["mustChangePassword"]!.GetValue<bool>());
         using var beforeChange = await client.GetAsync(new Uri("/identity/user/account", UriKind.Relative), Token);
         Assert.Equal(HttpStatusCode.Forbidden, beforeChange.StatusCode);
+        using var temporaryHub = await client.PostAsync(hubUri, null, Token);
+        Assert.Equal(HttpStatusCode.Forbidden, temporaryHub.StatusCode);
         var rolesPath = new Uri("/identity/user/roles", UriKind.Relative);
         using var temporaryRoles = await client.GetAsync(rolesPath, Token);
         Assert.Equal(HttpStatusCode.Forbidden, temporaryRoles.StatusCode);
@@ -320,10 +315,15 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
             return ticket.Properties.ExpiresUtc - ticket.Properties.IssuedUtc;
         }
         Assert.Equal(TimeSpan.FromDays(7), TicketDuration(viewerReady));
+        var accountUri = new Uri("/identity/user/account", UriKind.Relative);
+        var currentAccount = JsonNode.Parse(await client.GetStringAsync(accountUri, Token))!;
+        Assert.Equal("new-user", currentAccount["userId"]!.GetValue<string>());
+        Assert.Equal("configure", Assert.Single(currentAccount["permissions"]!.AsArray())!.GetValue<string>());
         using var automatic = await client.GetAsync(new Uri("/system/status", UriKind.Relative), Token);
         Assert.Contains(automatic.Headers.GetValues("Set-Cookie"), value => value.StartsWith("FlowHub.User=", StringComparison.Ordinal));
-        using var negotiate = await client.PostAsync(new Uri("/hubs/screen/negotiate?negotiateVersion=1", UriKind.Relative), null, Token);
+        using var negotiate = await client.PostAsync(hubUri, null, Token);
         var transport = JsonNode.Parse(await negotiate.Content.ReadAsStringAsync(Token))!;
+        Assert.Equal("LongPolling", Assert.Single(transport["availableTransports"]!.AsArray())!["transport"]!.GetValue<string>());
         var connection = Uri.EscapeDataString(transport["connectionToken"]!.GetValue<string>());
         using var poll = await client.GetAsync(new Uri("/hubs/screen?id=" + connection, UriKind.Relative), Token);
         Assert.Equal(HttpStatusCode.OK, poll.StatusCode);
@@ -362,8 +362,38 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await _app.StartAsync(Token);
 
         var address = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
-        _client = new HttpClient { BaseAddress = new Uri(address) };
+        _client = new HttpClient(new HttpClientHandler { CookieContainer = _cookies }) { BaseAddress = new Uri(address) };
         return _client;
+    }
+
+    private async Task<string> FormToken(string path)
+    {
+        var json = JsonNode.Parse(await _client!.GetStringAsync(new Uri(path, UriKind.Relative), Token));
+        return json!["requestToken"]!.GetValue<string>();
+    }
+
+    private async Task<HttpResponseMessage> Send(string path, string json, string csrf)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(path, UriKind.Relative));
+        request.Headers.Add("X-FlowHub-CSRF", csrf);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        return await _client!.SendAsync(request, Token);
+    }
+
+    private async Task<HttpClient> ServeSignedInScreenAsync(FlowHubSystem system)
+    {
+        var client = await ServeAsync(system, setupLogin: true);
+        using var setup = await Send("/identity/setup/login", """{"password":"initial-password"}""", await FormToken("/identity/setup/login-form"));
+        setup.EnsureSuccessStatusCode();
+        using var created = await Send("/identity/setup/administrator", """{"userId":"screen"}""", await FormToken("/identity/setup/form"));
+        created.EnsureSuccessStatusCode();
+        var password = JsonNode.Parse(await created.Content.ReadAsStringAsync(Token))!["temporaryPassword"]!.GetValue<string>();
+        var credentials = new JsonObject { ["userId"] = "screen", ["password"] = password };
+        using var login = await Send("/identity/user/login", credentials.ToJsonString(), await FormToken("/identity/user/form"));
+        login.EnsureSuccessStatusCode();
+        using var changed = await Send("/identity/user/initial-password", """{"password":"screen-test-password"}""", await FormToken("/identity/user/session"));
+        changed.EnsureSuccessStatusCode();
+        return client;
     }
 
     private static async Task<JsonArray> CommandsAsync(HttpClient client, long lastReceived, string agv = "AGV-1")
@@ -1052,7 +1082,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         var system = await StartAsync(startOnLaunch: true);
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
         var received = new SnapshotQueue<SystemStatusSnapshot>();
         await using var screen = await ConnectScreenAsync(client, received);
 
@@ -1070,7 +1100,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await consumables.AddStationAsync(new StationLayout(new StationId("ST-1"), S), Token);
         await consumables.AddDeviceAsync(new DeviceLayout(new DeviceId("DEV-1"), D, [2]), Token); // D には外形がない
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
         var map = new SnapshotQueue<MapViewSnapshot>();
         await using var screen = await ConnectScreenAsync(client, new SnapshotQueue<SystemStatusSnapshot>(), map: map);
 
@@ -1089,7 +1119,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         var system = await StartAsync(startOnLaunch: true);
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
         var receivedA = new SnapshotQueue<SystemStatusSnapshot>();
         var receivedB = new SnapshotQueue<SystemStatusSnapshot>();
         await using var screenA = await ConnectScreenAsync(client, receivedA);
@@ -1111,7 +1141,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
         var agvs = new SnapshotQueue<AgvsWire>();
         await using var screen = await ConnectScreenAsync(client, new SnapshotQueue<SystemStatusSnapshot>(), agvs);
 
@@ -1128,9 +1158,9 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(57, Assert.Single(changed.Agvs).BatteryPercent);
     }
 
-    private static async Task<HubConnection> ConnectScreenAsync(HttpClient client, SnapshotQueue<SystemStatusSnapshot> received, SnapshotQueue<AgvsWire>? agvs = null, SnapshotQueue<MapViewSnapshot>? map = null)
+    private async Task<HubConnection> ConnectScreenAsync(HttpClient client, SnapshotQueue<SystemStatusSnapshot> received, SnapshotQueue<AgvsWire>? agvs = null, SnapshotQueue<MapViewSnapshot>? map = null)
     {
-        var connection = new HubConnectionBuilder().WithUrl(new Uri(client.BaseAddress!, "/hubs/screen")).Build();
+        var connection = new HubConnectionBuilder().WithUrl(new Uri(client.BaseAddress!, "/hubs/screen"), options => options.Cookies = _cookies).Build();
         connection.On<SystemStatusSnapshot>("systemStatus", received.Add);
         connection.On<AgvsWire>("agvs", snapshot => agvs?.Add(snapshot));
         connection.On<MapViewSnapshot>("map", snapshot => map?.Add(snapshot));

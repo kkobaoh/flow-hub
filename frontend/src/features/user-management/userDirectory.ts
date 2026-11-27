@@ -1,3 +1,4 @@
+import { screenFetch } from '../../shared/api/screenSession';
 import type { Permission } from '../auth/permissions';
 import type { Duration, PermissionChange, Role, UserAccount } from './users';
 
@@ -30,7 +31,7 @@ interface UserWire {
 export class DirectoryAccessError extends Error {}
 
 async function read(name: string, signal: AbortSignal): Promise<Response> {
-  const response = await fetch('/identity/user/' + name, { signal, cache: 'no-store' });
+  const response = await screenFetch('/identity/user/' + name, { signal, cache: 'no-store' });
   if (response.status === 401 || response.status === 403) throw new DirectoryAccessError();
   if (!response.ok) throw new Error('一覧を取得できませんでした。');
   return response;
@@ -48,13 +49,12 @@ export async function fetchUserDirectory(signal: AbortSignal): Promise<UserDirec
   const readAt = performance.now();
   const users: UserWire[] = await response.json();
   const roles: RoleWire[] = await (await read('roles', signal)).json();
-  const account: { userId: string } = await (await read('account', signal)).json();
-  const currentRole = users.find(user => user.id === account.userId)?.role;
+  const account: { userId: string; permissions: Permission[] } = await (await read('account', signal)).json();
   const firstExpiry = users.reduce((first, user) => user.lockedUntil ? Math.min(first, Date.parse(user.lockedUntil)) : first, Infinity);
   const now = Number.isFinite(serverTime) ? serverTime + (performance.now() - readAt) : Date.now();
   return {
     currentUserId: account.userId,
-    canAddUser: roles.some(role => role.id === currentRole && role.fixed),
+    canAddUser: account.permissions.includes('userAdmin'),
     ...(Number.isFinite(firstExpiry) && { refreshAfterMs: Math.max(1, firstExpiry - now) }),
     users: users.map(user => ({
       id: user.id, role: user.role, lastLogin: user.lastLogin ? new Date(user.lastLogin) : null,
@@ -69,10 +69,10 @@ export async function fetchUserDirectory(signal: AbortSignal): Promise<UserDirec
 }
 
 async function postDirectory(path: string, data: Record<string, string> | readonly PermissionChange[]): Promise<Response> {
-  const form = await fetch('/identity/user/session', { cache: 'no-store' });
+  const form = await screenFetch('/identity/user/session', { cache: 'no-store' });
   if (!form.ok) throw new Error('ログイン状態を確認してください。');
   const { requestToken } = await form.json();
-  return fetch('/identity/user/' + path, {
+  return screenFetch('/identity/user/' + path, {
     method: 'POST', cache: 'no-store',
     headers: { 'Content-Type': 'application/json', 'X-FlowHub-CSRF': requestToken },
     body: JSON.stringify(data),
