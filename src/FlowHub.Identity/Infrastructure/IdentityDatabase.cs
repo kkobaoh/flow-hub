@@ -80,8 +80,12 @@ public static class IdentityDatabase
         return builder.Options;
     }
 
-    public static async Task<FirstAdministratorStore> OpenAsync(Action<DbContextOptionsBuilder> configure,
+    public static Task<FirstAdministratorStore> OpenAsync(Action<DbContextOptionsBuilder> configure,
         Func<DbContext, CancellationToken, Task> initialize, CancellationToken cancellationToken)
+        => OpenAsync(configure, initialize, null, cancellationToken);
+
+    public static async Task<FirstAdministratorStore> OpenAsync(Action<DbContextOptionsBuilder> configure,
+        Func<DbContext, CancellationToken, Task> initialize, TimeSpan? administratorIdleTimeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(configure);
         ArgumentNullException.ThrowIfNull(initialize);
@@ -105,6 +109,10 @@ public static class IdentityDatabase
             var columns = await context.Database.SqlQueryRaw<string>(
                 """SELECT name AS Value FROM pragma_table_info('users')""")
                 .ToListAsync(cancellationToken).ConfigureAwait(false);
+            var roleColumns = await context.Database.SqlQueryRaw<string>(
+                """SELECT name AS Value FROM pragma_table_info('roles')""").ToListAsync(cancellationToken).ConfigureAwait(false);
+            if (!roleColumns.Contains("IdleTimeoutInitialized"))
+                await context.Database.ExecuteSqlRawAsync("ALTER TABLE roles ADD COLUMN IdleTimeoutInitialized INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
             if (!columns.Contains("Version"))
             {
                 await context.Database.ExecuteSqlRawAsync("""
@@ -124,6 +132,10 @@ public static class IdentityDatabase
             await upgrade.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
         await RoleDirectory.InitializeAsync(context, cancellationToken).ConfigureAwait(false);
+        var adminId = Domain.InitialRoles.Administrator.Id;
+        var initialTimeout = administratorIdleTimeout ?? Domain.InitialRoles.Administrator.IdleTimeout;
+        await context.Roles.Where(r => r.Id == adminId && !r.IdleTimeoutInitialized).ExecuteUpdateAsync(update =>
+            update.SetProperty(r => r.IdleTimeoutInitialized, true).SetProperty(r => r.IdleTimeoutTicks, initialTimeout.Ticks), cancellationToken).ConfigureAwait(false);
         return new FirstAdministratorStore(options);
     }
 }

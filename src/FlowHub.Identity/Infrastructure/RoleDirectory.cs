@@ -9,6 +9,7 @@ internal sealed class RoleRow
     public required string Id { get; init; }
     public required string Name { get; set; }
     public bool IsDefault { get; set; }
+    public bool IdleTimeoutInitialized { get; set; }
     public long IdleTimeoutTicks { get; set; }
     public List<RolePermissionRow> Permissions { get; } = [];
 }
@@ -25,6 +26,8 @@ public sealed record RoleDetails(string Id, string Name, bool Fixed, bool IsDefa
 }
 
 public enum DefaultRoleResult { Changed, Administrator, NotFound, Forbidden }
+
+public enum SaveRoleResult { Saved, InvalidName, InvalidTimeout, Duplicate, NotFound, Forbidden }
 
 public enum DeleteRoleResult { Deleted, NotFound, Protected, Forbidden }
 

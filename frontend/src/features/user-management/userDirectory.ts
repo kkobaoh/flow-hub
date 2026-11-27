@@ -79,6 +79,16 @@ async function postDirectory(path: string, data: Record<string, string>): Promis
   });
 }
 
+export async function saveRole(id: string | null, role: { name: string; timeout: Duration }): Promise<void> {
+  const minutes = role.timeout.amount * { days: 1440, hours: 60, minutes: 1 }[role.timeout.unit];
+  const response = await postDirectory('roles/save', { ...(id === null ? {} : { roleId: id }), name: role.name, minutes: String(minutes) });
+  if (response.status === 409) throw new Error('このロール名はすでに使われています。');
+  if (response.status === 400) throw new Error(await response.json().catch(() => '入力内容とログイン状態を確認してください。'));
+  if (response.status === 403) throw new Error('ロールの保存には管理者権限が必要です。');
+  if (response.status === 404) throw new Error('対象のロールが見つかりません。');
+  if (!response.ok) throw new Error('ロールの保存結果を確認できませんでした。');
+}
+
 export async function deleteRole(roleId: string): Promise<void> {
   const response = await postDirectory('roles/delete', { roleId });
   if (response.status === 409) throw new Error('固定・デフォルト・ユーザーに割り当て済みのロールは削除できません。一覧を確認してください。');

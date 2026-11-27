@@ -40,6 +40,9 @@ namespace FlowHub.Identity.Infrastructure.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
+                    b.Property<bool>("IdleTimeoutInitialized")
+                        .HasColumnType("boolean");
+
                     b.Property<long>("IdleTimeoutTicks")
                         .HasColumnType("bigint");
 

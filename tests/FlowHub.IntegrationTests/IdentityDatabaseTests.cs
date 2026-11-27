@@ -12,7 +12,7 @@ public class IdentityDatabaseTests
         var database = LocalPostgres.Options();
         await LocalPostgres.DropSchemaAsync(database, IdentityDatabase.Schema, token);
         var setup = await IdentityDatabase.OpenAsync(b => Databases.Configure(b, database, IdentityDatabase.Schema),
-            (context, ct) => Databases.InitializeAsync(context, database, ct), token);
+            (context, ct) => Databases.InitializeAsync(context, database, ct), TimeSpan.FromHours(3), token);
         var created = Assert.IsType<FirstAdministratorResult.Created>(await setup.CreateAsync("first", token));
         var roles = await IdentityDatabase.OpenRoles(b => Databases.Configure(b, database, IdentityDatabase.Schema)).ListAsync(token);
         Assert.Equal("admin", Assert.Single(roles, role => role.Fixed).Id);
@@ -25,6 +25,12 @@ public class IdentityDatabaseTests
         Assert.True(await logins.IsCurrentAsync(changed.Session, token));
         Assert.False(await logins.IsCurrentAsync(login.Session, token));
         var now = DateTimeOffset.UnixEpoch;
+        var admin = Assert.Single(roles, r => r.Fixed);
+        Assert.Equal(TimeSpan.FromHours(3), await logins.GetIdleTimeoutAsync("first", token));
+        Assert.Equal(SaveRoleResult.Saved, await logins.SaveRoleAsync(changed.Session, admin.Id, admin.Name, "17", now, token));
+        await IdentityDatabase.OpenAsync(b => Databases.Configure(b, database, IdentityDatabase.Schema),
+            (context, ct) => Databases.InitializeAsync(context, database, ct), TimeSpan.FromHours(4), token);
+        Assert.Equal(TimeSpan.FromMinutes(17), await logins.GetIdleTimeoutAsync("first", token));
         Assert.IsType<AddUserResult.Created>(await logins.AddAsync(changed.Session, "new-user", token));
         Assert.IsType<UserLoginResult.Locked>(await logins.LoginAsync("new-user", "wrong", now, 1, TimeSpan.FromMinutes(15), token));
         var locked = Assert.Single(await logins.ListAsync(now, token), user => user.Id == "new-user");

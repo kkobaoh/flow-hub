@@ -64,15 +64,14 @@ public sealed class UserLoginStore
 
     internal UserLoginStore(DbContextOptions<IdentityDbContext> options) => _options = options;
 
-    public async Task<TimeSpan> GetIdleTimeoutAsync(string userId, TimeSpan? administratorOverride, CancellationToken token)
+    public async Task<TimeSpan> GetIdleTimeoutAsync(string userId, CancellationToken token)
     {
         await using var db = new IdentityDbContext(_options);
         var role = await (from user in db.Users
                           join r in db.Roles on user.RoleId equals r.Id
                           where user.Id == userId
-                          select new { r.Id, r.IdleTimeoutTicks }).SingleAsync(token).ConfigureAwait(false);
-        return role.Id == InitialRoles.Administrator.Id && administratorOverride.HasValue
-            ? administratorOverride.Value : TimeSpan.FromTicks(role.IdleTimeoutTicks);
+                          select r.IdleTimeoutTicks).SingleAsync(token).ConfigureAwait(false);
+        return TimeSpan.FromTicks(role);
     }
 
     public async Task<AddUserResult> AddAsync(UserSession actor, string userId, CancellationToken token)
@@ -110,6 +109,29 @@ public sealed class UserLoginStore
             .ExecuteUpdateAsync(change => change.SetProperty(r => r.Name, r => r.Name), token).ConfigureAwait(false);
         var caller = await db.Users.FindAsync([actor.UserId], token).ConfigureAwait(false);
         return !actor.MustChangePassword && caller is not null && Session(caller) == actor && caller.RoleId == InitialRoles.Administrator.Id;
+    }
+
+    public async Task<SaveRoleResult> SaveRoleAsync(UserSession actor, string? roleId, string? name, string? minutes, DateTimeOffset now, CancellationToken token)
+    {
+        await using var db = new IdentityDbContext(_options);
+        await using var transaction = await db.Database.BeginTransactionAsync(token).ConfigureAwait(false);
+        if (!await LockAndCheckAdministratorAsync(db, actor, token).ConfigureAwait(false)) return SaveRoleResult.Forbidden;
+        name = name?.Trim();
+        if (string.IsNullOrEmpty(name)) return SaveRoleResult.InvalidName;
+        if (!RoleRules.TryGetIdleTimeout(minutes, now, out var timeout))
+            return SaveRoleResult.InvalidTimeout;
+        var role = roleId is null ? new RoleRow { Id = Guid.NewGuid().ToString("N"), Name = name } :
+            await db.Roles.SingleOrDefaultAsync(r => r.Id == roleId, token).ConfigureAwait(false);
+        if (role is null) return SaveRoleResult.NotFound;
+        if (role.Id == InitialRoles.Administrator.Id && role.Name != name) return SaveRoleResult.InvalidName;
+        if (await db.Roles.AnyAsync(r => r.Name == name && r.Id != role.Id, token).ConfigureAwait(false)) return SaveRoleResult.Duplicate;
+        role.Name = name;
+        role.IdleTimeoutTicks = timeout.Ticks;
+        role.IdleTimeoutInitialized = true;
+        if (roleId is null) db.Roles.Add(role);
+        await db.SaveChangesAsync(token).ConfigureAwait(false);
+        await transaction.CommitAsync(token).ConfigureAwait(false);
+        return SaveRoleResult.Saved;
     }
 
     public async Task<DeleteRoleResult> DeleteRoleAsync(UserSession actor, string roleId, CancellationToken token)

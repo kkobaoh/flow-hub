@@ -77,8 +77,8 @@ public class RoleDirectoryTests
         legacy.ExecuteNonQuery();
         void Configure(DbContextOptionsBuilder builder) => builder.UseSqlite(connection)
             .ConfigureWarnings(warnings => warnings.Ignore(SqliteEventId.SchemaConfiguredWarning));
-        Task Open() => IdentityDatabase.OpenAsync(Configure, (db, ct) => db.Database.EnsureCreatedAsync(ct), token);
-        await Open();
+        Task Open(int hours) => IdentityDatabase.OpenAsync(Configure, (db, ct) => db.Database.EnsureCreatedAsync(ct), TimeSpan.FromHours(hours), token);
+        await Open(3);
         var roles = await IdentityDatabase.OpenRoles(Configure).ListAsync(token);
         Assert.Equal(4, roles.Count);
         var viewer = Assert.Single(roles, r => r.IsDefault);
@@ -87,11 +87,13 @@ public class RoleDirectoryTests
         Assert.Empty(viewer.Permissions);
         var admin = Assert.Single(roles, r => r.Fixed);
         Assert.Equal("admin", admin.Id);
+        Assert.Equal(TimeSpan.FromHours(3), admin.IdleTimeout);
         Assert.Contains("userAdmin", admin.Permissions);
         Assert.All(roles.Where(r => !r.Fixed), r => Assert.DoesNotContain("userAdmin", r.Permissions));
         legacy.CommandText = "UPDATE roles SET Name = '夜間運用' WHERE Id = 'operator'";
         legacy.ExecuteNonQuery();
-        await Open();
+        await Open(4);
+        Assert.Equal(TimeSpan.FromHours(3), Assert.Single(await IdentityDatabase.OpenRoles(Configure).ListAsync(token), r => r.Fixed).IdleTimeout);
         Assert.Contains(await IdentityDatabase.OpenRoles(Configure).ListAsync(token), r => r.Name == "夜間運用");
     }
 }

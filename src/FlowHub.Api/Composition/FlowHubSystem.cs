@@ -105,7 +105,7 @@ internal sealed partial class FlowHubSystem : IDisposable
         Task Initialize(DbContext context, CancellationToken token) => Databases.InitializeAsync(context, database, token);
 
         var logger = loggerFactory.CreateLogger<FlowHubSystem>();
-        var firstAdministrator = await IdentityDatabase.OpenAsync(b => Configure(b, IdentityDatabase.Schema), Initialize, cancellationToken).ConfigureAwait(false);
+        var firstAdministrator = await IdentityDatabase.OpenAsync(b => Configure(b, IdentityDatabase.Schema), Initialize, settings.AdministratorIdleTimeout, cancellationToken).ConfigureAwait(false);
         var setupComplete = await firstAdministrator.IsSetupCompleteAsync(cancellationToken).ConfigureAwait(false);
         if (!setupComplete && !settings.HasSetupPassword)
         {

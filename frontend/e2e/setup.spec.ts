@@ -60,6 +60,17 @@ test('初期設定は一度だけ完了でき、もう一つのセッション�
     await expect(page.getByRole('cell', { name: 'admin01', exact: true })).toHaveCount(0);
     await page.getByRole('tab', { name: 'ロール' }).click();
     await expect(page.getByRole('checkbox', { name: '管理者：ユーザーとロールの管理' })).toBeChecked();
+    await page.getByRole('button', { name: 'ロールを加える' }).click();
+    const roleDialog = page.getByRole('dialog');
+    await roleDialog.getByLabel('ロールの名前').fill(' 夜勤 ');
+    await roleDialog.getByRole('button', { name: 'ロールを保存する' }).click();
+    const night = page.getByRole('row').filter({ has: page.getByRole('cell', { name: '夜勤', exact: true }) }).first();
+    await expect(night).toContainText('8時間');
+    await night.getByRole('button', { name: '変える', exact: true }).click();
+    await roleDialog.getByLabel('ロールの名前').fill('夜間運用');
+    await roleDialog.getByLabel('ログインしておける時間').fill('2');
+    await roleDialog.getByRole('button', { name: 'ロールを保存する' }).click();
+    await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: '夜間運用', exact: true }) }).first()).toContainText('2時間');
     await page.getByRole('tab', { name: 'ユーザー', exact: true }).click();
     await page.getByRole('button', { name: 'ユーザーを加える' }).click();
     const dialog = page.getByRole('dialog');

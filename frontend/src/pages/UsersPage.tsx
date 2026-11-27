@@ -32,7 +32,7 @@ export interface UsersPageProps {
   /** ユーザーを加える（デフォルトのロールを付ける）。システムが作った仮のパスワードを返す。 */
   readonly onAddUser: (user: string) => Promise<string>;
   /** ロールを保存する。original は直すロールの id（加えるときは null）。 */
-  readonly onSaveRole: (original: string | null, role: { readonly name: string; readonly timeout: Duration }) => void;
+  readonly onSaveRole: (original: string | null, role: { readonly name: string; readonly timeout: Duration }) => void | Promise<void>;
   readonly onDeleteRole: (id: string) => void;
   readonly onMakeDefault: (id: string) => void;
   /** 管理者のロールを除く、ロールごとのパーミッション。 */
@@ -58,6 +58,7 @@ type DirectoryProps = Pick<UsersPageProps, 'users' | 'roles'> & {
   readonly onUnlock?: UsersPageProps['onUnlock'] | undefined;
   readonly onMakeDefault?: UsersPageProps['onMakeDefault'] | undefined;
   readonly onDeleteRole?: UsersPageProps['onDeleteRole'] | undefined;
+  readonly onSaveRole?: UsersPageProps['onSaveRole'] | undefined;
   readonly onResetPassword?: UsersPageProps['onResetPassword'] | undefined;
   readonly onIssuedClosed?: () => void;
 };
@@ -72,6 +73,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
     ? 'ユーザーの追加、ロールの付け替え、ロックの解除ができます。' : 'ユーザーとロールの変更には管理者ロールが必要です。';
   const allowed = blocked === null;
   const deleteRole = !actions || allowed ? props.onDeleteRole : undefined;
+  const saveRole = !actions || allowed ? props.onSaveRole : undefined;
   const add = !actions || allowed ? props.onAddUser : undefined;
   const resetPassword = !actions || allowed ? props.onResetPassword : undefined;
   const close = () => {
@@ -191,7 +193,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
               <p className="m-0 max-w-[70ch] text-sm text-ink-muted">
                 管理者のロールは、名前とパーミッションが固定で、消せません。デフォルトのロールは消せません（中身は変えられます）。
               </p>
-              <button type="button" disabled={!allowed} onClick={() => setDialog({ kind: 'role', target: null })} className={plainButton}>
+              <button type="button" disabled={!saveRole} onClick={() => setDialog({ kind: 'role', target: null })} className={plainButton}>
                 ロールを加える
               </button>
             </div>
@@ -225,7 +227,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
                                 デフォルトにする
                               </button>
                             )}
-                            <button type="button" disabled={!allowed} onClick={() => setDialog({ kind: 'role', target: r })} className={plainButton}>
+                            <button type="button" disabled={!saveRole} onClick={() => setDialog({ kind: 'role', target: r })} className={plainButton}>
                               変える
                             </button>
                             <button type="button" disabled={!deleteRole || reason !== null} onClick={() => setDialog({ kind: 'deleteRole', target: r })} className={plainButton}>
@@ -294,10 +296,7 @@ export function UsersPage(props: UsersPageProps | DirectoryProps) {
         <RoleDialog
           target={dialog.target}
           roles={roles}
-          onSave={(role) => {
-            actions?.onSaveRole(dialog.target?.id ?? null, role);
-            close();
-          }}
+          onSave={(role) => saveRole?.(dialog.target?.id ?? null, role)}
           onCancel={close}
         />
       )}
@@ -425,15 +424,30 @@ function RoleDialog({
 }: {
   readonly target: Role | null;
   readonly roles: readonly Role[];
-  readonly onSave: (role: { readonly name: string; readonly timeout: Duration }) => void;
+  readonly onSave: (role: { readonly name: string; readonly timeout: Duration }) => void | Promise<void>;
   readonly onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<RoleDraft>(
     target === null ? { name: '', amount: '8', unit: 'hours' } : { name: target.name, amount: String(target.timeout.amount), unit: target.timeout.unit },
   );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit() {
+    setBusy(true);
+    setError('');
+    try {
+      await onSave({ name: draft.name.trim(), timeout: { amount: Number(draft.amount), unit: draft.unit } });
+      onCancel();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '保存結果を確認できませんでした。');
+    } finally {
+      setBusy(false);
+    }
+  }
+  const cancel = () => { if (!busy) onCancel(); };
   const problem = roleProblem(draft, roles, target?.id ?? null);
   return (
-    <FormDialog title={target === null ? 'ロールを加える' : `${target.name} を変える`} onCancel={onCancel}>
+    <FormDialog title={target === null ? 'ロールを加える' : `${target.name} を変える`} onCancel={cancel}>
       {target === null && <p className={note}>加えたロールは「{VIEW_ALL}」だけから始めます。操作のパーミッションは、ロールごとのパーミッションの表で許してください。</p>}
       {target?.fixed !== true && <TextField label="ロールの名前" value={draft.name} onChange={(name) => setDraft((d) => ({ ...d, name }))} />}
       <div className="flex items-end gap-2">
@@ -448,7 +462,8 @@ function RoleDialog({
           onChange={(unit) => setDraft((d) => ({ ...d, unit: unit as DurationUnit }))}
         />
       </div>
-      <FormFooter problem={problem} saveLabel="ロールを保存する" onCancel={onCancel} onSave={() => onSave({ name: draft.name.trim(), timeout: { amount: Number(draft.amount), unit: draft.unit } })} />
+      {error && <p role="alert">{error}</p>}
+      <FormFooter problem={busy ? '保存中です。' : problem} saveLabel="ロールを保存する" onCancel={cancel} onSave={submit} />
     </FormDialog>
   );
 }

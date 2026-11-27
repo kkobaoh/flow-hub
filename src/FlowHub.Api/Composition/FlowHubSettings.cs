@@ -25,7 +25,8 @@ internal sealed record FlowHubSettings(
     bool StartOnLaunch = false,
     int NoticeCapacity = InMemoryNoticeBoard.DefaultCapacity,
     int MinimumCrossDistanceMm = MapValidationOptions.DefaultMinimumCrossDistanceMm,
-    bool HasSetupPassword = false)
+    bool HasSetupPassword = false,
+    TimeSpan? AdministratorIdleTimeout = null)
 {
     /// <param name="contentRoot">アプリのフォルダー。初期データのファイルの場所は、ここからの場所として読む。</param>
     public static FlowHubSettings Read(IConfiguration configuration, string contentRoot)
@@ -41,7 +42,8 @@ internal sealed record FlowHubSettings(
             configuration.GetValue<bool>("System:StartOnLaunch"),
             configuration.GetValue("Notifications:Capacity", InMemoryNoticeBoard.DefaultCapacity),
             configuration.GetValue("Map:MinimumCrossDistanceMm", MapValidationOptions.DefaultMinimumCrossDistanceMm),
-            !string.IsNullOrEmpty(configuration["Identity:SetupPassword"]));
+            !string.IsNullOrEmpty(configuration["Identity:SetupPassword"]),
+            configuration.GetValue<TimeSpan?>("Identity:Administrator:IdleTimeout"));
     }
 
     /// <summary>マップを公開するときの検証のオプション。</summary>

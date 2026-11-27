@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { addUser, changeUserRole, deleteRole, resetUserPassword, setDefaultRole, unlockUser, fetchUserDirectory, DirectoryAccessError, type UserDirectory } from '../features/user-management/userDirectory';
+import { saveRole, addUser, changeUserRole, deleteRole, resetUserPassword, setDefaultRole, unlockUser, fetchUserDirectory, DirectoryAccessError, type UserDirectory } from '../features/user-management/userDirectory';
 import { plainButton } from '../shared/components/forms';
 import { UsersPage } from './UsersPage';
 
@@ -39,6 +39,10 @@ export function UserDirectoryPage({ load = fetchUserDirectory }: { readonly load
     case 'failed': return <div role="alert"><p>ユーザーとロールを読み込めませんでした。</p>
       <button className={plainButton} onClick={() => { setView({ kind: 'loading' }); setAttempt(n => n + 1); }}>読み直す</button></div>;
     case 'ready': return <>{errorMessage && <p role="alert">{errorMessage}</p>}<UsersPage readOnly {...view.data}
+      onSaveRole={view.data.canAddUser ? async (id, role) => {
+        await saveRole(id, role);
+        setAttempt(n => n + 1);
+      } : undefined}
       onResetPassword={view.data.canAddUser ? resetUserPassword : undefined}
       onMakeDefault={view.data.canAddUser ? role => update(setDefaultRole(role)) : undefined}
       onDeleteRole={view.data.canAddUser ? role => update(deleteRole(role)) : undefined}

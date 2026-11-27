@@ -156,7 +156,8 @@ describe('UsersPage（ユーザーとロールの管理）', () => {
   });
 
   it('ロールを加える：時間は数と単位で入れる', () => {
-    const { container, onSaveRole } = setup();
+    const onSaveRole = vi.fn();
+    const { container } = render(<UsersPage readOnly users={users} roles={roles} onSaveRole={onSaveRole} />);
 
     click(tab(container, 'ロール'));
     click(byText(container, 'ロールを加える'));
@@ -168,6 +169,18 @@ describe('UsersPage（ユーザーとロールの管理）', () => {
     click(byText(d, 'ロールを保存する'));
 
     expect(onSaveRole).toHaveBeenCalledWith(null, { name: '点検', timeout: { amount: 30, unit: 'minutes' } });
+  });
+
+  it('保存済みの固定管理者ロールは無操作期限だけを編集できる', () => {
+    const onSaveRole = vi.fn();
+    const { container } = render(<UsersPage readOnly users={users} roles={roles} onSaveRole={onSaveRole} />);
+    click(tab(container, 'ロール'));
+    click(byText(row(container, '管理者'), '変える'));
+    const d = container.querySelector('[role="dialog"]')!;
+    expect(d.querySelector('[aria-label="ロールの名前"]')).toBeNull();
+    change(d.querySelector<HTMLInputElement>('[aria-label="ログインしておける時間"]')!, '2');
+    click(byText(d, 'ロールを保存する'));
+    expect(onSaveRole).toHaveBeenCalledWith('admin', { name: '管理者', timeout: { amount: 2, unit: 'hours' } });
   });
 
   it('パーミッション：管理者の列と「すべての画面を見る」は変えられず、変えたら保存できる', () => {

@@ -190,6 +190,27 @@ sequenceDiagram
     end
 ```
 
+ロールの追加と編集は、同じ API で保存します。
+
+```mermaid
+sequenceDiagram
+    actor A as 管理者
+    participant UI as ロール画面
+    participant API as 認証 API
+    participant DB as 認証 DB
+    A->>UI: 名前と無操作期限を入力して保存
+    UI->>API: POST /identity/user/roles/save（編集時は ID、CSRF トークン付き）
+    API->>DB: 管理者ロール行をロックし、操作者と対象を確認
+    alt 名前と期限が有効
+        API->>DB: ロールを追加または更新してコミット
+        API-->>UI: 保存成功
+        UI->>API: ロール一覧を再取得
+    else 保存できない
+        API-->>UI: エラー
+        UI-->>A: 入力を保持して理由を表示
+    end
+```
+
 ロール一覧から新規ユーザーのデフォルトを変更する流れです。
 
 ```mermaid

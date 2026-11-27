@@ -205,6 +205,44 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.DoesNotContain("passwordHash", first.ToJsonString(), StringComparison.OrdinalIgnoreCase);
         const string addPath = "/identity/user/users";
         var csrf = await FormToken("/identity/user/session");
+        const string savePath = "/identity/user/roles/save";
+        const string newRole = """{"name":" Ops ","minutes":"480"}""";
+        using var invalidSave = await Send(savePath, newRole, "invalid");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidSave.StatusCode);
+        using var createdRole = await Send(savePath, newRole, csrf);
+        Assert.Equal(HttpStatusCode.NoContent, createdRole.StatusCode);
+        using var duplicateRole = await Send(savePath, newRole, csrf);
+        Assert.Equal(HttpStatusCode.Conflict, duplicateRole.StatusCode);
+        using var differentCase = await Send(savePath, """{"name":"ops","minutes":"1"}""", csrf);
+        Assert.Equal(HttpStatusCode.NoContent, differentCase.StatusCode);
+        using var huge = await Send(savePath, """{"name":"long","minutes":"99999999999999999999"}""", csrf);
+        Assert.Equal(HttpStatusCode.BadRequest, huge.StatusCode);
+        var savedRoles = JsonNode.Parse(await client.GetStringAsync(rolesPath, Token))!.AsArray();
+        var ops = Assert.Single(savedRoles, r => r!["name"]!.GetValue<string>() == "Ops")!;
+        Assert.False(ops["isDefault"]!.GetValue<bool>());
+        Assert.Empty(ops["permissions"]!.AsArray());
+        var edited = new JsonObject { ["roleId"] = ops["id"]!.GetValue<string>(), ["name"] = "Night", ["minutes"] = "90" };
+        using var edit = await Send(savePath, edited.ToJsonString(), csrf);
+        Assert.Equal(HttpStatusCode.NoContent, edit.StatusCode);
+        var afterEdit = JsonNode.Parse(await client.GetStringAsync(rolesPath, Token))!.AsArray();
+        Assert.Equal(90, Assert.Single(afterEdit, r => r!["name"]!.GetValue<string>() == "Night")!["idleTimeoutMinutes"]!.GetValue<int>());
+        edited["name"] = "Later";
+        edited["minutes"] = "60";
+        using var laterEdit = await Send(savePath, edited.ToJsonString(), csrf);
+        Assert.Equal(HttpStatusCode.NoContent, laterEdit.StatusCode);
+        var latestRoles = JsonNode.Parse(await client.GetStringAsync(rolesPath, Token))!.AsArray();
+        var latest = Assert.Single(latestRoles, r => r!["id"]!.GetValue<string>() == ops["id"]!.GetValue<string>())!;
+        Assert.Equal("Later", latest["name"]!.GetValue<string>());
+        Assert.Equal(60, latest["idleTimeoutMinutes"]!.GetValue<int>());
+        using var blankName = await Send(savePath, """{"name":"  ","minutes":"1"}""", csrf);
+        Assert.Equal(HttpStatusCode.BadRequest, blankName.StatusCode);
+        using var renameAdmin = await Send(savePath, """{"roleId":"admin","name":"changed","minutes":"30"}""", csrf);
+        Assert.Equal(HttpStatusCode.BadRequest, renameAdmin.StatusCode);
+        var adminEdit = new JsonObject { ["roleId"] = "admin", ["name"] = Assert.Single(roles, r => r!["fixed"]!.GetValue<bool>())!["name"]!.GetValue<string>(), ["minutes"] = "23" };
+        using var changeAdminTimeout = await Send(savePath, adminEdit.ToJsonString(), csrf);
+        Assert.Equal(HttpStatusCode.NoContent, changeAdminTimeout.StatusCode);
+        using var renewedAdmin = await client.GetAsync(rolesPath, Token);
+        Assert.Equal(TimeSpan.FromMinutes(23), TicketDuration(renewedAdmin));
         const string deleteRolePath = "/identity/user/roles/delete";
         const string deleteMaintenance = """{"roleId":"maintainer"}""";
         using var invalidDeletion = await Send(deleteRolePath, deleteMaintenance, "invalid");
@@ -254,10 +292,14 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, viewerLogin.StatusCode);
         using var viewerReady = await Send("/identity/user/initial-password", """{"password":"viewer-test-password"}""", await FormToken("/identity/user/session"));
         Assert.Equal(HttpStatusCode.OK, viewerReady.StatusCode);
-        var cookie = viewerReady.Headers.GetValues("Set-Cookie").Single(value => value.StartsWith("FlowHub.User=", StringComparison.Ordinal));
-        var options = _app!.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>>().Get("FlowHub.User");
-        var ticket = options.TicketDataFormat.Unprotect(cookie["FlowHub.User=".Length..cookie.IndexOf(';', StringComparison.Ordinal)])!;
-        Assert.Equal(TimeSpan.FromDays(7), ticket.Properties.ExpiresUtc - ticket.Properties.IssuedUtc);
+        TimeSpan? TicketDuration(HttpResponseMessage response)
+        {
+            var cookie = response.Headers.GetValues("Set-Cookie").Single(value => value.StartsWith("FlowHub.User=", StringComparison.Ordinal));
+            var options = _app!.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>>().Get("FlowHub.User");
+            var ticket = options.TicketDataFormat.Unprotect(cookie["FlowHub.User=".Length..cookie.IndexOf(';', StringComparison.Ordinal)])!;
+            return ticket.Properties.ExpiresUtc - ticket.Properties.IssuedUtc;
+        }
+        Assert.Equal(TimeSpan.FromDays(7), TicketDuration(viewerReady));
         using var automatic = await client.GetAsync(new Uri("/system/status", UriKind.Relative), Token);
         Assert.Contains(automatic.Headers.GetValues("Set-Cookie"), value => value.StartsWith("FlowHub.User=", StringComparison.Ordinal));
         using var negotiate = await client.PostAsync(new Uri("/hubs/screen/negotiate?negotiateVersion=1", UriKind.Relative), null, Token);
@@ -279,6 +321,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         using var deniedDefault = await Send(defaultPath, chooseOperator, await FormToken("/identity/user/session"));
         Assert.Equal(HttpStatusCode.Forbidden, deniedDefault.StatusCode);
         using var viewerDeletion = await Send(deleteRolePath, chooseOperator, await FormToken("/identity/user/session"));
+        using var viewerSave = await Send(savePath, newRole, await FormToken("/identity/user/session"));
+        Assert.Equal(HttpStatusCode.Forbidden, viewerSave.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, viewerDeletion.StatusCode);
     }
 
