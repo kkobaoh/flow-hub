@@ -114,7 +114,18 @@ export function consumableCommandRequest(command: ConsumableCommand): { readonly
 /** 操作を送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
 export async function sendConsumableCommand(baseUrl: string, command: ConsumableCommand, timeoutMs: number): Promise<ConsumableCommandResult> {
   const { path, body } = consumableCommandRequest(command);
-  if (command.kind === 'stockerSetting') return postSessionOperation(baseUrl, path, timeoutMs, body, ['saved', 'exceedsSlots']);
+  switch (command.kind) {
+    case 'stockerSetting':
+      return postSessionOperation(baseUrl, path, timeoutMs, body, ['saved', 'exceedsSlots']);
+    case 'ship':
+      return postSessionOperation(baseUrl, path, timeoutMs, body, ['requested', 'notAtStation', 'inAssignedTransport']);
+    case 'correct':
+      return postSessionOperation(baseUrl, path, timeoutMs, body, ['corrected', 'notNeedingCheck']);
+    case 'designate':
+      return postSessionOperation(baseUrl, path, timeoutMs, body, ['designated', 'notDesignatable']);
+    case 'cancelDesignation':
+      return postSessionOperation(baseUrl, path, timeoutMs, body, ['canceled', 'inAssignedTransport']);
+  }
   const result = await postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS);
   // 消耗品の窓口は 409 を返さないので、返ってきたら思わない応答として扱う
   return result === 'refused' ? 'failed' : result;
@@ -124,7 +135,7 @@ export async function sendConsumableCommand(baseUrl: string, command: Consumable
 export function consumableNotice(kind: ConsumableCommand['kind'], result: ConsumableCommandResult): string | null {
   switch (result) {
     case 'forbidden':
-      return 'ストッカーの設定を変更する権限がありません。';
+      return kind === 'stockerSetting' ? 'ストッカーの設定を変更する権限がありません。' : 'この消耗品を操作する権限がありません。';
     case 'saved':
     case 'requested':
     case 'corrected':

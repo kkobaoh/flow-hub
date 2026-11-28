@@ -21,7 +21,7 @@ namespace FlowHub.Api.Composition;
 /// - 指名の取り消し（<c>POST /consumables/{id}/cancel-designation</c>）：<c>canceled</c>、<c>inAssignedTransport</c>（AGV を割り当て済みの、届ける搬送に入っている）。
 /// - 在庫の手入力（<c>POST /consumables</c>（登録）、<c>/consumables/{id}/edit</c>、<c>/consumables/{id}/delete</c>）：<c>saved</c>、<c>alreadyRegistered</c>、<c>notFound</c>、<c>notEditable</c>（AGV の中、加工部・受け渡し部にある、出庫を頼んだもの）、<c>inAssignedTransport</c>、<c>slotTaken</c>。所在は <c>{ "kind": "station", "station": "…" }</c> か <c>{ "kind": "slot", "device": "…", "stocker": 1, "slot": 1 }</c>。
 /// - 断ったときは、何も変えていない。頼みの形が正しくない（知らない品種、負の個数、知らない届け先の装置など）：400。ストッカーの設定の知らない装置：404。
-/// 今はログインなしで開く（docs/backlog.md #23）。
+/// ストッカー設定と消耗品操作では、ログイン・操作権限・CSRF トークンを確認する。
 /// </remarks>
 internal static partial class ConsumableEndpoints
 {
@@ -54,7 +54,8 @@ internal static partial class ConsumableEndpoints
             });
         });
 
-        endpoints.MapPost("/consumables/{id}/ship", (string id, CancellationToken cancellationToken) =>
+        var operations = endpoints.MapGroup("/consumables/{id}").RequireScreenCommand("consumableOps");
+        operations.MapPost("/ship", (string id, CancellationToken cancellationToken) =>
             RunAsync(logger, "出庫", id, async () =>
             {
                 var result = await toolPlanning.RequestShipmentAsync(ToConsumable(id), cancellationToken).ConfigureAwait(false);
@@ -67,7 +68,7 @@ internal static partial class ConsumableEndpoints
                 };
             }));
 
-        endpoints.MapPost("/consumables/{id}/correct", (string id, CorrectionBody body, CancellationToken cancellationToken) =>
+        operations.MapPost("/correct", (string id, CorrectionBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "要確認の修正", id, async () =>
             {
                 var variety = ToVariety(body.Variety);
@@ -81,7 +82,7 @@ internal static partial class ConsumableEndpoints
                 };
             }));
 
-        MapDesignationEndpoints(endpoints, toolPlanning, logger);
+        MapDesignationEndpoints(operations, toolPlanning, logger);
         MapManualEntryEndpoints(endpoints, consumables, toolPlanning, logger);
     }
 
@@ -126,7 +127,7 @@ internal static partial class ConsumableEndpoints
 
     private static void MapDesignationEndpoints(IEndpointRouteBuilder endpoints, ToolPlanningService toolPlanning, ILogger logger)
     {
-        endpoints.MapPost("/consumables/{id}/designate", (string id, DesignationBody body, CancellationToken cancellationToken) =>
+        endpoints.MapPost("/designate", (string id, DesignationBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "指名", id, async () =>
             {
                 var device = string.IsNullOrWhiteSpace(body.Device) ? throw new ArgumentException("届け先の装置を指定してください。", nameof(body)) : new DeviceId(body.Device);
@@ -139,7 +140,7 @@ internal static partial class ConsumableEndpoints
                 };
             }));
 
-        endpoints.MapPost("/consumables/{id}/cancel-designation", (string id, CancellationToken cancellationToken) =>
+        endpoints.MapPost("/cancel-designation", (string id, CancellationToken cancellationToken) =>
             RunAsync(logger, "指名の取り消し", id, async () =>
             {
                 var result = await toolPlanning.CancelDesignationAsync(ToConsumable(id), cancellationToken).ConfigureAwait(false);

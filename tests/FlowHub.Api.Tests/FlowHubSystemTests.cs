@@ -356,6 +356,17 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         using var revokedCancel = await Send(cancelPath, "{}", viewerToken);
         Assert.Equal(HttpStatusCode.Forbidden, revokedCancel.StatusCode);
         const string stocker = "/devices/DEV-1/stocker-setting";
+        var consumableOps = new PermissionChange("viewer", "consumableOps", true);
+        const string ship = "/consumables/T-9/ship";
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [consumableOps], Token));
+        using var allowedShip = await Send(ship, "{}", viewerToken);
+        Assert.Equal(HttpStatusCode.OK, allowedShip.StatusCode);
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [consumableOps with { Enabled = false }], Token));
+        foreach (var path in new[] { ship, "/consumables/T-9/correct", "/consumables/T-9/designate", "/consumables/T-9/cancel-designation" })
+        {
+            using var deniedConsumable = await Send(path, "{}", viewerToken);
+            Assert.Equal(HttpStatusCode.Forbidden, deniedConsumable.StatusCode);
+        }
         var editStocker = new PermissionChange("viewer", "stockerSetting", true);
         Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [editStocker], Token));
         using var setStocker = await Send(stocker, """{"counts":[{"variety":"DR-5","count":1}]}""", viewerToken);
@@ -703,7 +714,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         await SeedConsumablesAsync();
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
         system.Consumables.RegisterConsumable(new ConsumableId("T-1"), new VarietyId("DR-5"), new ProcessTypeId("P"), ConsumableCondition.New, new AtStation(new StationId("ST-1")));
         system.Consumables.RegisterConsumable(new ConsumableId("T-2"), new VarietyId("DR-5"), new ProcessTypeId("P"), ConsumableCondition.New, new InStocker(new DeviceId("DEV-1"), new SlotRef(1, 1)));
 
@@ -722,7 +734,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         await SeedConsumablesAsync();
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
         await system.Consumables.ReportReadAtStationAsync(new StationId("ST-1"), new ConsumableId("X-1"), Token); // 登録されていない ID は要確認
 
         var corrected = await OperateAsync(client, "/consumables/X-1/correct", """{ "variety": "DR-5", "condition": "used" }""");
@@ -743,7 +756,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         await SeedConsumablesAsync();
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
         system.Consumables.RegisterConsumable(new ConsumableId("T-1"), new VarietyId("DR-5"), new ProcessTypeId("P"), ConsumableCondition.New, new AtStation(new StationId("ST-1")));
         system.Consumables.RegisterConsumable(new ConsumableId("U-1"), new VarietyId("DR-5"), new ProcessTypeId("P"), ConsumableCondition.Used, new AtStation(new StationId("ST-1")));
 

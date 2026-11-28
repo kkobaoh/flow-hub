@@ -299,6 +299,27 @@ sequenceDiagram
     end
 ```
 
+消耗品の出庫・要確認の修正・指名・指名取消では、画面を開いた後の権限変更も反映します。
+
+```mermaid
+sequenceDiagram
+    participant UI as 業務画面
+    participant API as 画面用 API
+    participant Service as 消耗品管理・搬送計画
+    UI->>API: セッション情報を取得
+    API-->>UI: CSRF トークン
+    UI->>API: 操作を送信（認証 Cookie・CSRF トークン）
+    API->>API: ログイン状態・現在の消耗品操作権限・トークンを確認
+    alt 許可
+        API->>Service: 対象の消耗品を操作
+        Service-->>API: 操作結果
+        API-->>UI: 操作結果
+    else 権限不足
+        API-->>UI: 403
+        UI->>UI: 権限がないことを表示
+    end
+```
+
 パーミッション表の保存では、各チェックの変更先の値をサーバーに渡します。
 
 ```mermaid

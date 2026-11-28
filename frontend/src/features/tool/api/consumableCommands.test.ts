@@ -52,12 +52,18 @@ describe('sendConsumableCommand', () => {
   });
 
   const respond = (status: number, body?: unknown) =>
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body === undefined ? null : JSON.stringify(body), { status })));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(body === undefined ? null : JSON.stringify(body), { status })));
 
   it('サーバーが返した結果を返す', async () => {
     respond(200, { result: 'inAssignedTransport' });
 
     await expect(sendConsumableCommand('', { kind: 'ship', consumable: 'T-1' }, 10_000)).resolves.toBe('inAssignedTransport');
+  });
+  it('出庫を拒否されたら権限不足を表示する', async () => {
+    respond(403);
+    const result = await sendConsumableCommand('', { kind: 'ship', consumable: 'T-1' }, 10_000);
+    expect(consumableNotice('ship', result)).toBe('この消耗品を操作する権限がありません。');
   });
   it('ストッカー設定は CSRF トークンを付け、権限不足を画面に伝える', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
