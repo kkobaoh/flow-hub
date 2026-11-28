@@ -83,26 +83,26 @@ internal static partial class ConsumableEndpoints
             }));
 
         MapDesignationEndpoints(operations, toolPlanning, logger);
-        MapManualEntryEndpoints(endpoints, consumables, toolPlanning, logger);
+        MapManualEntryEndpoints(endpoints.MapGroup("/consumables").RequireScreenCommand("stockEdit"), consumables, toolPlanning, logger);
     }
 
     private static void MapManualEntryEndpoints(IEndpointRouteBuilder endpoints, ConsumablesService consumables, ToolPlanningService toolPlanning, ILogger logger)
     {
-        endpoints.MapPost("/consumables", (RecordBody body, CancellationToken cancellationToken) =>
+        endpoints.MapPost("", (RecordBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "在庫の登録", body.Id ?? "", async () =>
             {
                 var result = await consumables.RegisterManuallyAsync(ToConsumable(body.Id ?? ""), ToVariety(body.Variety), ConditionText.Parse(body.Condition), ToLocation(body.Location), cancellationToken).ConfigureAwait(false);
                 return ManualText(result);
             }));
 
-        endpoints.MapPost("/consumables/{id}/edit", (string id, RecordBody body, CancellationToken cancellationToken) =>
+        endpoints.MapPost("/{id}/edit", (string id, RecordBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "在庫の修正", id, async () =>
             {
                 var result = await toolPlanning.EditManuallyAsync(ToConsumable(id), ToVariety(body.Variety), ConditionText.Parse(body.Condition), ToLocation(body.Location), cancellationToken).ConfigureAwait(false);
                 return ManualText(result);
             }));
 
-        endpoints.MapPost("/consumables/{id}/delete", (string id, CancellationToken cancellationToken) =>
+        endpoints.MapPost("/{id}/delete", (string id, CancellationToken cancellationToken) =>
             RunAsync(logger, "在庫の削除", id, async () => ManualText(await toolPlanning.DeleteManuallyAsync(ToConsumable(id), cancellationToken).ConfigureAwait(false))));
     }
 

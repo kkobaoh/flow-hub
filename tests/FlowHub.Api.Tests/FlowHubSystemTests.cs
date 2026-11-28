@@ -357,6 +357,11 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Forbidden, revokedCancel.StatusCode);
         const string stocker = "/devices/DEV-1/stocker-setting";
         var consumableOps = new PermissionChange("viewer", "consumableOps", true);
+        foreach (var stockPath in new[] { "/consumables", "/consumables/T-9/edit", "/consumables/T-9/delete" })
+        {
+            using var deniedStock = await Send(stockPath, "{}", viewerToken);
+            Assert.Equal(HttpStatusCode.Forbidden, deniedStock.StatusCode);
+        }
         const string ship = "/consumables/T-9/ship";
         Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [consumableOps], Token));
         using var allowedShip = await Send(ship, "{}", viewerToken);
@@ -780,7 +785,12 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         await SeedConsumablesAsync();
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        const string body = """{ "id": "T-1", "variety": "DR-5", "condition": "new", "location": { "kind": "station", "station": "ST-1" } }""";
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymous, "/consumables", body)).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await OperateAsync(client, "/consumables", body)).Status);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
         ConsumableRecord Record() => system.Consumables.ReadConsumables().Single();
 
         var registered = await OperateAsync(client, "/consumables", """{ "id": "T-1", "variety": "DR-5", "condition": "new", "location": { "kind": "station", "station": "ST-1" } }""");
@@ -810,7 +820,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         await SeedConsumablesAsync();
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
         await OperateAsync(client, "/consumables", """{ "id": "T-1", "variety": "DR-5", "condition": "new", "location": { "kind": "station", "station": "ST-1" } }""");
 
         var addedProcess = await OperateAsync(client, "/configuration/process-types", """{ "id": "Q", "carrier": "Y", "capacity": 3 }""");

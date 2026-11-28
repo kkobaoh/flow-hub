@@ -1,4 +1,4 @@
-import { postOperation, postSessionOperation } from '../../../shared/api/postCommand';
+import { postSessionOperation } from '../../../shared/api/postCommand';
 import type { Condition } from '../station';
 import type { ConsumableLocation } from '../consumables';
 
@@ -46,23 +46,6 @@ export type ConsumableCommandResult =
   | 'notEditable'
   | 'slotTaken'
   | 'failed';
-
-const SERVER_RESULTS: ReadonlySet<Exclude<ConsumableCommandResult, 'failed' | 'forbidden'>> = new Set([
-  'saved',
-  'exceedsSlots',
-  'requested',
-  'notAtStation',
-  'inAssignedTransport',
-  'corrected',
-  'notNeedingCheck',
-  'designated',
-  'notDesignatable',
-  'canceled',
-  'alreadyRegistered',
-  'notFound',
-  'notEditable',
-  'slotTaken',
-] as const);
 
 const conditionText = (condition: Condition) => (condition === '新品' ? 'new' : 'used');
 
@@ -125,16 +108,18 @@ export async function sendConsumableCommand(baseUrl: string, command: Consumable
       return postSessionOperation(baseUrl, path, timeoutMs, body, ['designated', 'notDesignatable']);
     case 'cancelDesignation':
       return postSessionOperation(baseUrl, path, timeoutMs, body, ['canceled', 'inAssignedTransport']);
+    case 'register':
+    case 'edit':
+    case 'delete':
+      return postSessionOperation(baseUrl, path, timeoutMs, body, ['saved', 'alreadyRegistered', 'notFound', 'notEditable', 'inAssignedTransport', 'slotTaken']);
   }
-  const result = await postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS);
-  // 消耗品の窓口は 409 を返さないので、返ってきたら思わない応答として扱う
-  return result === 'refused' ? 'failed' : result;
 }
 
 /** 画面に出す、操作の結果の知らせ（受け付けたときは null）。同じ結果でも、操作によって文を変える。 */
 export function consumableNotice(kind: ConsumableCommand['kind'], result: ConsumableCommandResult): string | null {
   switch (result) {
     case 'forbidden':
+      if (kind === 'register' || kind === 'edit' || kind === 'delete') return '在庫を手入力する権限がありません。';
       return kind === 'stockerSetting' ? 'ストッカーの設定を変更する権限がありません。' : 'この消耗品を操作する権限がありません。';
     case 'saved':
     case 'requested':

@@ -60,6 +60,11 @@ describe('sendConsumableCommand', () => {
 
     await expect(sendConsumableCommand('', { kind: 'ship', consumable: 'T-1' }, 10_000)).resolves.toBe('inAssignedTransport');
   });
+  it('在庫の削除を拒否されたら手入力の権限不足を表示する', async () => {
+    respond(403);
+    const result = await sendConsumableCommand('', { kind: 'delete', consumable: 'T-1' }, 10_000);
+    expect(consumableNotice('delete', result)).toBe('在庫を手入力する権限がありません。');
+  });
   it('出庫を拒否されたら権限不足を表示する', async () => {
     respond(403);
     const result = await sendConsumableCommand('', { kind: 'ship', consumable: 'T-1' }, 10_000);
