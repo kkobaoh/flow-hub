@@ -357,8 +357,11 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Forbidden, revokedCancel.StatusCode);
         const string stocker = "/devices/DEV-1/stocker-setting";
         Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [new PermissionChange("viewer", "configure", false)], Token));
-        using var deniedDraft = await Send("/map/draft", "{}", viewerToken);
-        Assert.Equal(HttpStatusCode.Forbidden, deniedDraft.StatusCode);
+        foreach (var path in new[] { "/map/draft", "/map/draft/validate", "/map/draft/publish" })
+        {
+            using var deniedDraft = await Send(path, "{}", viewerToken);
+            Assert.Equal(HttpStatusCode.Forbidden, deniedDraft.StatusCode);
+        }
         var consumableOps = new PermissionChange("viewer", "consumableOps", true);
         foreach (var stockPath in new[] { "/consumables", "/consumables/T-9/edit", "/consumables/T-9/delete" })
         {
@@ -935,7 +938,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
         var published = (await GetJsonAsync(client, "/map/draft"))["draft"]!.ToJsonString();
         const string Broken = """{ "panelSizeMm": 1000, "panels": [{ "id": "P1", "type": "Normal", "hasChargingPin": false, "carrierLoweringHeading": null, "column": 0, "row": 0, "crossOffsetEastMm": 0, "crossOffsetSouthMm": 0, "outline": null }], "connections": [{ "from": "P1", "to": "NOWHERE", "distanceMm": 1000, "heading": 90, "oneWay": false }] }""";
 
@@ -952,7 +956,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
         await system.Dispatching.ChangeControlStatusAsync(Agv1, ControlStatus.AssignmentPaused, new Pose("A", 0), Token);
         var reset = (await CommandsAsync(client, -1)).Single()!;
         using (await client.PostAsync(
@@ -986,6 +991,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedConsumablesAsync(); // 装置 DEV-1 は D、ステーション ST-1 は S
         var system = await StartAsync();
         var client = await ServeSignedInScreenAsync(system);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
         var published = (await GetJsonAsync(client, "/map/draft"))["draft"]!.ToJsonString();
         var withoutD = published.Replace("\"D\"", "\"D9\"", StringComparison.Ordinal);
 

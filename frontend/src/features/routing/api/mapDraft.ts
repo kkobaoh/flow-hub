@@ -232,12 +232,8 @@ export const VALIDATION_FAILED = '検証できませんでした。サーバー�
 /** 下書きをサーバーで検証し、見つかった問題を返す（保存はしない）。検証できなければ、そのことを問題として返す（やり直さない）。 */
 export async function validateMapDraft(baseUrl: string, draft: MapDraft, timeoutMs: number): Promise<readonly string[]> {
   try {
-    const response = await screenFetch(`${baseUrl}/map/draft/validate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ draft: toWireDraft(draft) }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const response = await postWithSession(baseUrl, '/map/draft/validate', timeoutMs, { draft: toWireDraft(draft) });
+    if (response.status === 403) return ['マップを検証する権限がありません。'];
     const body: unknown = response.ok ? await response.json() : null;
     if (isRecord(body) && Array.isArray(body.problems) && body.problems.every((p) => typeof p === 'string')) {
       return body.problems as string[];
@@ -258,7 +254,7 @@ export async function validateMapDraft(baseUrl: string, draft: MapDraft, timeout
  */
 export type MapPublishOutcome =
   | { readonly result: 'published'; readonly version: number; readonly agvs: readonly string[] }
-  | { readonly result: 'stale' | 'running' | 'failed' }
+  | { readonly result: 'stale' | 'running' | 'failed' | 'forbidden' }
   | { readonly result: 'agvMoving'; readonly agvs: readonly string[] }
   | { readonly result: 'problems'; readonly problems: readonly string[] };
 
@@ -267,12 +263,8 @@ const strings = (value: unknown): value is string[] => Array.isArray(value) && v
 /** 下書きを公開する（読んだときの番号を渡す）。応答がなければ failed（やり直さない）。 */
 export async function publishMapDraft(baseUrl: string, revision: number, draft: MapDraft, timeoutMs: number): Promise<MapPublishOutcome> {
   try {
-    const response = await screenFetch(`${baseUrl}/map/draft/publish`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ revision, draft: toWireDraft(draft) }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const response = await postWithSession(baseUrl, '/map/draft/publish', timeoutMs, { revision, draft: toWireDraft(draft) });
+    if (response.status === 403) return { result: 'forbidden' };
     const body: unknown = response.ok ? await response.json() : null;
     if (isRecord(body) && strings(body.problems) && strings(body.agvs)) {
       switch (body.result) {
@@ -300,6 +292,8 @@ export async function publishMapDraft(baseUrl: string, revision: number, draft: 
 /** 画面に出す、公開の結果の知らせ（公開できたら null）。 */
 export function mapPublishNotice(outcome: MapPublishOutcome): string | null {
   switch (outcome.result) {
+    case 'forbidden':
+      return 'マップを公開する権限がありません。';
     case 'published':
       return null;
     case 'stale':

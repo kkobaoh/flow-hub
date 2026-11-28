@@ -95,14 +95,18 @@ describe('loadMapDraft と saveMapDraft', () => {
   it('検証する。見つかった問題を返し、応答がなければ、検証できなかったことを問題として返す', async () => {
     const fetch = vi
       .fn()
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ problems: ['P1 がつながっていません。'] }), { status: 200 }))
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
       .mockRejectedValueOnce(new Error('切れた'));
     vi.stubGlobal('fetch', fetch);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     expect(await validateMapDraft('', draft, 1000)).toEqual(['P1 がつながっていません。']);
-    expect((fetch.mock.calls[0] as [string, RequestInit])[0]).toBe('/map/draft/validate');
-    expect(JSON.parse((fetch.mock.calls[0] as [string, RequestInit])[1].body as string)).toEqual({ draft: wireDraft });
+    expect((fetch.mock.calls[1] as [string, RequestInit])[0]).toBe('/map/draft/validate');
+    expect(JSON.parse((fetch.mock.calls[1] as [string, RequestInit])[1].body as string)).toEqual({ draft: wireDraft });
+    expect(await validateMapDraft('', draft, 1000)).toEqual(['マップを検証する権限がありません。']);
     expect(await validateMapDraft('', draft, 1000)).toEqual([VALIDATION_FAILED]);
   });
 
@@ -125,19 +129,25 @@ describe('loadMapDraft と saveMapDraft', () => {
     const reply = (body: object) => new Response(JSON.stringify({ version: 0, problems: [], agvs: [], ...body }), { status: 200 });
     const fetch = vi
       .fn()
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
       .mockResolvedValueOnce(reply({ result: 'published', version: 4, agvs: ['AGV-2'] }))
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
       .mockResolvedValueOnce(reply({ result: 'agvMoving', agvs: ['AGV-1'] }))
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
       .mockResolvedValueOnce(reply({ result: 'problems', problems: ['P1 がつながっていません。'] }))
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
       .mockRejectedValueOnce(new Error('切れた'));
     vi.stubGlobal('fetch', fetch);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     expect(await publishMapDraft('', 3, draft, 1000)).toEqual({ result: 'published', version: 4, agvs: ['AGV-2'] });
-    expect((fetch.mock.calls[0] as [string, RequestInit])[0]).toBe('/map/draft/publish');
-    expect(JSON.parse((fetch.mock.calls[0] as [string, RequestInit])[1].body as string)).toEqual({ revision: 3, draft: wireDraft });
+    expect((fetch.mock.calls[1] as [string, RequestInit])[0]).toBe('/map/draft/publish');
+    expect(JSON.parse((fetch.mock.calls[1] as [string, RequestInit])[1].body as string)).toEqual({ revision: 3, draft: wireDraft });
     const moving = await publishMapDraft('', 3, draft, 1000);
     expect(mapPublishNotice(moving)).toBe('AGV-1 が走っているので、公開しませんでした。止まってから、公開してください。');
     expect(mapPublishNotice(await publishMapDraft('', 3, draft, 1000))).toBe('公開しませんでした。P1 がつながっていません。');
+    expect(mapPublishNotice(await publishMapDraft('', 3, draft, 1000))).toBe('マップを公開する権限がありません。');
     expect(await publishMapDraft('', 3, draft, 1000)).toEqual({ result: 'failed' });
   });
 

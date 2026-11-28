@@ -20,7 +20,7 @@ namespace FlowHub.Api.Composition;
 /// - 検証する（<c>POST /map/draft/validate</c>、<c>{ "draft": … }</c>）：<c>{ "problems": [ "…" ] }</c>。公開するときと同じに検証し、見つかった問題を文で返す（保存はしない）。
 /// - 公開する（<c>POST /map/draft/publish</c>、<c>{ "revision", "draft" }</c>）：<c>{ "result", "version", "problems", "agvs" }</c>。
 ///   <c>published</c>（<c>agvs</c> は切り離しにした AGV）、<c>stale</c>、<c>running</c>、<c>agvMoving</c>（<c>agvs</c> は走っている AGV）、<c>problems</c>。
-/// 下書きの保存にはマップ編集権限と CSRF トークンが必要。
+/// 下書きの保存・検証・公開にはマップ編集権限と CSRF トークンが必要。
 /// </remarks>
 internal static partial class MapDraftEndpoints
 {
@@ -60,7 +60,8 @@ internal static partial class MapDraftEndpoints
             return Results.Json(new HeightResponse(result, map.CarrierHeightSettingOf(id) is { } setting ? HeightView.From(id, setting) : null));
         });
 
-        endpoints.MapPost("/map/draft/validate", (ValidateBody body) =>
+        var commands = endpoints.MapGroup("/map/draft").RequireScreenCommand("configure");
+        commands.MapPost("/validate", (ValidateBody body) =>
         {
             if (!IsWellFormed(body.Draft, out var draft))
             {
@@ -73,7 +74,7 @@ internal static partial class MapDraftEndpoints
             return Results.Json(new ValidateResponse(problems));
         });
 
-        endpoints.MapPost("/map/draft/publish", async (SaveBody body, CancellationToken cancellationToken) =>
+        commands.MapPost("/publish", async (SaveBody body, CancellationToken cancellationToken) =>
         {
             if (body.Revision is not { } revision || !IsWellFormed(body.Draft, out var draft))
             {
@@ -94,8 +95,7 @@ internal static partial class MapDraftEndpoints
             return Results.Json(new PublishResponse(result, outcome.Version, outcome.Problems, outcome.Agvs));
         });
 
-        var draftSave = endpoints.MapGroup("/map/draft").RequireScreenCommand("configure");
-        draftSave.MapPost("", (SaveBody body) =>
+        commands.MapPost("", (SaveBody body) =>
         {
             if (body.Revision is not { } revision || !IsWellFormed(body.Draft, out var draft))
             {
