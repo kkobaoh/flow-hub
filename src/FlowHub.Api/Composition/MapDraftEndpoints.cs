@@ -37,7 +37,7 @@ internal static partial class MapDraftEndpoints
             var state = map.ReadDraft();
             var draft = state.Saved?.Draft ?? (map.Current is { Drawing: not null } current ? MapDraft.FromSnapshot(current) : null);
             return Results.Json(new DraftResponse(state.Revision, state.Saved?.SavedAt, map.CurrentVersion, draft, Heights(map)));
-        });
+        }).RequireAuthorization(UserLoginEndpoints.Ready);
 
         var edits = endpoints.MapGroup("/map").RequireScreenCommand("configure");
         edits.MapPost("/carrier-heights/{panel}", (string panel, HeightBody body) =>

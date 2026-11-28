@@ -320,6 +320,22 @@ sequenceDiagram
     end
 ```
 
+マップ編集画面で下書きを開くときは、閲覧のみのロールでも通常ログインが済んでいれば取得できます。
+
+```mermaid
+sequenceDiagram
+    participant UI as マップ編集画面
+    participant API as 画面用 API
+    UI->>API: GET /map/draft
+    alt 未ログイン
+        API-->>UI: 401
+    else 仮パスワード変更待ち
+        API-->>UI: 403
+    else 通常ログイン済み
+        API-->>UI: 下書きの状態・公開版番号・キャリアの高さ
+    end
+```
+
 マップの下書きは、保存・検証・公開のたびに現在の編集権限を確認します。検証後に権限が外れた場合も、公開時に拒否します。
 
 ```mermaid

@@ -315,6 +315,9 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var viewerCredentials = new JsonObject { ["userId"] = "new-user", ["password"] = issued }.ToJsonString();
         using var viewerLogin = await Send("/identity/user/login", viewerCredentials, await FormToken("/identity/user/form"));
         Assert.Equal(HttpStatusCode.OK, viewerLogin.StatusCode);
+        var draftUri = new Uri("/map/draft", UriKind.Relative);
+        using var temporaryDraft = await client.GetAsync(draftUri, Token);
+        Assert.Equal(HttpStatusCode.Forbidden, temporaryDraft.StatusCode);
         using var viewerReady = await Send("/identity/user/initial-password", """{"password":"viewer-test-password"}""", await FormToken("/identity/user/session"));
         Assert.Equal(HttpStatusCode.OK, viewerReady.StatusCode);
         TimeSpan? TicketDuration(HttpResponseMessage response)
@@ -357,6 +360,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Forbidden, revokedCancel.StatusCode);
         const string stocker = "/devices/DEV-1/stocker-setting";
         Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [new PermissionChange("viewer", "configure", false)], Token));
+        using var readableDraft = await client.GetAsync(draftUri, Token);
+        Assert.Equal(HttpStatusCode.OK, readableDraft.StatusCode);
         foreach (var path in new[] { "/map/draft", "/map/draft/validate", "/map/draft/publish" })
         {
             using var deniedDraft = await Send(path, "{}", viewerToken);
@@ -911,6 +916,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var client = await ServeSignedInScreenAsync(system);
         using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
         Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymous, "/map/draft", "{}")).Status);
+        using var anonymousDraft = await anonymous.GetAsync(new Uri("/map/draft", UriKind.Relative), Token);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousDraft.StatusCode);
         var first = await GetJsonAsync(client, "/map/draft");
         Assert.Equal(0, (int)first["revision"]!);
         Assert.Null(first["savedAt"]);
