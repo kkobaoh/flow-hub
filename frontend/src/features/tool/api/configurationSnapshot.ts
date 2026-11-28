@@ -1,4 +1,4 @@
-import { postOperation } from '../../../shared/api/postCommand';
+import { postSessionOperation } from '../../../shared/api/postCommand';
 import { parseVersion, type Versioned } from '../../../shared/realtime/versioned';
 import type { DeviceConfig, ProcessKind, StationConfig, Variety } from '../config';
 
@@ -128,9 +128,10 @@ export type ConfigurationResult =
   | 'slotsOccupied'
   | 'exceedsStockerSetting'
   | 'stationLimit'
+  | 'forbidden'
   | 'failed';
 
-const SERVER_RESULTS: ReadonlySet<ConfigurationResult> = new Set([
+const SERVER_RESULTS = [
   'saved',
   'alreadyRegistered',
   'notFound',
@@ -139,7 +140,7 @@ const SERVER_RESULTS: ReadonlySet<ConfigurationResult> = new Set([
   'slotsOccupied',
   'exceedsStockerSetting',
   'stationLimit',
-] as const);
+] as const;
 
 const segment = encodeURIComponent;
 
@@ -184,14 +185,15 @@ export function configurationRequest(command: ConfigurationCommand): { readonly 
 /** 操作を送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
 export async function sendConfigurationCommand(baseUrl: string, command: ConfigurationCommand, timeoutMs: number): Promise<ConfigurationResult> {
   const { path, body } = configurationRequest(command);
-  const result = await postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS);
-  return result === 'refused' ? 'failed' : result;
+  return postSessionOperation(baseUrl, path, timeoutMs, body, SERVER_RESULTS);
 }
 
 /** 画面に出す、操作の結果の知らせ（受け付けたときは null）。 */
 export function configurationNotice(command: ConfigurationCommand, result: ConfigurationResult): string | null {
   const what = subjectOf(command);
   switch (result) {
+    case 'forbidden':
+      return '消耗品の構成を変更する権限がありません。';
     case 'saved':
       return null;
     case 'alreadyRegistered':

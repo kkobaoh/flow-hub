@@ -362,6 +362,17 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [new PermissionChange("viewer", "configure", false)], Token));
         using var readableDraft = await client.GetAsync(draftUri, Token);
         Assert.Equal(HttpStatusCode.OK, readableDraft.StatusCode);
+        foreach (var route in new[]
+        {
+            "process-types", "process-types/P/edit", "process-types/P/delete",
+            "varieties", "varieties/V/edit", "varieties/V/delete", "varieties/V/expected-arrivals",
+            "expected-arrivals/T/delete", "devices", "devices/D/edit", "devices/D/delete",
+            "stations", "stations/S/edit", "stations/S/delete",
+        })
+        {
+            using var deniedConfiguration = await Send($"/configuration/{route}", "{}", viewerToken);
+            Assert.Equal(HttpStatusCode.Forbidden, deniedConfiguration.StatusCode);
+        }
         foreach (var path in new[] { "/agv-types", "/agv-types/small/edit", "/agv-types/small/delete" })
         {
             using var deniedType = await Send(path, "{}", viewerToken);
@@ -890,9 +901,15 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []); // マップの受け渡しパネルは S と D
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        const string path = "/configuration/devices";
+        const string device = """{ "id": "DEV-2", "panel": "D", "slots": [2, 3] }""";
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymous, path, device)).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await OperateAsync(client, path, device)).Status);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
 
-        var added = await OperateAsync(client, "/configuration/devices", """{ "id": "DEV-2", "panel": "D", "slots": [2, 3] }""");
+        var added = await OperateAsync(client, path, device);
         var notTransfer = await OperateAsync(client, "/configuration/devices", """{ "id": "DEV-3", "panel": "A", "slots": [1] }""");
         var taken = await OperateAsync(client, "/configuration/devices", """{ "id": "DEV-3", "panel": "D", "slots": [1] }""");
         var noStocker = await OperateAsync(client, "/configuration/devices", """{ "id": "DEV-3", "panel": "S", "slots": [] }""");

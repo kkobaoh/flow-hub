@@ -79,10 +79,20 @@ describe('sendConfigurationCommand', () => {
   });
 
   it('サーバーの結果を返し、応答がなければ failed にする', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ result: 'inUse' }), { status: 200 })).mockRejectedValueOnce(new Error('切れた')));
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(Response.json({ result: 'inUse' }))
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
+      .mockRejectedValueOnce(new Error('切れた'));
+    vi.stubGlobal('fetch', fetch);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     expect(await sendConfigurationCommand('', { kind: 'deleteVariety', name: 'DR-5' }, 1000)).toBe('inUse');
+    expect(fetch).toHaveBeenLastCalledWith('/configuration/varieties/DR-5/delete', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-FlowHub-CSRF': 'csrf' }),
+    }));
+    const command = { kind: 'deleteVariety', name: 'DR-5' } as const;
+    expect(configurationNotice(command, await sendConfigurationCommand('', command, 1000))).toBe('消耗品の構成を変更する権限がありません。');
     expect(await sendConfigurationCommand('', { kind: 'deleteVariety', name: 'DR-5' }, 1000)).toBe('failed');
   });
 });

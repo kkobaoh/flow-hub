@@ -403,6 +403,26 @@ sequenceDiagram
     end
 ```
 
+消耗品の構成画面では、加工の種類・品種・入庫の予定・装置・ステーションを変更するたびに、現在の権限を確認します。
+
+```mermaid
+sequenceDiagram
+    participant UI as 消耗品の構成画面
+    participant API as 画面用 API
+    participant Service as 消耗品の管理
+    UI->>API: セッション情報を取得
+    API-->>UI: CSRF トークン
+    UI->>API: 構成の変更内容とトークンを送信
+    API->>API: ログイン状態・configure 権限・トークンを確認
+    alt 権限不足
+        API-->>UI: 403（構成を変更する権限がないことを表示）
+    else 操作を許可
+        API->>Service: 指定された構成変更を実行
+        Service-->>API: 操作結果
+        API-->>UI: 操作結果
+    end
+```
+
 パーミッション表の保存では、各チェックの変更先の値をサーバーに渡します。
 
 ```mermaid

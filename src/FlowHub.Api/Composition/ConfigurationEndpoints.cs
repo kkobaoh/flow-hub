@@ -21,7 +21,7 @@ namespace FlowHub.Api.Composition;
 ///   装置とステーションでは、ほかに <c>panelUnavailable</c>、<c>slotsOccupied</c>、<c>exceedsStockerSetting</c>、<c>stationLimit</c>。
 /// - 入庫の予定：<c>POST /configuration/varieties/{id}/expected-arrivals</c>（<c>{ "consumable" }</c>）、<c>/configuration/expected-arrivals/{consumableId}/delete</c>。
 /// - 断ったときは、何も変えていない。頼みの形が正しくない（名前が空、個数が1未満など）：400。
-/// 今はログインなしで開く（docs/backlog.md #23）。
+/// 構成の変更権限と CSRF トークンが必要。
 /// </remarks>
 internal static partial class ConfigurationEndpoints
 {
@@ -33,64 +33,65 @@ internal static partial class ConfigurationEndpoints
         ArgumentNullException.ThrowIfNull(transferPanels);
         ArgumentNullException.ThrowIfNull(logger);
 
-        MapEquipmentEndpoints(endpoints, consumables, transferPanels, logger);
+        var commands = endpoints.MapGroup("/configuration").RequireScreenCommand("configure");
+        MapEquipmentEndpoints(commands, consumables, transferPanels, logger);
 
-        endpoints.MapPost("/configuration/process-types", (ProcessTypeBody body, CancellationToken cancellationToken) =>
+        commands.MapPost("/process-types", (ProcessTypeBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "加工の種類の追加", body.Id ?? "", () =>
                 consumables.AddProcessTypeAsync(ToProcessType(body.Id, body), cancellationToken)));
 
-        endpoints.MapPost("/configuration/process-types/{id}/edit", (string id, ProcessTypeBody body, CancellationToken cancellationToken) =>
+        commands.MapPost("/process-types/{id}/edit", (string id, ProcessTypeBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "加工の種類の変更", id, () =>
                 consumables.UpdateProcessTypeAsync(ToProcessType(id, body), cancellationToken)));
 
-        endpoints.MapPost("/configuration/process-types/{id}/delete", (string id, CancellationToken cancellationToken) =>
+        commands.MapPost("/process-types/{id}/delete", (string id, CancellationToken cancellationToken) =>
             RunAsync(logger, "加工の種類の削除", id, () =>
                 consumables.DeleteProcessTypeAsync(new ProcessTypeId(Required(id, "加工の種類")), cancellationToken)));
 
-        endpoints.MapPost("/configuration/varieties", (VarietyBody body, CancellationToken cancellationToken) =>
+        commands.MapPost("/varieties", (VarietyBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "品種の追加", body.Id ?? "", () =>
                 consumables.AddVarietyAsync(new VarietyId(Required(body.Id, "品種")), new ProcessTypeId(Required(body.ProcessType, "加工の種類")), cancellationToken)));
 
-        endpoints.MapPost("/configuration/varieties/{id}/edit", (string id, VarietyBody body, CancellationToken cancellationToken) =>
+        commands.MapPost("/varieties/{id}/edit", (string id, VarietyBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "品種の変更", id, () =>
                 consumables.UpdateVarietyAsync(new VarietyId(Required(id, "品種")), new ProcessTypeId(Required(body.ProcessType, "加工の種類")), cancellationToken)));
 
-        endpoints.MapPost("/configuration/varieties/{id}/delete", (string id, CancellationToken cancellationToken) =>
+        commands.MapPost("/varieties/{id}/delete", (string id, CancellationToken cancellationToken) =>
             RunAsync(logger, "品種の削除", id, () =>
                 consumables.DeleteVarietyAsync(new VarietyId(Required(id, "品種")), cancellationToken)));
 
-        endpoints.MapPost("/configuration/varieties/{id}/expected-arrivals", (string id, ExpectedArrivalBody body, CancellationToken cancellationToken) =>
+        commands.MapPost("/varieties/{id}/expected-arrivals", (string id, ExpectedArrivalBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "入庫の予定の追加", body.Consumable ?? "", () =>
                 consumables.AddExpectedArrivalAsync(new ConsumableId(Required(body.Consumable, "消耗品の ID")), new VarietyId(Required(id, "品種")), cancellationToken)));
 
-        endpoints.MapPost("/configuration/expected-arrivals/{consumableId}/delete", (string consumableId, CancellationToken cancellationToken) =>
+        commands.MapPost("/expected-arrivals/{consumableId}/delete", (string consumableId, CancellationToken cancellationToken) =>
             RunAsync(logger, "入庫の予定の削除", consumableId, () =>
                 consumables.RemoveExpectedArrivalAsync(new ConsumableId(Required(consumableId, "消耗品の ID")), cancellationToken)));
     }
 
-    private static void MapEquipmentEndpoints(IEndpointRouteBuilder endpoints, ConsumablesService consumables, Func<IReadOnlySet<PanelId>> transferPanels, ILogger logger)
+    private static void MapEquipmentEndpoints(IEndpointRouteBuilder commands, ConsumablesService consumables, Func<IReadOnlySet<PanelId>> transferPanels, ILogger logger)
     {
-        endpoints.MapPost("/configuration/devices", (DeviceBody body, CancellationToken cancellationToken) =>
+        commands.MapPost("/devices", (DeviceBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "装置の追加", body.Id ?? "", () =>
                 consumables.AddDeviceAsync(ToDevice(body.Id, body), transferPanels(), cancellationToken)));
 
-        endpoints.MapPost("/configuration/devices/{id}/edit", (string id, DeviceBody body, CancellationToken cancellationToken) =>
+        commands.MapPost("/devices/{id}/edit", (string id, DeviceBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "装置の変更", id, () =>
                 consumables.UpdateDeviceAsync(ToDevice(id, body), transferPanels(), cancellationToken)));
 
-        endpoints.MapPost("/configuration/devices/{id}/delete", (string id, CancellationToken cancellationToken) =>
+        commands.MapPost("/devices/{id}/delete", (string id, CancellationToken cancellationToken) =>
             RunAsync(logger, "装置の削除", id, () =>
                 consumables.DeleteDeviceAsync(new DeviceId(Required(id, "装置")), cancellationToken)));
 
-        endpoints.MapPost("/configuration/stations", (StationBody body, CancellationToken cancellationToken) =>
+        commands.MapPost("/stations", (StationBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "ステーションの追加", body.Id ?? "", () =>
                 consumables.AddStationAsync(ToStation(body.Id, body), transferPanels(), cancellationToken)));
 
-        endpoints.MapPost("/configuration/stations/{id}/edit", (string id, StationBody body, CancellationToken cancellationToken) =>
+        commands.MapPost("/stations/{id}/edit", (string id, StationBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "ステーションの変更", id, () =>
                 consumables.UpdateStationAsync(ToStation(id, body), transferPanels(), cancellationToken)));
 
-        endpoints.MapPost("/configuration/stations/{id}/delete", (string id, CancellationToken cancellationToken) =>
+        commands.MapPost("/stations/{id}/delete", (string id, CancellationToken cancellationToken) =>
             RunAsync(logger, "ステーションの削除", id, () =>
                 consumables.DeleteStationAsync(new StationId(Required(id, "ステーション")), cancellationToken)));
     }
