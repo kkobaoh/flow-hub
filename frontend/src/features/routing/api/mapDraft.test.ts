@@ -113,16 +113,24 @@ describe('loadMapDraft と saveMapDraft', () => {
   it('キャリアの高さを入れる・空にする。断られたら理由を出す', async () => {
     const fetch = vi
       .fn()
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'saved', height: { panel: 'D1', heightMm: 350, source: 'manual', setAt: '2026-11-26T09:00:00Z' } }), { status: 200 }))
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'saved', height: null }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'notTransferPanel', height: null }), { status: 200 }));
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'notTransferPanel', height: null }), { status: 200 }))
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }));
     vi.stubGlobal('fetch', fetch);
 
     expect(await saveCarrierHeight('', 'D1', 350, 1000)).toEqual({ result: 'saved', height: { heightMm: 350, source: 'manual', at: new Date('2026-11-26T09:00:00Z') } });
-    expect((fetch.mock.calls[0] as [string, RequestInit])[0]).toBe('/map/carrier-heights/D1');
+    expect(fetch.mock.calls[1]).toEqual(['/map/carrier-heights/D1', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-FlowHub-CSRF': 'csrf' }),
+    })]);
     expect(await saveCarrierHeight('', 'D1', null, 1000)).toEqual({ result: 'saved', height: null });
-    expect(JSON.parse((fetch.mock.calls[1] as [string, RequestInit])[1].body as string)).toEqual({ heightMm: null });
+    expect(JSON.parse((fetch.mock.calls[3] as [string, RequestInit])[1].body as string)).toEqual({ heightMm: null });
     expect(carrierHeightNotice('P1', await saveCarrierHeight('', 'P1', 350, 1000))).toBe('P1 は、公開中の版の受け渡しパネルではないので、保存しませんでした。');
+    expect(carrierHeightNotice('D1', await saveCarrierHeight('', 'D1', null, 1000))).toBe('キャリアの高さを変更する権限がありません。');
   });
 
   it('公開する。結果ごとに中身を返し、応答がなければ failed', async () => {

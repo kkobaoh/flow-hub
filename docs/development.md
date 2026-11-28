@@ -347,6 +347,26 @@ sequenceDiagram
     end
 ```
 
+キャリアの高さは公開中の版の受け渡しパネルに設定します。高さを消すときも同じ権限を確認します。
+
+```mermaid
+sequenceDiagram
+    participant UI as マップ編集画面
+    participant API as 画面用 API
+    participant Map as マップ
+    UI->>API: セッション情報を取得
+    API-->>UI: CSRF トークン
+    UI->>API: 対象パネル・高さ（解除時は null）・トークンを送信
+    API->>API: ログイン状態・現在の編集権限・トークンを確認
+    alt 権限不足
+        API-->>UI: 403（高さを変更する権限がないことを表示）
+    else 認証・権限・トークンが有効
+        API->>Map: 公開中の受け渡しパネルの高さを設定・解除
+        Map-->>API: 設定結果
+        API-->>UI: 保存した高さ、解除結果、または変更できない理由
+    end
+```
+
 パーミッション表の保存では、各チェックの変更先の値をサーバーに渡します。
 
 ```mermaid

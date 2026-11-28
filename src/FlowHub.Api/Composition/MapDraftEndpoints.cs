@@ -20,7 +20,7 @@ namespace FlowHub.Api.Composition;
 /// - 検証する（<c>POST /map/draft/validate</c>、<c>{ "draft": … }</c>）：<c>{ "problems": [ "…" ] }</c>。公開するときと同じに検証し、見つかった問題を文で返す（保存はしない）。
 /// - 公開する（<c>POST /map/draft/publish</c>、<c>{ "revision", "draft" }</c>）：<c>{ "result", "version", "problems", "agvs" }</c>。
 ///   <c>published</c>（<c>agvs</c> は切り離しにした AGV）、<c>stale</c>、<c>running</c>、<c>agvMoving</c>（<c>agvs</c> は走っている AGV）、<c>problems</c>。
-/// 下書きの保存・検証・公開にはマップ編集権限と CSRF トークンが必要。
+/// キャリアの高さの変更と下書きの保存・検証・公開にはマップ編集権限と CSRF トークンが必要。
 /// </remarks>
 internal static partial class MapDraftEndpoints
 {
@@ -39,7 +39,8 @@ internal static partial class MapDraftEndpoints
             return Results.Json(new DraftResponse(state.Revision, state.Saved?.SavedAt, map.CurrentVersion, draft, Heights(map)));
         });
 
-        endpoints.MapPost("/map/carrier-heights/{panel}", (string panel, HeightBody body) =>
+        var edits = endpoints.MapGroup("/map").RequireScreenCommand("configure");
+        edits.MapPost("/carrier-heights/{panel}", (string panel, HeightBody body) =>
         {
             if (string.IsNullOrWhiteSpace(panel) || body.HeightMm is <= 0)
             {
@@ -60,7 +61,7 @@ internal static partial class MapDraftEndpoints
             return Results.Json(new HeightResponse(result, map.CarrierHeightSettingOf(id) is { } setting ? HeightView.From(id, setting) : null));
         });
 
-        var commands = endpoints.MapGroup("/map/draft").RequireScreenCommand("configure");
+        var commands = edits.MapGroup("/draft");
         commands.MapPost("/validate", (ValidateBody body) =>
         {
             if (!IsWellFormed(body.Draft, out var draft))

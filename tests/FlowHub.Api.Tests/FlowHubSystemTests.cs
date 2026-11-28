@@ -363,6 +363,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
             Assert.Equal(HttpStatusCode.Forbidden, deniedDraft.StatusCode);
         }
         var consumableOps = new PermissionChange("viewer", "consumableOps", true);
+        using var deniedHeight = await Send("/map/carrier-heights/S", """{"heightMm":320}""", viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedHeight.StatusCode);
         foreach (var stockPath in new[] { "/consumables", "/consumables/T-9/edit", "/consumables/T-9/delete" })
         {
             using var deniedStock = await Send(stockPath, "{}", viewerToken);
@@ -1013,9 +1015,15 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []); // 受け渡しパネルは S と D
         var system = await StartAsync();
-        var client = await ServeAsync(system);
-
-        var saved = await PostJsonAsync(client, "/map/carrier-heights/S", """{ "heightMm": 320 }""");
+        var client = await ServeSignedInScreenAsync(system);
+        const string path = "/map/carrier-heights/S";
+        const string set = """{ "heightMm": 320 }""";
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymous, path, set)).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await OperateAsync(client, path, set)).Status);
+        Assert.Empty((await GetJsonAsync(client, "/map/draft"))["heights"]!.AsArray());
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
+        var saved = await PostJsonAsync(client, path, set);
         var heights = (await GetJsonAsync(client, "/map/draft"))["heights"]!.AsArray();
         var notTransfer = await PostJsonAsync(client, "/map/carrier-heights/A", """{ "heightMm": 320 }""");
         var zero = await OperateAsync(client, "/map/carrier-heights/S", """{ "heightMm": 0 }""");

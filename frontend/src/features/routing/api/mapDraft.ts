@@ -28,7 +28,7 @@ export interface CarrierHeight {
 /** キャリアの高さを入れた結果。saved なら、今の設定（空にしたら null）も返す。 */
 export type CarrierHeightOutcome =
   | { readonly result: 'saved'; readonly height: CarrierHeight | null }
-  | { readonly result: 'notTransferPanel' | 'noMap' | 'failed' };
+  | { readonly result: 'notTransferPanel' | 'noMap' | 'forbidden' | 'failed' };
 
 /** 下書きを保存した結果。stale は、読んだあとにほかの人が保存したか公開した（保存していない）。 */
 export type MapDraftSaveOutcome = { readonly result: 'saved' | 'stale'; readonly revision: number } | { readonly result: 'failed' } | { readonly result: 'forbidden' };
@@ -87,12 +87,8 @@ function parseHeight(value: Record<string, unknown>): CarrierHeight {
 /** キャリアの高さを入れる（null で設定なしにする。すぐ使う）。応答がなければ failed（やり直さない）。 */
 export async function saveCarrierHeight(baseUrl: string, panel: string, heightMm: number | null, timeoutMs: number): Promise<CarrierHeightOutcome> {
   try {
-    const response = await screenFetch(`${baseUrl}/map/carrier-heights/${encodeURIComponent(panel)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ heightMm }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const response = await postWithSession(baseUrl, `/map/carrier-heights/${encodeURIComponent(panel)}`, timeoutMs, { heightMm });
+    if (response.status === 403) return { result: 'forbidden' };
     const body: unknown = response.ok ? await response.json() : null;
     if (isRecord(body)) {
       if (body.result === 'saved') {
@@ -113,6 +109,8 @@ export async function saveCarrierHeight(baseUrl: string, panel: string, heightMm
 /** 画面に出す、キャリアの高さの結果の知らせ（保存できたら null）。 */
 export function carrierHeightNotice(panel: string, outcome: CarrierHeightOutcome): string | null {
   switch (outcome.result) {
+    case 'forbidden':
+      return 'キャリアの高さを変更する権限がありません。';
     case 'saved':
       return null;
     case 'notTransferPanel':
