@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { agvRegistrationNotice, agvRegistrationRequest, agvTypeCommandRequest, agvTypeNotice, parseFleet, sendAgvTypeCommand } from './fleetSnapshot';
+import { agvRegistrationNotice, agvRegistrationRequest, agvTypeCommandRequest, agvTypeNotice, parseFleet, sendAgvRegistrationCommand, sendAgvTypeCommand } from './fleetSnapshot';
 
 const wire = {
   version: 2,
@@ -60,8 +60,15 @@ describe('sendAgvTypeCommand', () => {
   });
 
   it('サーバーが返した結果を返し、知らない結果や応答がなければ failed', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ result: 'nameTaken' }), { status: 200 })));
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(Response.json({ result: 'nameTaken' }));
+    vi.stubGlobal('fetch', fetch);
     await expect(sendAgvTypeCommand('', { kind: 'add', type }, 10_000)).resolves.toBe('nameTaken');
+    expect(fetch).toHaveBeenLastCalledWith('/agv-types', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-FlowHub-CSRF': 'csrf' }),
+    }));
+    fetch.mockResolvedValueOnce(Response.json({ requestToken: 'csrf' })).mockResolvedValueOnce(new Response(null, { status: 403 }));
+    expect(agvTypeNotice(await sendAgvTypeCommand('', { kind: 'delete', id: 'small' }, 10_000))).toBe('AGV の種類を変更する権限がありません。');
 
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 400 })));
@@ -70,6 +77,18 @@ describe('sendAgvTypeCommand', () => {
 });
 
 describe('agvRegistrationRequest', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('登録をそろえる要求にトークンを付け、拒否されたら権限不足を伝える', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }));
+    vi.stubGlobal('fetch', fetch);
+    const result = await sendAgvRegistrationCommand('', { kind: 'align', id: 'AGV-1', type: null, carrier: 'X' }, 1000);
+    expect(fetch).toHaveBeenLastCalledWith('/agv-registrations/AGV-1/align', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-FlowHub-CSRF': 'csrf' }),
+    }));
+    expect(agvRegistrationNotice(result)).toBe('AGV の登録を変更する権限がありません。');
+  });
   it('加える・変える・そろえる・消す', () => {
     expect(agvRegistrationRequest({ kind: 'add', id: 'AGV-5', type: 'small', carrier: 'X' })).toEqual({ path: '/agv-registrations', body: { id: 'AGV-5', type: 'small', carrier: 'X' } });
     expect(agvRegistrationRequest({ kind: 'change', id: 'AGV-5', type: 'small', carrier: 'X' })).toEqual({ path: '/agv-registrations/AGV-5/edit', body: { type: 'small', carrier: 'X' } });

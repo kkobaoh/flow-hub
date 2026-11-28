@@ -16,7 +16,7 @@ namespace FlowHub.Api.Composition;
 /// - 消す（<c>POST /agv-registrations/{id}/delete</c>）：<c>deleted</c>、<c>notFound</c>、<c>notDetached</c>、<c>loaded</c>。
 /// - どれも、片方の DB に書けなかったときは <c>failed</c>（先に書いた方を元に戻した）。断ったときは、何も変えていない。
 /// - 頼みの形が正しくない（番号が空、知らない種類、選べないキャリアの種類）：400。
-/// 今はログインなしで開く（docs/backlog.md #23）。
+/// 画面からの登録操作には構成の変更権限と CSRF トークンが必要。
 /// </remarks>
 internal static partial class AgvRegistrationEndpoints
 {
@@ -26,16 +26,17 @@ internal static partial class AgvRegistrationEndpoints
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(logger);
 
-        endpoints.MapPost("/agv-registrations", (AgvBody body, CancellationToken cancellationToken) =>
+        var registrations = endpoints.MapGroup("/agv-registrations").RequireScreenCommand("configure");
+        registrations.MapPost("", (AgvBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "AGV を加える", body.Id ?? "", () => catalog.AddAgvAsync(body.Id ?? "", body.Type ?? "", body.Carrier ?? "", cancellationToken)));
 
-        endpoints.MapPost("/agv-registrations/{id}/edit", (string id, AgvBody body, CancellationToken cancellationToken) =>
+        registrations.MapPost("/{id}/edit", (string id, AgvBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "AGV を変える", id, () => catalog.ChangeAgvAsync(id, body.Type ?? "", body.Carrier ?? "", cancellationToken)));
 
-        endpoints.MapPost("/agv-registrations/{id}/align", (string id, AgvBody body, CancellationToken cancellationToken) =>
+        registrations.MapPost("/{id}/align", (string id, AgvBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "AGV の登録をそろえる", id, () => catalog.AlignAgvAsync(id, body.Type, body.Carrier, cancellationToken)));
 
-        endpoints.MapPost("/agv-registrations/{id}/delete", (string id, CancellationToken cancellationToken) =>
+        registrations.MapPost("/{id}/delete", (string id, CancellationToken cancellationToken) =>
             RunAsync(logger, "AGV を消す", id, () => catalog.DeleteAgvAsync(id, cancellationToken)));
     }
 

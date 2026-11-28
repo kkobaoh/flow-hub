@@ -1,4 +1,4 @@
-import { postOperation } from '../../../shared/api/postCommand';
+import { postSessionOperation } from '../../../shared/api/postCommand';
 import { parseVersion, type Versioned } from '../../../shared/realtime/versioned';
 import { agvId } from '../agv';
 import type { AgvEntry, AgvType, ChargeDefaults, Registration } from '../agvs';
@@ -101,9 +101,7 @@ export type AgvRegistrationCommand =
  * - saved・deleted：受け付けた。idTaken・notFound・notDetached・loaded：断った（何も変えていない）。
  * - failed：片方の DB に書けず元に戻した、応答がない、または思わない応答（やり直さない）。
  */
-export type AgvRegistrationResult = 'saved' | 'deleted' | 'idTaken' | 'notFound' | 'notDetached' | 'loaded' | 'failed';
-
-const REGISTRATION_RESULTS: ReadonlySet<AgvRegistrationResult> = new Set(['saved', 'deleted', 'idTaken', 'notFound', 'notDetached', 'loaded', 'failed'] as const);
+export type AgvRegistrationResult = 'saved' | 'deleted' | 'idTaken' | 'notFound' | 'notDetached' | 'loaded' | 'failed' | 'forbidden';
 
 export function agvRegistrationRequest(command: AgvRegistrationCommand): { readonly path: string; readonly body: Record<string, unknown> } {
   const base = `/agv-registrations/${encodeURIComponent(command.id)}`;
@@ -124,13 +122,14 @@ export function agvRegistrationRequest(command: AgvRegistrationCommand): { reado
 /** 操作を送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
 export async function sendAgvRegistrationCommand(baseUrl: string, command: AgvRegistrationCommand, timeoutMs: number): Promise<AgvRegistrationResult> {
   const { path, body } = agvRegistrationRequest(command);
-  const result = await postOperation(baseUrl, path, body, timeoutMs, REGISTRATION_RESULTS);
-  return result === 'refused' ? 'failed' : result;
+  return postSessionOperation(baseUrl, path, timeoutMs, body, ['saved', 'deleted', 'idTaken', 'notFound', 'notDetached', 'loaded', 'failed']);
 }
 
 /** 画面に出す、AGV の登録の操作の結果の知らせ（受け付けたときは null）。 */
 export function agvRegistrationNotice(result: AgvRegistrationResult): string | null {
   switch (result) {
+    case 'forbidden':
+      return 'AGV の登録を変更する権限がありません。';
     case 'saved':
     case 'deleted':
       return null;
@@ -157,9 +156,7 @@ export type AgvTypeCommand = { readonly kind: 'add' | 'edit'; readonly type: Agv
  * - saved・deleted：受け付けた。idTaken・nameTaken・notFound・inUse：断った（何も変えていない）。
  * - failed：片方の DB に書けず元に戻した、応答がない、または思わない応答（やり直さない）。
  */
-export type AgvTypeCommandResult = 'saved' | 'deleted' | 'idTaken' | 'nameTaken' | 'notFound' | 'inUse' | 'failed';
-
-const SERVER_RESULTS: ReadonlySet<Exclude<AgvTypeCommandResult, never>> = new Set(['saved', 'deleted', 'idTaken', 'nameTaken', 'notFound', 'inUse', 'failed'] as const);
+export type AgvTypeCommandResult = 'saved' | 'deleted' | 'idTaken' | 'nameTaken' | 'notFound' | 'inUse' | 'failed' | 'forbidden';
 
 export function agvTypeCommandRequest(command: AgvTypeCommand): { readonly path: string; readonly body: Record<string, unknown> } {
   switch (command.kind) {
@@ -177,13 +174,14 @@ export function agvTypeCommandRequest(command: AgvTypeCommand): { readonly path:
 /** 操作を送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
 export async function sendAgvTypeCommand(baseUrl: string, command: AgvTypeCommand, timeoutMs: number): Promise<AgvTypeCommandResult> {
   const { path, body } = agvTypeCommandRequest(command);
-  const result = await postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS);
-  return result === 'refused' ? 'failed' : result;
+  return postSessionOperation(baseUrl, path, timeoutMs, body, ['saved', 'deleted', 'idTaken', 'nameTaken', 'notFound', 'inUse', 'failed']);
 }
 
 /** 画面に出す、操作の結果の知らせ（受け付けたときは null）。 */
 export function agvTypeNotice(result: AgvTypeCommandResult): string | null {
   switch (result) {
+    case 'forbidden':
+      return 'AGV の種類を変更する権限がありません。';
     case 'saved':
     case 'deleted':
       return null;

@@ -362,6 +362,16 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [new PermissionChange("viewer", "configure", false)], Token));
         using var readableDraft = await client.GetAsync(draftUri, Token);
         Assert.Equal(HttpStatusCode.OK, readableDraft.StatusCode);
+        foreach (var path in new[] { "/agv-types", "/agv-types/small/edit", "/agv-types/small/delete" })
+        {
+            using var deniedType = await Send(path, "{}", viewerToken);
+            Assert.Equal(HttpStatusCode.Forbidden, deniedType.StatusCode);
+        }
+        foreach (var path in new[] { "/agv-registrations", "/agv-registrations/AGV-1/edit", "/agv-registrations/AGV-1/align", "/agv-registrations/AGV-1/delete" })
+        {
+            using var deniedRegistration = await Send(path, "{}", viewerToken);
+            Assert.Equal(HttpStatusCode.Forbidden, deniedRegistration.StatusCode);
+        }
         foreach (var path in new[] { "/map/draft", "/map/draft/validate", "/map/draft/publish" })
         {
             using var deniedDraft = await Send(path, "{}", viewerToken);
@@ -1067,7 +1077,12 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]); // 種類 small を AGV-1 が使う
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        const string addType = """{"id":"large","name":"大きい","forward":800,"backward":400,"rotation":90,"special":false}""";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymous, "/agv-types", addType)).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await OperateAsync(client, "/agv-types", addType)).Status);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
 
         var added = await OperateAsync(client, "/agv-types", """{ "id": "large", "name": "大きい", "forward": 800, "backward": 400, "rotation": 90, "chargeAt": null, "resumeAt": null, "special": false }""");
         var sameId = await OperateAsync(client, "/agv-types", """{ "id": "large", "name": "別", "forward": 800, "backward": 400, "rotation": 90, "special": false }""");
@@ -1108,7 +1123,12 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []); // 種類 small
         await SeedConsumablesAsync(); // キャリアの種類 X
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        const string registration = """{ "id": "AGV-5", "type": "small", "carrier": "X" }""";
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymous, "/agv-registrations", registration)).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await OperateAsync(client, "/agv-registrations", registration)).Status);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
         await OperateAsync(client, "/agv-types", """{ "id": "large", "name": "大きい", "forward": 800, "backward": 400, "rotation": 90, "special": true }""");
 
         var added = await OperateAsync(client, "/agv-registrations", """{ "id": "AGV-5", "type": "small", "carrier": "X" }""");
@@ -1135,9 +1155,10 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         await SeedConsumablesAsync();
         var system = await StartAsync();
-        var client = await ServeAsync(system);
-
-        Assert.Empty(await CommandsAsync(client, -1, "AGV-9"));
+        var client = await ServeSignedInScreenAsync(system);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
+        using var agv = new HttpClient { BaseAddress = client.BaseAddress };
+        Assert.Empty(await CommandsAsync(agv, -1, "AGV-9"));
         // 知らせは、リクエストのあとの後始末で届く（応答が返ってから届くことがある）
         Assert.True(await EventuallyAsync(() => RegistrationOf(system, "AGV-9") is not null));
         Assert.Equal(new AgvRegistrationView("AGV-9", null, null, "unconfigured"), RegistrationOf(system, "AGV-9"));
@@ -1156,7 +1177,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv2]); // AGV-1 は走行だけ、AGV-2 は配車だけ
         await SeedConsumablesAsync();
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
 
         var trafficOnly = await OperateAsync(client, "/agv-registrations/AGV-1/align", """{ "carrier": "X" }""");
         var dispatchOnly = await OperateAsync(client, "/agv-registrations/AGV-2/align", """{ "type": "small" }""");
@@ -1177,7 +1199,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var dispatching = await DispatchingDatabase.OpenAsync(b => Databases.Configure(b, options, DispatchingDatabase.Schema), (c, t) => Databases.InitializeAsync(c, options, t), Token);
         await dispatching.AddAgvTypeAsync("ghost", null, null, Token); // 配車の側にだけ、同じ ID の種類がある
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
 
         var result = await OperateAsync(client, "/agv-types", """{ "id": "ghost", "name": "幽霊", "forward": 800, "backward": 400, "rotation": 90, "special": false }""");
 

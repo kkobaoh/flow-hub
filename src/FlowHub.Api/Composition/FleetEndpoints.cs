@@ -15,7 +15,7 @@ namespace FlowHub.Api.Composition;
 /// - 消す（<c>POST /agv-types/{id}/delete</c>）：<c>deleted</c>、<c>inUse</c>、<c>notFound</c>。
 /// - どれも、片方の DB に書けなかったときは <c>failed</c>（先に書いた方を元に戻した）。断ったときは、何も変えていない。
 /// - 頼みの形が正しくない（ID の文字、速さが 1 未満、残量の範囲など）：400。
-/// 今はログインなしで開く（docs/backlog.md #23）。
+/// 登録・変更・削除には構成を変更する権限と CSRF トークンが必要。
 /// </remarks>
 internal static partial class FleetEndpoints
 {
@@ -25,13 +25,14 @@ internal static partial class FleetEndpoints
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(logger);
 
-        endpoints.MapPost("/agv-types", (TypeBody body, CancellationToken cancellationToken) =>
+        var types = endpoints.MapGroup("/agv-types").RequireScreenCommand("configure");
+        types.MapPost("", (TypeBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "AGV の種類を加える", body.Id ?? "", () => catalog.AddTypeAsync(body.ToInput(body.Id), cancellationToken)));
 
-        endpoints.MapPost("/agv-types/{id}/edit", (string id, TypeBody body, CancellationToken cancellationToken) =>
+        types.MapPost("/{id}/edit", (string id, TypeBody body, CancellationToken cancellationToken) =>
             RunAsync(logger, "AGV の種類を変える", id, () => catalog.UpdateTypeAsync(body.ToInput(id), cancellationToken)));
 
-        endpoints.MapPost("/agv-types/{id}/delete", (string id, CancellationToken cancellationToken) =>
+        types.MapPost("/{id}/delete", (string id, CancellationToken cancellationToken) =>
             RunAsync(logger, "AGV の種類を消す", id, () => catalog.DeleteTypeAsync(id, cancellationToken)));
     }
 

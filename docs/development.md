@@ -383,6 +383,26 @@ sequenceDiagram
     end
 ```
 
+画面から AGV 本体や種類を登録・変更・削除するときは、送信時点で構成を変更する権限があるかを確認します。交通整理と配車で AGV の登録が食い違い、「登録をそろえる」を選んだ場合も同じ流れです。
+
+```mermaid
+sequenceDiagram
+    participant UI as AGV と AGV の種類の登録画面
+    participant API as 画面用 API
+    participant Catalog as AGV と種類の登録管理
+    UI->>API: セッション情報を取得
+    API-->>UI: CSRF トークン
+    UI->>API: 本体や種類の登録・変更・削除、または登録をそろえる要求を送信
+    API->>API: ログイン状態・現在の configure 権限・トークンを確認
+    alt 権限不足
+        API-->>UI: 403（登録を変更する権限がないことを表示）
+    else 操作を許可
+        API->>Catalog: 指定された操作を実行
+        Catalog-->>API: 操作結果
+        API-->>UI: 操作結果
+    end
+```
+
 パーミッション表の保存では、各チェックの変更先の値をサーバーに渡します。
 
 ```mermaid
