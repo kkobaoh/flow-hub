@@ -32,7 +32,8 @@ internal static partial class ConsumableEndpoints
         ArgumentNullException.ThrowIfNull(toolPlanning);
         ArgumentNullException.ThrowIfNull(logger);
 
-        endpoints.MapPost("/devices/{deviceId}/stocker-setting", (string deviceId, StockerSettingBody body, CancellationToken cancellationToken) =>
+        var stockerSettings = endpoints.MapGroup("/devices/{deviceId}").RequireScreenCommand("stockerSetting");
+        stockerSettings.MapPost("/stocker-setting", (string deviceId, StockerSettingBody body, CancellationToken cancellationToken) =>
         {
             if (consumables.Devices.All(d => d.Value != deviceId))
             {

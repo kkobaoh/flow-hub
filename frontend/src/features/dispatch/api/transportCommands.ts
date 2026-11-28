@@ -1,4 +1,4 @@
-import { postWithSession } from '../../../shared/api/postCommand';
+import { postSessionOperation } from '../../../shared/api/postCommand';
 
 /**
  * 搬送を取りやめた結果（サーバーの TransportCancelResult と同じ言葉）。
@@ -10,19 +10,7 @@ export type TransportCancelResult = 'canceled' | 'canceling' | 'completing' | 'n
 
 /** 搬送の取りやめを送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
 export async function sendCancelTransport(baseUrl: string, number: number, timeoutMs: number): Promise<TransportCancelResult> {
-  try {
-    const response = await postWithSession(baseUrl, `/transports/${number}/cancel`, timeoutMs, {});
-    if (response.status === 403) return 'forbidden';
-    if (!response.ok) return 'failed';
-    const result: unknown = (await response.json()).result;
-    switch (result) {
-      case 'canceled': case 'canceling': case 'completing': case 'notCancelable': return result;
-      default: return 'failed';
-    }
-  } catch (error) {
-    console.warn('搬送の取りやめ結果を確認できませんでした。', error);
-    return 'failed';
-  }
+  return postSessionOperation(baseUrl, `/transports/${number}/cancel`, timeoutMs, {}, ['canceled', 'canceling', 'completing', 'notCancelable']);
 }
 
 /** 画面に出す、取りやめの結果の知らせ（取りやめたときは null）。 */

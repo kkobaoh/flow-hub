@@ -12,6 +12,22 @@ export async function postWithSession(baseUrl: string, path: string, timeoutMs: 
   return screenFetch(`${baseUrl}${path}`, { method: 'POST', headers, signal, body: JSON.stringify(body) });
 }
 
+/** CSRF トークン付きで操作を送り、権限不足と業務上の結果を呼び出し元に返す。 */
+export async function postSessionOperation<T extends string>(
+  baseUrl: string, path: string, timeoutMs: number, body: unknown, results: readonly T[],
+): Promise<T | 'forbidden' | 'failed'> {
+  try {
+    const response = await postWithSession(baseUrl, path, timeoutMs, body);
+    if (response.status === 403) return 'forbidden';
+    if (!response.ok) return 'failed';
+    const result: unknown = (await response.json()).result;
+    return results.find(candidate => candidate === result) ?? 'failed';
+  } catch (error) {
+    console.warn(`${path} の結果を確認できませんでした。`, error);
+    return 'failed';
+  }
+}
+
 /** HTTP の窓口へ POST で送る。応答がない（timeoutMs を過ぎた）・つながらない・断られたときは failed にして、やり直さない。 */
 export async function postCommand(baseUrl: string, path: string, timeoutMs: number): Promise<CommandResult> {
   try {

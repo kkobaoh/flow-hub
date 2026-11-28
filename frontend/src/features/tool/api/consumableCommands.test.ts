@@ -59,6 +59,16 @@ describe('sendConsumableCommand', () => {
 
     await expect(sendConsumableCommand('', { kind: 'ship', consumable: 'T-1' }, 10_000)).resolves.toBe('inAssignedTransport');
   });
+  it('ストッカー設定は CSRF トークンを付け、権限不足を画面に伝える', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }));
+    vi.stubGlobal('fetch', fetch);
+    const result = await sendConsumableCommand('', { kind: 'stockerSetting', device: 'DEV-1', counts: [] }, 10_000);
+    expect(fetch).toHaveBeenLastCalledWith('/devices/DEV-1/stocker-setting', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-FlowHub-CSRF': 'csrf' }),
+    }));
+    expect(consumableNotice('stockerSetting', result)).toBe('ストッカーの設定を変更する権限がありません。');
+  });
 
   it('知らない結果、断られた、応答がないときは failed（やり直さない）', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});

@@ -158,6 +158,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     public async Task 初期設定のログインから管理者を作り使用済みのセッションを断る()
     {
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        await SeedConsumablesAsync();
         var client = await ServeAsync(await StartAsync(), setupLogin: true);
 
         var hubUri = new Uri("/hubs/screen/negotiate?negotiateVersion=1", UriKind.Relative);
@@ -354,6 +355,15 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [cancelPermission with { Enabled = false }], Token));
         using var revokedCancel = await Send(cancelPath, "{}", viewerToken);
         Assert.Equal(HttpStatusCode.Forbidden, revokedCancel.StatusCode);
+        const string stocker = "/devices/DEV-1/stocker-setting";
+        var editStocker = new PermissionChange("viewer", "stockerSetting", true);
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [editStocker], Token));
+        using var setStocker = await Send(stocker, """{"counts":[{"variety":"DR-5","count":1}]}""", viewerToken);
+        Assert.Equal(HttpStatusCode.OK, setStocker.StatusCode);
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [editStocker with { Enabled = false }], Token));
+        using var deniedClear = await Send(stocker, """{"counts":[]}""", viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedClear.StatusCode);
+        Assert.Equal([new StockerLine(new VarietyId("DR-5"), 1, 0)], _system.Consumables.ReadStatuses().Devices.Single().Stocker);
         Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [enableOperation with { Enabled = false }], Token));
         using var revokedStop = await Send("/system/stop", "{}", viewerToken);
         Assert.Equal(HttpStatusCode.Forbidden, revokedStop.StatusCode);
@@ -665,7 +675,13 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         await SeedConsumablesAsync();
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        const string path = "/devices/DEV-1/stocker-setting";
+        const string clear = """{"counts":[]}""";
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymous, path, clear)).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await OperateAsync(client, path, clear)).Status);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
 
         var saved = await OperateAsync(client, "/devices/DEV-1/stocker-setting", """{ "counts": [{ "variety": "DR-5", "count": 2 }] }""");
         var exceeds = await OperateAsync(client, "/devices/DEV-1/stocker-setting", """{ "counts": [{ "variety": "DR-5", "count": 2 }, { "variety": "DR-6", "count": 1 }] }""");

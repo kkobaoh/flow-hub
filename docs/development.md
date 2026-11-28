@@ -280,6 +280,25 @@ sequenceDiagram
     end
 ```
 
+ストッカー設定の保存では、画面を開いた後に変更された権限も反映します。
+
+```mermaid
+sequenceDiagram
+    participant UI as 装置とストッカー画面
+    participant API as ストッカー設定 API
+    participant C as 消耗品の管理
+    UI->>API: POST /devices/{deviceId}/stocker-setting（品種別個数、Cookie、CSRF トークン）
+    API->>API: 通常ログインと現在の stockerSetting 権限を照合
+    alt 権限あり・トークン有効
+        API->>C: 指定した装置の設定を保存
+        C-->>API: 保存結果
+        API-->>UI: 保存結果を返す
+    else 権限不足
+        API-->>UI: 403（設定を保持）
+        UI->>UI: 変更する権限がないことを表示
+    end
+```
+
 パーミッション表の保存では、各チェックの変更先の値をサーバーに渡します。
 
 ```mermaid

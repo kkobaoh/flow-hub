@@ -1,4 +1,4 @@
-import { postOperation } from '../../../shared/api/postCommand';
+import { postOperation, postSessionOperation } from '../../../shared/api/postCommand';
 import type { Condition } from '../station';
 import type { ConsumableLocation } from '../consumables';
 
@@ -30,6 +30,7 @@ export type ConsumableCommand =
  * - failed：応答がない、または思わない応答（届いたかわからない。やり直さない）。
  */
 export type ConsumableCommandResult =
+  | 'forbidden'
   | 'saved'
   | 'exceedsSlots'
   | 'requested'
@@ -46,7 +47,7 @@ export type ConsumableCommandResult =
   | 'slotTaken'
   | 'failed';
 
-const SERVER_RESULTS: ReadonlySet<Exclude<ConsumableCommandResult, 'failed'>> = new Set([
+const SERVER_RESULTS: ReadonlySet<Exclude<ConsumableCommandResult, 'failed' | 'forbidden'>> = new Set([
   'saved',
   'exceedsSlots',
   'requested',
@@ -113,6 +114,7 @@ export function consumableCommandRequest(command: ConsumableCommand): { readonly
 /** 操作を送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
 export async function sendConsumableCommand(baseUrl: string, command: ConsumableCommand, timeoutMs: number): Promise<ConsumableCommandResult> {
   const { path, body } = consumableCommandRequest(command);
+  if (command.kind === 'stockerSetting') return postSessionOperation(baseUrl, path, timeoutMs, body, ['saved', 'exceedsSlots']);
   const result = await postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS);
   // 消耗品の窓口は 409 を返さないので、返ってきたら思わない応答として扱う
   return result === 'refused' ? 'failed' : result;
@@ -121,6 +123,8 @@ export async function sendConsumableCommand(baseUrl: string, command: Consumable
 /** 画面に出す、操作の結果の知らせ（受け付けたときは null）。同じ結果でも、操作によって文を変える。 */
 export function consumableNotice(kind: ConsumableCommand['kind'], result: ConsumableCommandResult): string | null {
   switch (result) {
+    case 'forbidden':
+      return 'ストッカーの設定を変更する権限がありません。';
     case 'saved':
     case 'requested':
     case 'corrected':
