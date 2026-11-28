@@ -20,7 +20,7 @@ namespace FlowHub.Api.Composition;
 /// - 検証する（<c>POST /map/draft/validate</c>、<c>{ "draft": … }</c>）：<c>{ "problems": [ "…" ] }</c>。公開するときと同じに検証し、見つかった問題を文で返す（保存はしない）。
 /// - 公開する（<c>POST /map/draft/publish</c>、<c>{ "revision", "draft" }</c>）：<c>{ "result", "version", "problems", "agvs" }</c>。
 ///   <c>published</c>（<c>agvs</c> は切り離しにした AGV）、<c>stale</c>、<c>running</c>、<c>agvMoving</c>（<c>agvs</c> は走っている AGV）、<c>problems</c>。
-/// 今はログインなしで開く（docs/backlog.md #23）。
+/// 下書きの保存にはマップ編集権限と CSRF トークンが必要。
 /// </remarks>
 internal static partial class MapDraftEndpoints
 {
@@ -94,7 +94,8 @@ internal static partial class MapDraftEndpoints
             return Results.Json(new PublishResponse(result, outcome.Version, outcome.Problems, outcome.Agvs));
         });
 
-        endpoints.MapPost("/map/draft", (SaveBody body) =>
+        var draftSave = endpoints.MapGroup("/map/draft").RequireScreenCommand("configure");
+        draftSave.MapPost("", (SaveBody body) =>
         {
             if (body.Revision is not { } revision || !IsWellFormed(body.Draft, out var draft))
             {

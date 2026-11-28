@@ -1,4 +1,5 @@
 import { screenFetch } from '../../../shared/api/screenSession';
+import { postWithSession } from '../../../shared/api/postCommand';
 import type { Rect } from '../drawing';
 import type { MapDraft } from '../mapEdit';
 import { heading, panelId, type Connection, type Panel, type PanelType } from '../model';
@@ -30,7 +31,7 @@ export type CarrierHeightOutcome =
   | { readonly result: 'notTransferPanel' | 'noMap' | 'failed' };
 
 /** 下書きを保存した結果。stale は、読んだあとにほかの人が保存したか公開した（保存していない）。 */
-export type MapDraftSaveOutcome = { readonly result: 'saved' | 'stale'; readonly revision: number } | { readonly result: 'failed' };
+export type MapDraftSaveOutcome = { readonly result: 'saved' | 'stale'; readonly revision: number } | { readonly result: 'failed' } | { readonly result: 'forbidden' };
 
 const PANEL_TYPES: ReadonlySet<string> = new Set<PanelType>(['Normal', 'Transfer', 'Standby', 'SpecialTransfer']);
 
@@ -211,12 +212,8 @@ const SAVE_RESULTS: ReadonlySet<'saved' | 'stale'> = new Set(['saved', 'stale'] 
 /** 下書きを保存する（読んだときの番号を渡す）。応答がなければ failed（やり直さない）。 */
 export async function saveMapDraft(baseUrl: string, revision: number, draft: MapDraft, timeoutMs: number): Promise<MapDraftSaveOutcome> {
   try {
-    const response = await screenFetch(`${baseUrl}/map/draft`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ revision, draft: toWireDraft(draft) }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const response = await postWithSession(baseUrl, '/map/draft', timeoutMs, { revision, draft: toWireDraft(draft) });
+    if (response.status === 403) return { result: 'forbidden' };
     const body: unknown = response.ok ? await response.json() : null;
     if (isRecord(body) && typeof body.result === 'string' && (SAVE_RESULTS as ReadonlySet<string>).has(body.result) && typeof body.revision === 'number') {
       return { result: body.result as 'saved' | 'stale', revision: body.revision };
@@ -323,6 +320,8 @@ export function mapPublishNotice(outcome: MapPublishOutcome): string | null {
 /** 画面に出す、下書きの保存の結果の知らせ（保存できたら null）。 */
 export function mapDraftNotice(outcome: MapDraftSaveOutcome): string | null {
   switch (outcome.result) {
+    case 'forbidden':
+      return 'マップの下書きを保存する権限がありません。';
     case 'saved':
       return null;
     case 'stale':

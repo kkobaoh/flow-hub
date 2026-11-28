@@ -144,15 +144,23 @@ describe('loadMapDraft と saveMapDraft', () => {
   it('保存する。古い番号なら stale、応答がなければ failed', async () => {
     const fetch = vi
       .fn()
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'saved', revision: 4 }), { status: 200 }))
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'stale', revision: 5 }), { status: 200 }))
+      .mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
       .mockRejectedValueOnce(new Error('切れた'));
     vi.stubGlobal('fetch', fetch);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     expect(await saveMapDraft('', 3, draft, 1000)).toEqual({ result: 'saved', revision: 4 });
-    expect(JSON.parse((fetch.mock.calls[0] as [string, RequestInit])[1].body as string)).toEqual({ revision: 3, draft: wireDraft });
+    expect(fetch.mock.calls[1]).toEqual(['/map/draft', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-FlowHub-CSRF': 'csrf' }),
+      body: JSON.stringify({ revision: 3, draft: wireDraft }),
+    })]);
     expect(await saveMapDraft('', 3, draft, 1000)).toEqual({ result: 'stale', revision: 5 });
+    expect(await saveMapDraft('', 3, draft, 1000)).toEqual({ result: 'forbidden' });
     expect(await saveMapDraft('', 3, draft, 1000)).toEqual({ result: 'failed' });
   });
 });

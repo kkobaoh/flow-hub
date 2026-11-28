@@ -356,6 +356,9 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         using var revokedCancel = await Send(cancelPath, "{}", viewerToken);
         Assert.Equal(HttpStatusCode.Forbidden, revokedCancel.StatusCode);
         const string stocker = "/devices/DEV-1/stocker-setting";
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [new PermissionChange("viewer", "configure", false)], Token));
+        using var deniedDraft = await Send("/map/draft", "{}", viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedDraft.StatusCode);
         var consumableOps = new PermissionChange("viewer", "consumableOps", true);
         foreach (var stockPath in new[] { "/consumables", "/consumables/T-9/edit", "/consumables/T-9/delete" })
         {
@@ -900,8 +903,9 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
         var system = await StartAsync();
-        var client = await ServeAsync(system);
-
+        var client = await ServeSignedInScreenAsync(system);
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymous, "/map/draft", "{}")).Status);
         var first = await GetJsonAsync(client, "/map/draft");
         Assert.Equal(0, (int)first["revision"]!);
         Assert.Null(first["savedAt"]);
@@ -910,7 +914,10 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
 
         // 検証しない：つながりの先のパネルがなくても保存できる
         const string Draft = """{ "panelSizeMm": 1000, "panels": [{ "id": "P1", "type": "Normal", "hasChargingPin": false, "carrierLoweringHeading": null, "column": 0, "row": 0, "crossOffsetEastMm": 0, "crossOffsetSouthMm": 0, "outline": null }], "connections": [{ "from": "P1", "to": "NOWHERE", "distanceMm": 1000, "heading": 90, "oneWay": false }] }""";
-        var saved = await OperateAsync(client, "/map/draft", $$"""{ "revision": 0, "draft": {{Draft}} }""");
+        var save = $$"""{ "revision": 0, "draft": {{Draft}} }""";
+        Assert.Equal(HttpStatusCode.BadRequest, (await OperateAsync(client, "/map/draft", save)).Status);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
+        var saved = await OperateAsync(client, "/map/draft", save);
         var stale = await OperateAsync(client, "/map/draft", $$"""{ "revision": 0, "draft": {{Draft}} }""");
         var noDraft = await OperateAsync(client, "/map/draft", """{ "revision": 1 }""");
 

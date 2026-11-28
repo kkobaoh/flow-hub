@@ -320,6 +320,26 @@ sequenceDiagram
     end
 ```
 
+マップの下書きを保存するときは、権限確認を通った要求だけが下書きの版番号の照合に進みます。
+
+```mermaid
+sequenceDiagram
+    participant UI as マップ編集画面
+    participant API as 画面用 API
+    participant Store as 下書きの保存先
+    UI->>API: セッション情報を取得
+    API-->>UI: CSRF トークン
+    UI->>API: 下書き・読んだ版番号・トークンを送信
+    API->>API: ログイン状態・現在の編集権限・トークンを確認
+    alt 権限不足
+        API-->>UI: 403（保存権限がないことを表示）
+    else 認証・権限・トークンが有効
+        API->>Store: 版番号が一致すれば保存
+        Store-->>API: 保存結果と現在の版番号
+        API-->>UI: 保存済み、または競合
+    end
+```
+
 パーミッション表の保存では、各チェックの変更先の値をサーバーに渡します。
 
 ```mermaid
