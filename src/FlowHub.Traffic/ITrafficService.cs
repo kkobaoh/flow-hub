@@ -49,5 +49,5 @@ public interface ITrafficService
     /// <returns>切り替えを受け付けたか。位置のパネルをほかの AGV が予約していたら false。</returns>
     /// <exception cref="InvalidOperationException">切り替えの条件を満たさないとき。</exception>
     /// <exception cref="ArgumentException">切り離しから切り替えるのに、位置を指定していないとき。</exception>
-    Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken);
+    Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken, Action<ControlStatus>? checkPermission = null);
 }

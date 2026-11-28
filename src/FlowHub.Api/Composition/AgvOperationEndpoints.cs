@@ -1,4 +1,5 @@
 using FlowHub.Dispatching.Application;
+using FlowHub.Identity.Infrastructure;
 using FlowHub.Map;
 using FlowHub.Routing;
 using FlowHub.Traffic;
@@ -19,7 +20,7 @@ namespace FlowHub.Api.Composition;
 /// - 位置のパネルをほかの AGV が予約していた：200 と <c>reserved</c>。
 /// - 今の状態では受け付けられない（マニュアルでない、走っている途中など）：409 と <c>notAllowed</c>。状態は何も変えていない。
 /// - 頼みの形が正しくない（知らないステータス、マップにないパネルなど）：400。知らない AGV：404。
-/// 緊急停止では通常ログイン・緊急停止権限・CSRF トークンを確認する。
+/// 緊急停止と復旧操作では通常ログイン・各操作の権限・CSRF トークンを確認する。
 /// </remarks>
 internal static partial class AgvOperationEndpoints
 {
@@ -41,26 +42,35 @@ internal static partial class AgvOperationEndpoints
                 return Accepted;
             }));
 
-        group.MapPost("/alarm-clear", (string agvId, CancellationToken cancellationToken) =>
+        var recovery = group.MapGroup("").RequireScreenCommand("recovery");
+        recovery.MapPost("/alarm-clear", (string agvId, CancellationToken cancellationToken) =>
             Run(agvId, "アラームクリア", async id =>
             {
                 await traffic.ClearAlarmAsync(id, cancellationToken).ConfigureAwait(false);
                 return Accepted;
             }));
 
-        group.MapPost("/position-reset", (string agvId, PositionBody body, CancellationToken cancellationToken) =>
+        recovery.MapPost("/position-reset", (string agvId, PositionBody body, CancellationToken cancellationToken) =>
             Run(agvId, "位置リセット", async id =>
             {
                 var position = body.ToPose() ?? throw new ArgumentException("位置（パネルと向き）を指定してください。", nameof(body));
                 return await traffic.ResetPositionAsync(id, position, cancellationToken).ConfigureAwait(false) ? Accepted : Reserved;
             }));
 
-        group.MapPost("/control", (string agvId, ControlBody body, CancellationToken cancellationToken) =>
+        var control = group.MapGroup("/control").RequireScreenCommand("controlBasic", "controlAdvanced");
+        control.MapPost("", (string agvId, ControlBody body, HttpContext http, CancellationToken cancellationToken) =>
             Run(agvId, "コントロールステータスの切り替え", async id =>
             {
                 var target = ParseControl(body.Status);
                 var position = new PositionBody(body.Panel, body.Heading).ToPose();
-                return await dispatching.ChangeControlStatusAsync(id, target, position, cancellationToken).ConfigureAwait(false) ? Accepted : Reserved;
+                var permissions = http.Features.Get<CurrentAccount>()!.Permissions;
+                void CheckPermission(ControlStatus current)
+                {
+                    var basic = IsBasicControl(current) && IsBasicControl(target);
+                    if (!permissions.Contains(basic ? "controlBasic" : "controlAdvanced"))
+                        throw new ControlChangePermissionException();
+                }
+                return await dispatching.ChangeControlStatusAsync(id, target, position, cancellationToken, CheckPermission).ConfigureAwait(false) ? Accepted : Reserved;
             }));
 
         group.MapPost("/manual/move", (string agvId, ManualMoveBody body, CancellationToken cancellationToken) =>
@@ -136,6 +146,11 @@ internal static partial class AgvOperationEndpoints
             LogRefused(logger, operation, agvId, exception.Message);
             return Results.BadRequest(new OperationResponse("invalid"));
         }
+        catch (ControlChangePermissionException exception)
+        {
+            LogRefused(logger, operation, agvId, exception.Message);
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
         catch (InvalidOperationException exception)
         {
             // 今の状態では受け付けられない。交通整理と配車は、確かめてから状態を変えるので、何も変えていない
@@ -143,6 +158,15 @@ internal static partial class AgvOperationEndpoints
             return Results.Json(new OperationResponse(NotAllowed), statusCode: StatusCodes.Status409Conflict);
         }
     }
+
+    private sealed class ControlChangePermissionException() : Exception("コントロールステータスを切り替える権限がありません。");
+
+    private static bool IsBasicControl(ControlStatus status) => status switch
+    {
+        ControlStatus.Auto or ControlStatus.AssignmentPaused => true,
+        ControlStatus.Manual or ControlStatus.Locked or ControlStatus.Detached => false,
+        _ => throw new ArgumentOutOfRangeException(nameof(status)),
+    };
 
     private static ControlStatus ParseControl(string? status) => status switch
     {

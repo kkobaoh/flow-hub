@@ -46,8 +46,11 @@ public class DispatchingSubscriptionsTests
             return Task.CompletedTask;
         }
 
-        public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken) =>
-            Task.FromResult(true);
+        public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken, Action<ControlStatus>? checkPermission = null)
+        {
+            checkPermission?.Invoke(GetAgv(id).Control);
+            return Task.FromResult(true);
+        }
 
         public void SetEvacuationEnabled(bool enabled)
         {

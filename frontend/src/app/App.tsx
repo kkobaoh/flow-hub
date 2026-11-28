@@ -203,7 +203,7 @@ export function App({ link }: AppProps) {
   /** AGV へ操作を送り、受け付けられなかったら、カードの中に知らせる（やり直さない）。 */
   const operateWithNotice = (id: AgvId, command: AgvCommand) => {
     void operate(id, command).then((result) => {
-      const notice = commandNotice(result);
+      const notice = commandNotice(result, command.kind);
       if (notice !== null) {
         setAgvNotices((m) => new Map(m).set(id, notice));
       }

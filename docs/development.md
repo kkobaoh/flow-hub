@@ -423,7 +423,7 @@ sequenceDiagram
     end
 ```
 
-AGV のカードで緊急停止を押すと、確認ダイアログを挟まずに送信を開始します。
+AGV のカードで緊急停止を押すと、確認ダイアログを挟まずに送信を開始します。アラームクリアと位置リセットは確認ダイアログで確定してから送信します。
 
 ```mermaid
 sequenceDiagram
@@ -432,13 +432,36 @@ sequenceDiagram
     participant Traffic as 交通整理
     UI->>API: セッション情報を取得
     API-->>UI: CSRF トークン
-    UI->>API: 対象 AGV の緊急停止とトークンを送信
-    API->>API: ログイン状態・現在の緊急停止権限・トークンを確認
+    UI->>API: 対象 AGV・操作内容・トークンを送信
+    API->>API: ログイン状態・現在の操作権限・トークンを確認
+    Note over API: 緊急停止は emergencyStop、アラームクリアと位置リセットは recovery
     alt 権限不足
         API-->>UI: 403（カードに理由を表示）
     else 操作を許可
-        API->>Traffic: 対象 AGV の緊急停止を要求
+        API->>Traffic: 緊急停止・アラームクリア・位置リセットのいずれかを要求
+        Traffic-->>API: 受付結果
+        API-->>UI: 受付結果（状態による拒否・パネル予約による拒否を区別）
+    end
+```
+
+コントロールステータスの切り替えでは、画面を開いてから AGV の状態が変わる場合があります。サーバーは交通整理が持つ現在の状態と指定された切り替え先を組にして判定します。
+
+```mermaid
+sequenceDiagram
+    participant UI as AGV のカード
+    participant API as 画面用 API
+    participant Fleet as 配車・交通整理
+    UI->>API: セッション情報を取得
+    API-->>UI: CSRF トークン
+    UI->>API: 対象 AGV・切り替え先・トークンを送信
+    API->>API: 通常ログイン・現在の権限・トークンを確認
+    API->>Fleet: 切り替えを要求
+    Note over Fleet: 現在と切り替え先がともにオート・割り当て停止なら controlBasic、それ以外は controlAdvanced
+    alt 必要な権限がある
+        Fleet-->>API: 業務条件を確認して切り替え結果を返す
         API-->>UI: 受付結果
+    else 権限不足
+        API-->>UI: 403（カードに理由を表示）
     end
 ```
 

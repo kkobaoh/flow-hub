@@ -79,7 +79,7 @@ internal static class UserLoginEndpoints
             .AddPolicy(Ready, p => p.AddAuthenticationSchemes(Scheme).RequireAuthenticatedUser().RequireClaim("stage", "ready"));
     }
 
-    internal static RouteGroupBuilder RequireScreenCommand(this RouteGroupBuilder group, string permission)
+    internal static RouteGroupBuilder RequireScreenCommand(this RouteGroupBuilder group, string permission, string? alternative = null)
     {
         group.RequireAuthorization(Ready);
         return group.AddEndpointFilter(async (invocation, next) =>
@@ -88,9 +88,11 @@ internal static class UserLoginEndpoints
             var store = http.RequestServices.GetRequiredService<UserLoginStore>();
             var account = await store.GetCurrentAccountAsync(ReadTicket(http.User)!, http.RequestAborted).ConfigureAwait(false);
             if (account is null) return Results.Unauthorized();
-            if (!account.Permissions.Contains(permission)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            if (!account.Permissions.Contains(permission) && (alternative is null || !account.Permissions.Contains(alternative)))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
             var csrf = http.RequestServices.GetRequiredService<IAntiforgery>();
             if (!await csrf.IsRequestValidAsync(http).ConfigureAwait(false)) return Results.BadRequest();
+            if (alternative is not null) http.Features.Set(account);
             return await next(invocation).ConfigureAwait(false);
         });
     }

@@ -95,8 +95,9 @@ public class DispatchingServiceTests
             return Task.CompletedTask;
         }
 
-        public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken)
+        public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken, Action<ControlStatus>? checkPermission = null)
         {
+            checkPermission?.Invoke(Agvs[id].Control);
             ControlChanges.Add((id, target));
             Agvs[id] = Agvs[id] with { Control = target };
             return Task.FromResult(true);

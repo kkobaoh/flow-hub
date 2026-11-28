@@ -34,23 +34,29 @@ describe('sendAgvCommand', () => {
   });
 
   const respond = (status: number, body?: unknown) =>
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body === undefined ? null : JSON.stringify(body), { status })));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(body === undefined ? null : JSON.stringify(body), { status })));
 
   it('受け付けられたら、サーバーが返した結果', async () => {
     respond(200, { result: 'reserved' });
 
-    await expect(sendAgvCommand('', agv, { kind: 'alarmClear' }, 10_000)).resolves.toBe('reserved');
+    await expect(sendAgvCommand('', agv, { kind: 'positionReset', position: { panel: P3, heading: heading(90) } }, 10_000)).resolves.toBe('reserved');
   });
 
-  it('緊急停止は CSRF トークンを送り、権限がなければカードに理由を出す', async () => {
+  it.each([
+    [{ kind: 'emergencyStop' }, 'emergency-stop', '緊急停止する権限がありません。'],
+    [{ kind: 'alarmClear' }, 'alarm-clear', 'アラームクリアする権限がありません。'],
+    [{ kind: 'positionReset', position: { panel: P3, heading: heading(90) } }, 'position-reset', '位置リセットする権限がありません。'],
+    [{ kind: 'control', status: 'auto', position: null }, 'control', 'コントロールステータスを切り替える権限がありません。'],
+  ] as const)('%s は CSRF トークンを送り、権限がなければカードに理由を出す', async (command, path, message) => {
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
       .mockResolvedValueOnce(new Response(null, { status: 403 }));
     vi.stubGlobal('fetch', fetch);
-    const result = await sendAgvCommand('', agv, { kind: 'emergencyStop' }, 10_000);
-    expect(fetch).toHaveBeenLastCalledWith('/agvs/AGV-1/emergency-stop', expect.objectContaining({
+    const result = await sendAgvCommand('', agv, command, 10_000);
+    expect(fetch).toHaveBeenLastCalledWith(`/agvs/AGV-1/${path}`, expect.objectContaining({
       headers: expect.objectContaining({ 'X-FlowHub-CSRF': 'csrf' }),
     }));
-    expect(commandNotice(result)).toBe('緊急停止する権限がありません。');
+    expect(commandNotice(result, command.kind)).toBe(message);
   });
 
   it('今の状態で受け付けられなかった（409）ときは refused', async () => {
@@ -90,11 +96,11 @@ describe('sendAgvCommand', () => {
 
 describe('commandNotice（カードに出す知らせ）', () => {
   it('受け付けたときは、何も出さない', () => {
-    expect(commandNotice('accepted')).toBeNull();
+    expect(commandNotice('accepted', 'alarmClear')).toBeNull();
   });
 
   it.each(['reserved', 'refused', 'failed'] as const)('%s は、理由を出す', (result) => {
-    expect(commandNotice(result)).not.toBeNull();
+    expect(commandNotice(result, 'positionReset')).not.toBeNull();
   });
 });
 

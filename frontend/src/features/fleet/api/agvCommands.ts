@@ -85,14 +85,19 @@ export function agvCommandRequest(id: AgvId, command: AgvCommand): { readonly pa
 /** 操作を送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
 export function sendAgvCommand(baseUrl: string, id: AgvId, command: AgvCommand, timeoutMs: number): Promise<AgvCommandResult> {
   const { path, body } = agvCommandRequest(id, command);
-  return postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS, command.kind === 'emergencyStop');
+  const withSession = command.kind === 'emergencyStop' || command.kind === 'alarmClear' || command.kind === 'positionReset' || command.kind === 'control';
+  return postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS, withSession);
 }
 
 /** カードに出す、操作の結果の知らせ（受け付けたときは null）。マニュアル操作は、マニュアル操作の欄が出す。 */
-export function commandNotice(result: AgvCommandResult): string | null {
+export function commandNotice(result: AgvCommandResult, kind: AgvCommand['kind']): string | null {
   switch (result) {
     case 'forbidden':
-      return '緊急停止する権限がありません。';
+      if (kind === 'emergencyStop') return '緊急停止する権限がありません。';
+      if (kind === 'alarmClear') return 'アラームクリアする権限がありません。';
+      if (kind === 'positionReset') return '位置リセットする権限がありません。';
+      if (kind === 'control') return 'コントロールステータスを切り替える権限がありません。';
+      return 'この操作を行う権限がありません。';
     case 'accepted':
       return null;
     case 'reserved':

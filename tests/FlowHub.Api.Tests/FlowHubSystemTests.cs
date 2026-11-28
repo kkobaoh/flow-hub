@@ -157,7 +157,7 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     [Fact]
     public async Task 初期設定のログインから管理者を作り使用済みのセッションを断る()
     {
-        await SeedAsync(trafficAgvs: [], dispatchingAgvs: []);
+        await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         await SeedConsumablesAsync();
         var client = await ServeAsync(await StartAsync(), setupLogin: true);
 
@@ -342,8 +342,50 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var adminLogin = Assert.IsType<UserLoginResult.Accepted>(
             await logins.LoginAsync("first", "permanent-test-password", TimeProvider.System.GetUtcNow(), 5, TimeSpan.FromMinutes(15), Token));
         var enableOperation = new PermissionChange("viewer", "operation", true);
+        const string controlPath = "/agvs/AGV-1/control";
+        const string leaveDetached = """{"status":"assignmentPaused","panel":"A","heading":0}""";
+        var basic = new PermissionChange("viewer", "controlBasic", true);
+        var advanced = new PermissionChange("viewer", "controlAdvanced", true);
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [basic], Token));
+        using var deniedReturn = await Send(controlPath, leaveDetached, viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedReturn.StatusCode);
+        Assert.Empty(await CommandsAsync(client, -1));
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [advanced, basic with { Enabled = false }], Token));
+        using var allowedReturn = await Send(controlPath, leaveDetached, viewerToken);
+        Assert.Equal(HttpStatusCode.OK, allowedReturn.StatusCode);
+        var resetNumber = (await CommandsAsync(client, -1)).Single()!["number"];
+        using var positioned = await Send("/agv/AGV-1/notifications", $$"""{ "type": "positionResetCompleted", "number": {{resetNumber}} }""", viewerToken);
+        positioned.EnsureSuccessStatusCode();
+        const string auto = """{"status":"auto"}""";
+        using var deniedBasic = await Send(controlPath, auto, viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedBasic.StatusCode);
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [basic, advanced with { Enabled = false }], Token));
+        using var deniedManual = await Send(controlPath, """{"status":"manual"}""", viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedManual.StatusCode);
+        using var allowedBasic = await Send(controlPath, auto, viewerToken);
+        Assert.Equal(HttpStatusCode.OK, allowedBasic.StatusCode);
+        using var paused = await Send(controlPath, """{"status":"assignmentPaused"}""", viewerToken);
+        Assert.Equal(HttpStatusCode.OK, paused.StatusCode);
         using var deniedEmergencyStop = await Send("/agvs/AGV-1/emergency-stop", "{}", viewerToken);
         Assert.Equal(HttpStatusCode.Forbidden, deniedEmergencyStop.StatusCode);
+        var recovery = new PermissionChange("viewer", "recovery", true);
+        var recoveryRequests = new[] { ("/agvs/AGV-9/alarm-clear", "{}"), ("/agvs/AGV-9/position-reset", """{"panel":"A","heading":0}""") };
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [recovery], Token));
+        using var anonymousRecovery = new HttpClient { BaseAddress = client.BaseAddress };
+        foreach (var (path, body) in recoveryRequests)
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymousRecovery, path, body)).Status);
+            using var invalidRecoveryToken = await Send(path, body, "invalid");
+            Assert.Equal(HttpStatusCode.BadRequest, invalidRecoveryToken.StatusCode);
+            using var allowedRecovery = await Send(path, body, viewerToken);
+            Assert.Equal(HttpStatusCode.NotFound, allowedRecovery.StatusCode); // 権限確認後に未登録の AGV を検出
+        }
+        Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [recovery with { Enabled = false }], Token));
+        foreach (var (path, body) in recoveryRequests)
+        {
+            using var revokedRecovery = await Send(path, body, viewerToken);
+            Assert.Equal(HttpStatusCode.Forbidden, revokedRecovery.StatusCode);
+        }
         Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [enableOperation], Token));
         using var allowedStart = await Send("/system/start", "{}", viewerToken);
         Assert.Equal(HttpStatusCode.NoContent, allowedStart.StatusCode);
@@ -657,7 +699,11 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymous, "/agvs/AGV-1/control", """{"status":"auto"}""")).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await OperateAsync(client, "/agvs/AGV-1/control", """{"status":"auto","panel":"A","heading":90}""")).Status);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
 
         var (status, result) = await OperateAsync(client, "/agvs/AGV-1/control", """{ "status": "auto", "panel": "A", "heading": 90 }""");
         var commands = await CommandsAsync(client, -1);
@@ -697,6 +743,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
             new StringContent($$"""{ "type": "positionResetCompleted", "number": {{reset["number"]}} }""", Encoding.UTF8, "application/json"), Token);
         resetCompleted.EnsureSuccessStatusCode();
         Assert.Equal((HttpStatusCode.OK, "accepted"), await OperateAsync(client, stop, "{}"));
+        Assert.Equal((HttpStatusCode.OK, "accepted"), await OperateAsync(client, "/agvs/AGV-1/alarm-clear", "{}"));
+        Assert.Equal((HttpStatusCode.OK, "accepted"), await OperateAsync(client, "/agvs/AGV-1/position-reset", """{"panel":"A","heading":90}"""));
     }
 
     [Fact]

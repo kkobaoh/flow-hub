@@ -404,9 +404,10 @@ public sealed class TrafficService(
     /// オートと割り当て停止へは、いつでも切り替えられる。マニュアルとロックへは、待機中か緊急停止中のときだけで、行き先と残りの経路を捨てる。
     /// 切り離しへは、ロック中のときだけで、予約を外す。切り離しからは、位置を指定してもらい、位置リセットの完了の通知を受けたら切り替わる。
     /// </remarks>
-    public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken) =>
+    public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken, Action<ControlStatus>? checkPermission = null) =>
         RunAsync(id, null, entry =>
         {
+            checkPermission?.Invoke(entry.Control);
             if (entry.Control == ControlStatus.Detached)
             {
                 return LeaveDetached(entry, target, position);

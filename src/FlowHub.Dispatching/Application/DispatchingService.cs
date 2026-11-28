@@ -333,16 +333,17 @@ public sealed class DispatchingService(
     /// <param name="position">切り離しから切り替えるときに必須の位置。</param>
     /// <returns>切り替えを受け付けたか。位置のパネルをほかの AGV が予約していたら false。</returns>
     /// <exception cref="InvalidOperationException">搬送を割り当てている AGV を、マニュアル、ロック、切り離しに切り替えようとしたとき。交通整理が切り替えを受け付けないとき。</exception>
-    public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken) =>
+    public Task<bool> ChangeControlStatusAsync(AgvId id, ControlStatus target, Pose? position, CancellationToken cancellationToken, Action<ControlStatus>? checkPermission = null) =>
         RunAsync(async () =>
         {
             var agv = Agv(id);
             if (target is (ControlStatus.Manual or ControlStatus.Locked or ControlStatus.Detached) && agv.Active is not null)
             {
+                checkPermission?.Invoke(traffic.GetAgv(id).Control);
                 throw new InvalidOperationException($"{id} は搬送を割り当てているため、{target} に切り替えられません。");
             }
 
-            if (!await traffic.ChangeControlStatusAsync(id, target, position, cancellationToken).ConfigureAwait(false))
+            if (!await traffic.ChangeControlStatusAsync(id, target, position, cancellationToken, checkPermission).ConfigureAwait(false))
             {
                 return false;
             }
