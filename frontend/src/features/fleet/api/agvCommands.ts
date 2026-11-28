@@ -38,9 +38,10 @@ export type AgvCommandResult =
   | 'notAllowed'
   | 'reserved'
   | 'refused'
+  | 'forbidden'
   | 'failed';
 
-const SERVER_RESULTS: ReadonlySet<Exclude<AgvCommandResult, 'refused' | 'failed'>> = new Set([
+const SERVER_RESULTS: ReadonlySet<Exclude<AgvCommandResult, 'refused' | 'failed' | 'forbidden'>> = new Set([
   'accepted',
   'alreadyThere',
   'noRoute',
@@ -84,12 +85,14 @@ export function agvCommandRequest(id: AgvId, command: AgvCommand): { readonly pa
 /** 操作を送る。timeoutMs を過ぎても応答がなければ、あきらめて failed にする（やり直さない）。 */
 export function sendAgvCommand(baseUrl: string, id: AgvId, command: AgvCommand, timeoutMs: number): Promise<AgvCommandResult> {
   const { path, body } = agvCommandRequest(id, command);
-  return postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS);
+  return postOperation(baseUrl, path, body, timeoutMs, SERVER_RESULTS, command.kind === 'emergencyStop');
 }
 
 /** カードに出す、操作の結果の知らせ（受け付けたときは null）。マニュアル操作は、マニュアル操作の欄が出す。 */
 export function commandNotice(result: AgvCommandResult): string | null {
   switch (result) {
+    case 'forbidden':
+      return '緊急停止する権限がありません。';
     case 'accepted':
       return null;
     case 'reserved':
@@ -111,5 +114,5 @@ export function commandNotice(result: AgvCommandResult): string | null {
 
 /** 操作の結果を、マニュアル操作の欄の言葉にする。マニュアル操作で返らないはずのもの（reserved）は failed にする。 */
 export function toManualOutcome(result: AgvCommandResult): ManualOutcome {
-  return result === 'reserved' ? 'failed' : result;
+  return result === 'reserved' || result === 'forbidden' ? 'failed' : result;
 }

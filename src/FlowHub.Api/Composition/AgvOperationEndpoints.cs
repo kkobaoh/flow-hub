@@ -19,7 +19,7 @@ namespace FlowHub.Api.Composition;
 /// - 位置のパネルをほかの AGV が予約していた：200 と <c>reserved</c>。
 /// - 今の状態では受け付けられない（マニュアルでない、走っている途中など）：409 と <c>notAllowed</c>。状態は何も変えていない。
 /// - 頼みの形が正しくない（知らないステータス、マップにないパネルなど）：400。知らない AGV：404。
-/// 今はログインなしで開く（docs/backlog.md #23）。
+/// 緊急停止では通常ログイン・緊急停止権限・CSRF トークンを確認する。
 /// </remarks>
 internal static partial class AgvOperationEndpoints
 {
@@ -33,7 +33,8 @@ internal static partial class AgvOperationEndpoints
         var group = endpoints.MapGroup("/agvs/{agvId}");
         Task<IResult> Run(string agvId, string operation, Func<AgvId, Task<string>> action) => RunAsync(traffic, logger, agvId, operation, action);
 
-        group.MapPost("/emergency-stop", (string agvId, CancellationToken cancellationToken) =>
+        var emergencyStop = group.MapGroup("/emergency-stop").RequireScreenCommand("emergencyStop");
+        emergencyStop.MapPost("", (string agvId, CancellationToken cancellationToken) =>
             Run(agvId, "緊急停止", async id =>
             {
                 await traffic.EmergencyStopAsync(id, cancellationToken).ConfigureAwait(false);

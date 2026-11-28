@@ -423,6 +423,25 @@ sequenceDiagram
     end
 ```
 
+AGV のカードで緊急停止を押すと、確認ダイアログを挟まずに送信を開始します。
+
+```mermaid
+sequenceDiagram
+    participant UI as AGV のカード
+    participant API as 画面用 API
+    participant Traffic as 交通整理
+    UI->>API: セッション情報を取得
+    API-->>UI: CSRF トークン
+    UI->>API: 対象 AGV の緊急停止とトークンを送信
+    API->>API: ログイン状態・現在の緊急停止権限・トークンを確認
+    alt 権限不足
+        API-->>UI: 403（カードに理由を表示）
+    else 操作を許可
+        API->>Traffic: 対象 AGV の緊急停止を要求
+        API-->>UI: 受付結果
+    end
+```
+
 パーミッション表の保存では、各チェックの変更先の値をサーバーに渡します。
 
 ```mermaid

@@ -342,6 +342,8 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         var adminLogin = Assert.IsType<UserLoginResult.Accepted>(
             await logins.LoginAsync("first", "permanent-test-password", TimeProvider.System.GetUtcNow(), 5, TimeSpan.FromMinutes(15), Token));
         var enableOperation = new PermissionChange("viewer", "operation", true);
+        using var deniedEmergencyStop = await Send("/agvs/AGV-1/emergency-stop", "{}", viewerToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedEmergencyStop.StatusCode);
         Assert.Equal(SavePermissionsResult.Saved, await logins.SavePermissionsAsync(adminLogin.Session, [enableOperation], Token));
         using var allowedStart = await Send("/system/start", "{}", viewerToken);
         Assert.Equal(HttpStatusCode.NoContent, allowedStart.StatusCode);
@@ -670,7 +672,12 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
     {
         await SeedAsync(trafficAgvs: [Agv1], dispatchingAgvs: [Agv1]);
         var system = await StartAsync();
-        var client = await ServeAsync(system);
+        var client = await ServeSignedInScreenAsync(system);
+        const string stop = "/agvs/AGV-1/emergency-stop";
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await OperateAsync(anonymous, stop, "{}")).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await OperateAsync(client, stop, "{}")).Status);
+        client.DefaultRequestHeaders.Add("X-FlowHub-CSRF", await FormToken("/identity/user/session"));
 
         var notManual = await OperateAsync(client, "/agvs/AGV-1/manual/move", """{ "destination": "S" }"""); // 切り離し中
         var noPosition = await OperateAsync(client, "/agvs/AGV-1/control", """{ "status": "auto" }""");
@@ -683,6 +690,13 @@ public sealed class FlowHubSystemTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.BadRequest, offMap.Status);
         Assert.Equal(HttpStatusCode.BadRequest, unknownStatus.Status);
         Assert.Equal(HttpStatusCode.NotFound, unknownAgv.Status);
+        Assert.Equal((HttpStatusCode.Conflict, "notAllowed"), await OperateAsync(client, stop, "{}"));
+        await system.Dispatching.ChangeControlStatusAsync(Agv1, ControlStatus.AssignmentPaused, new Pose("A", 0), Token);
+        var reset = (await CommandsAsync(client, -1)).Single()!;
+        using var resetCompleted = await client.PostAsync(new Uri("/agv/AGV-1/notifications", UriKind.Relative),
+            new StringContent($$"""{ "type": "positionResetCompleted", "number": {{reset["number"]}} }""", Encoding.UTF8, "application/json"), Token);
+        resetCompleted.EnsureSuccessStatusCode();
+        Assert.Equal((HttpStatusCode.OK, "accepted"), await OperateAsync(client, stop, "{}"));
     }
 
     [Fact]

@@ -50,14 +50,16 @@ export async function postOperation<T extends string>(
   body: unknown,
   timeoutMs: number,
   results: ReadonlySet<T>,
-): Promise<T | 'refused' | 'failed'> {
+  withSession = false,
+): Promise<T | 'refused' | 'failed' | 'forbidden'> {
   try {
-    const response = await screenFetch(`${baseUrl}${path}`, {
+    const response = withSession ? await postWithSession(baseUrl, path, timeoutMs, body) : await screenFetch(`${baseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
+    if (withSession && response.status === 403) return 'forbidden';
     if (response.status === 409) {
       return 'refused';
     }

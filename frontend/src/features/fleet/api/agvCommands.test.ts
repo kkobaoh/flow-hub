@@ -42,6 +42,17 @@ describe('sendAgvCommand', () => {
     await expect(sendAgvCommand('', agv, { kind: 'alarmClear' }, 10_000)).resolves.toBe('reserved');
   });
 
+  it('緊急停止は CSRF トークンを送り、権限がなければカードに理由を出す', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ requestToken: 'csrf' }))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }));
+    vi.stubGlobal('fetch', fetch);
+    const result = await sendAgvCommand('', agv, { kind: 'emergencyStop' }, 10_000);
+    expect(fetch).toHaveBeenLastCalledWith('/agvs/AGV-1/emergency-stop', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-FlowHub-CSRF': 'csrf' }),
+    }));
+    expect(commandNotice(result)).toBe('緊急停止する権限がありません。');
+  });
+
   it('今の状態で受け付けられなかった（409）ときは refused', async () => {
     respond(409, { result: 'notAllowed' });
 
